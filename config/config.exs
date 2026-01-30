@@ -11,10 +11,6 @@ config :clawd_ex,
   ecto_repos: [ClawdEx.Repo],
   generators: [timestamp_type: :utc_datetime]
 
-# Telegex (Telegram Bot) configuration
-config :telegex,
-  token: System.get_env("TELEGRAM_BOT_TOKEN")
-
 # Configure the endpoint
 config :clawd_ex, ClawdExWeb.Endpoint,
   url: [host: "localhost"],

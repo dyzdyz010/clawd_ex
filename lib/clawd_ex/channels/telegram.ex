@@ -1,7 +1,8 @@
 defmodule ClawdEx.Channels.Telegram do
   @moduledoc """
-  Telegram 渠道实现
-  使用 Telegex 库与 Telegram Bot API 交互
+  Telegram 渠道实现 (简化版)
+  
+  TODO: 使用 Telegex 或直接实现 Bot API
   """
   @behaviour ClawdEx.Channels.Channel
 
@@ -10,7 +11,7 @@ defmodule ClawdEx.Channels.Telegram do
 
   alias ClawdEx.Sessions.{SessionManager, SessionWorker}
 
-  defstruct [:bot_info, :offset, :running]
+  defstruct [:bot_token, :bot_info, :offset, :running]
 
   # Client API
 
@@ -30,21 +31,35 @@ defmodule ClawdEx.Channels.Telegram do
 
   @impl ClawdEx.Channels.Channel
   def send_message(chat_id, content, opts \\ []) do
-    reply_to = Keyword.get(opts, :reply_to)
+    token = get_token()
 
-    optional = if reply_to do
-      [reply_parameters: %{message_id: String.to_integer(reply_to)}]
+    if is_nil(token) do
+      {:error, :missing_bot_token}
     else
-      []
-    end
+      body = %{
+        chat_id: chat_id,
+        text: content,
+        parse_mode: "Markdown"
+      }
 
-    case Telegex.send_message(chat_id, content, [parse_mode: "Markdown"] ++ optional) do
-      {:ok, message} ->
-        {:ok, format_message(message)}
+      body = case Keyword.get(opts, :reply_to) do
+        nil -> body
+        reply_id -> Map.put(body, :reply_parameters, %{message_id: reply_id})
+      end
 
-      {:error, reason} ->
-        Logger.error("Telegram send failed: #{inspect(reason)}")
-        {:error, reason}
+      url = "https://api.telegram.org/bot#{token}/sendMessage"
+
+      case Req.post(url, json: body) do
+        {:ok, %{status: 200, body: %{"ok" => true, "result" => message}}} ->
+          {:ok, format_message(message)}
+
+        {:ok, %{status: _status, body: body}} ->
+          Logger.error("Telegram send failed: #{inspect(body)}")
+          {:error, body}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 
@@ -55,7 +70,7 @@ defmodule ClawdEx.Channels.Telegram do
 
     # 启动或获取会话
     {:ok, _pid} = SessionManager.start_session(session_key,
-      agent_id: nil,  # 使用默认 agent
+      agent_id: nil,
       channel: "telegram"
     )
 
@@ -76,14 +91,14 @@ defmodule ClawdEx.Channels.Telegram do
 
   @impl true
   def init(_opts) do
-    # 检查是否配置了 token
-    if get_token() do
-      case Telegex.get_me() do
+    token = get_token()
+
+    if token do
+      case get_me(token) do
         {:ok, bot_info} ->
-          Logger.info("Telegram bot started: @#{bot_info.username}")
-          # 启动轮询
+          Logger.info("Telegram bot started: @#{bot_info["username"]}")
           send(self(), :poll)
-          {:ok, %__MODULE__{bot_info: bot_info, offset: 0, running: true}}
+          {:ok, %__MODULE__{bot_token: token, bot_info: bot_info, offset: 0, running: true}}
 
         {:error, reason} ->
           Logger.error("Failed to get bot info: #{inspect(reason)}")
@@ -106,63 +121,74 @@ defmodule ClawdEx.Channels.Telegram do
   end
 
   def handle_info(:poll, state) do
-    optional = [
-      offset: state.offset,
-      timeout: 30,
-      allowed_updates: ["message"]
-    ]
-
-    new_offset =
-      case Telegex.get_updates(optional) do
-        {:ok, []} ->
-          state.offset
-
-        {:ok, updates} ->
-          # 处理更新
-          Enum.each(updates, &process_update/1)
-          # 返回最新 offset
-          updates
-          |> List.last()
-          |> Map.get(:update_id)
-          |> Kernel.+(1)
-
-        {:error, reason} ->
-          Logger.error("Telegram poll error: #{inspect(reason)}")
-          state.offset
-      end
-
-    # 继续轮询
+    new_offset = poll_updates(state)
     Process.send_after(self(), :poll, 100)
     {:noreply, %{state | offset: new_offset}}
   end
 
   # Private Functions
 
-  defp process_update(%{message: message}) when not is_nil(message) do
-    # 忽略非文本消息
-    if message.text do
-      formatted = format_message(message)
+  defp get_me(token) do
+    url = "https://api.telegram.org/bot#{token}/getMe"
 
-      # 异步处理消息
-      Task.start(fn ->
-        handle_message(formatted)
-      end)
+    case Req.get(url) do
+      {:ok, %{status: 200, body: %{"ok" => true, "result" => result}}} ->
+        {:ok, result}
+
+      {:ok, %{body: body}} ->
+        {:error, body}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
-  defp process_update(_update), do: :ok
+  defp poll_updates(state) do
+    url = "https://api.telegram.org/bot#{state.bot_token}/getUpdates"
+    params = [offset: state.offset, timeout: 30, allowed_updates: ["message"]]
+
+    case Req.get(url, params: params) do
+      {:ok, %{status: 200, body: %{"ok" => true, "result" => []}}} ->
+        state.offset
+
+      {:ok, %{status: 200, body: %{"ok" => true, "result" => updates}}} ->
+        Enum.each(updates, &process_update/1)
+
+        updates
+        |> List.last()
+        |> Map.get("update_id")
+        |> Kernel.+(1)
+
+      {:ok, %{body: body}} ->
+        Logger.error("Telegram poll error: #{inspect(body)}")
+        state.offset
+
+      {:error, reason} ->
+        Logger.error("Telegram poll error: #{inspect(reason)}")
+        state.offset
+    end
+  end
+
+  defp process_update(%{"message" => message}) when is_map(message) do
+    if message["text"] do
+      formatted = format_message(message)
+      Task.start(fn -> handle_message(formatted) end)
+    end
+  end
+
+  defp process_update(_), do: :ok
 
   defp format_message(message) do
     %{
-      id: to_string(message.message_id),
-      content: message.text || "",
-      author_id: to_string(message.from.id),
-      author_name: message.from.first_name,
-      channel_id: to_string(message.chat.id),
-      timestamp: DateTime.from_unix!(message.date),
+      id: to_string(message["message_id"]),
+      content: message["text"] || "",
+      author_id: to_string(message["from"]["id"]),
+      author_name: message["from"]["first_name"],
+      channel_id: to_string(message["chat"]["id"]),
+      timestamp: DateTime.from_unix!(message["date"]),
       metadata: %{
-        chat_type: message.chat.type,
-        username: message.from.username
+        chat_type: message["chat"]["type"],
+        username: message["from"]["username"]
       }
     }
   end

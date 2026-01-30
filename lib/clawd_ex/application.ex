@@ -14,6 +14,8 @@ defmodule ClawdEx.Application do
       {Phoenix.PubSub, name: ClawdEx.PubSub},
       # Session Registry for process lookup
       {Registry, keys: :unique, name: ClawdEx.SessionRegistry},
+      # Agent Loop Registry
+      {Registry, keys: :unique, name: ClawdEx.AgentLoopRegistry},
       # Session Manager (DynamicSupervisor)
       ClawdEx.Sessions.SessionManager,
       # Start to serve requests, typically the last entry

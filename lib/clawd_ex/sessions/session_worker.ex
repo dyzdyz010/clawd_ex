@@ -1,13 +1,17 @@
 defmodule ClawdEx.Sessions.SessionWorker do
   @moduledoc """
-  会话工作进程 - 处理单个会话的消息和状态
+  会话工作进程 - 管理会话状态并委托给 Agent.Loop 处理消息
+
+  职责:
+  - 管理会话生命周期
+  - 启动/监控对应的 Agent.Loop
+  - 提供会话查询接口
   """
   use GenServer, restart: :transient
 
   alias ClawdEx.Repo
   alias ClawdEx.Sessions.{Session, Message}
-  alias ClawdEx.AI.Chat
-  alias ClawdEx.Memory
+  alias ClawdEx.Agent.Loop, as: AgentLoop
 
   require Logger
 
@@ -15,11 +19,9 @@ defmodule ClawdEx.Sessions.SessionWorker do
     :session_key,
     :session_id,
     :agent_id,
-    :model,
-    :system_prompt,
-    :messages,
     :channel,
-    :tools
+    :loop_pid,
+    :config
   ]
 
   # Client API
@@ -30,11 +32,11 @@ defmodule ClawdEx.Sessions.SessionWorker do
   end
 
   @doc """
-  发送消息到会话
+  发送消息到会话 - 委托给 Agent.Loop
   """
-  @spec send_message(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def send_message(session_key, content) do
-    GenServer.call(via_tuple(session_key), {:send_message, content}, 120_000)
+  @spec send_message(String.t(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  def send_message(session_key, content, opts \\ []) do
+    GenServer.call(via_tuple(session_key), {:send_message, content, opts}, 120_000)
   end
 
   @doc """
@@ -53,6 +55,13 @@ defmodule ClawdEx.Sessions.SessionWorker do
     GenServer.call(via_tuple(session_key), :get_state)
   end
 
+  @doc """
+  停止当前运行
+  """
+  def stop_run(session_key) do
+    GenServer.cast(via_tuple(session_key), :stop_run)
+  end
+
   # Server Callbacks
 
   @impl true
@@ -64,18 +73,26 @@ defmodule ClawdEx.Sessions.SessionWorker do
     # 从数据库加载或创建会话
     session = load_or_create_session(session_key, agent_id, channel)
 
-    # 加载消息历史
-    messages = load_messages(session.id)
+    # 构建配置
+    config = %{
+      default_model: get_agent_model(session.agent_id),
+      workspace: get_agent_workspace(session.agent_id)
+    }
+
+    # 启动 Agent Loop
+    {:ok, loop_pid} = AgentLoop.start_link(
+      session_id: session.id,
+      agent_id: session.agent_id,
+      config: config
+    )
 
     state = %__MODULE__{
       session_key: session_key,
       session_id: session.id,
       agent_id: session.agent_id,
-      model: session.model_override || get_agent_model(session.agent_id),
-      system_prompt: get_agent_system_prompt(session.agent_id),
-      messages: messages,
       channel: channel,
-      tools: []
+      loop_pid: loop_pid,
+      config: config
     }
 
     Logger.info("Session started: #{session_key}")
@@ -83,67 +100,58 @@ defmodule ClawdEx.Sessions.SessionWorker do
   end
 
   @impl true
-  def handle_call({:send_message, content}, _from, state) do
-    # 1. 保存用户消息
-    _user_message = save_message(state.session_id, %{
-      role: :user,
-      content: content
-    })
-
-    # 2. 构建消息历史
-    messages = state.messages ++ [%{role: "user", content: content}]
-
-    # 3. 可选：执行记忆搜索
-    memory_context = if state.agent_id do
-      case Memory.search(state.agent_id, content, limit: 3) do
-        [] -> nil
-        chunks ->
-          context = Enum.map_join(chunks, "\n---\n", & &1.content)
-          "[相关记忆]\n#{context}\n[/相关记忆]"
-      end
-    end
-
-    # 4. 构建系统提示
-    system = build_system_prompt(state.system_prompt, memory_context)
-
-    # 5. 调用 AI
-    case Chat.complete(state.model, messages, system: system, tools: state.tools) do
-      {:ok, response} ->
-        # 保存助手回复
-        _assistant_message = save_message(state.session_id, %{
-          role: :assistant,
-          content: response.content,
-          tool_calls: response.tool_calls,
-          model: state.model,
-          tokens_in: response.tokens_in,
-          tokens_out: response.tokens_out
-        })
-
-        # 更新会话统计
-        update_session_stats(state.session_id, response)
-
-        # 更新状态
-        new_messages = messages ++ [%{role: "assistant", content: response.content}]
-        new_state = %{state | messages: new_messages}
-
-        {:reply, {:ok, response}, new_state}
-
-      {:error, reason} = error ->
-        Logger.error("AI call failed: #{inspect(reason)}")
-        {:reply, error, state}
-    end
+  def handle_call({:send_message, content, opts}, _from, state) do
+    # 委托给 Agent Loop
+    result = AgentLoop.run(state.loop_pid, content, opts)
+    {:reply, result, state}
   end
 
   @impl true
   def handle_call({:get_history, opts}, _from, state) do
     limit = Keyword.get(opts, :limit, 50)
-    messages = Enum.take(state.messages, -limit)
+    messages = load_messages(state.session_id, limit)
     {:reply, messages, state}
   end
 
   @impl true
   def handle_call(:get_state, _from, state) do
-    {:reply, Map.from_struct(state), state}
+    loop_state = case AgentLoop.get_state(state.loop_pid) do
+      {:ok, s, _data} -> s
+      _ -> :unknown
+    end
+
+    response = %{
+      session_key: state.session_key,
+      session_id: state.session_id,
+      agent_id: state.agent_id,
+      channel: state.channel,
+      loop_state: loop_state
+    }
+
+    {:reply, response, state}
+  end
+
+  @impl true
+  def handle_cast(:stop_run, state) do
+    AgentLoop.stop_run(state.loop_pid)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:DOWN, _ref, :process, pid, reason}, %{loop_pid: pid} = state) do
+    Logger.warning("Agent loop died: #{inspect(reason)}, restarting...")
+
+    {:ok, new_loop_pid} = AgentLoop.start_link(
+      session_id: state.session_id,
+      agent_id: state.agent_id,
+      config: state.config
+    )
+
+    {:noreply, %{state | loop_pid: new_loop_pid}}
+  end
+
+  def handle_info(_msg, state) do
+    {:noreply, state}
   end
 
   # Private Functions
@@ -155,7 +163,6 @@ defmodule ClawdEx.Sessions.SessionWorker do
   defp load_or_create_session(session_key, agent_id, channel) do
     case Repo.get_by(Session, session_key: session_key) do
       nil ->
-        # 确保有 agent
         agent_id = agent_id || get_or_create_default_agent_id()
 
         %Session{}
@@ -171,50 +178,37 @@ defmodule ClawdEx.Sessions.SessionWorker do
     end
   end
 
-  defp load_messages(session_id) do
+  defp load_messages(session_id, limit) do
     import Ecto.Query
 
     Message
     |> where([m], m.session_id == ^session_id)
-    |> order_by([m], asc: m.inserted_at)
-    |> limit(100)
+    |> order_by([m], desc: m.inserted_at)
+    |> limit(^limit)
     |> Repo.all()
+    |> Enum.reverse()
     |> Enum.map(fn m ->
-      %{role: to_string(m.role), content: m.content}
+      %{
+        role: to_string(m.role),
+        content: m.content,
+        inserted_at: m.inserted_at
+      }
     end)
-  end
-
-  defp save_message(session_id, attrs) do
-    %Message{}
-    |> Message.changeset(Map.put(attrs, :session_id, session_id))
-    |> Repo.insert!()
-  end
-
-  defp update_session_stats(session_id, response) do
-    import Ecto.Query
-
-    tokens = (response.tokens_in || 0) + (response.tokens_out || 0)
-
-    from(s in Session, where: s.id == ^session_id)
-    |> Repo.update_all(
-      inc: [token_count: tokens, message_count: 2],
-      set: [last_activity_at: DateTime.utc_now()]
-    )
   end
 
   defp get_agent_model(nil), do: "anthropic/claude-sonnet-4"
   defp get_agent_model(agent_id) do
     case Repo.get(ClawdEx.Agents.Agent, agent_id) do
       nil -> "anthropic/claude-sonnet-4"
-      agent -> agent.default_model
+      agent -> agent.default_model || "anthropic/claude-sonnet-4"
     end
   end
 
-  defp get_agent_system_prompt(nil), do: nil
-  defp get_agent_system_prompt(agent_id) do
+  defp get_agent_workspace(nil), do: nil
+  defp get_agent_workspace(agent_id) do
     case Repo.get(ClawdEx.Agents.Agent, agent_id) do
       nil -> nil
-      agent -> agent.system_prompt
+      agent -> agent.workspace_path
     end
   end
 
@@ -231,11 +225,5 @@ defmodule ClawdEx.Sessions.SessionWorker do
       agent ->
         agent.id
     end
-  end
-
-  defp build_system_prompt(base_prompt, nil), do: base_prompt
-  defp build_system_prompt(nil, memory_context), do: memory_context
-  defp build_system_prompt(base_prompt, memory_context) do
-    "#{base_prompt}\n\n#{memory_context}"
   end
 end

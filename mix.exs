@@ -47,7 +47,9 @@ defmodule ClawdEx.MixProject do
       {:pgvector, "~> 0.3.0"},  # pgvector 支持
       {:req, "~> 0.5"},  # HTTP 客户端 (AI API调用)
       {:websock_adapter, "~> 0.5"},  # WebSocket 支持
-      {:telegex, "~> 1.8"},  # Telegram Bot API
+      # {:telegex, "~> 1.8"},  # Telegram Bot API - TODO: fix compilation issue
+      {:gen_state_machine, "~> 3.0"},  # 状态机
+      {:mix_test_watch, "~> 1.0", only: [:dev, :test], runtime: false},  # 测试监控
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_reload, "~> 1.2", only: :dev},
       {:phoenix_live_view, "~> 1.1.0"},

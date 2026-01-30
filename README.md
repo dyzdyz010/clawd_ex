@@ -24,18 +24,30 @@
 │  ├── Discord (待实现)                                       │
 │  └── WebSocket                                             │
 ├─────────────────────────────────────────────────────────────┤
-│  Core (OTP)                                                │
+│  Session Layer                                             │
 │  ├── SessionManager (DynamicSupervisor)                    │
-│  ├── SessionWorker (GenServer per session)                 │
-│  └── MemoryService (Ecto + pgvector)                       │
+│  └── SessionWorker (GenServer - 管理会话生命周期)           │
 ├─────────────────────────────────────────────────────────────┤
-│  AI Providers (Req HTTP)                                   │
-│  ├── Anthropic Claude                                      │
-│  ├── OpenAI GPT                                            │
-│  └── Google Gemini                                         │
+│  Agent Loop (GenStateMachine)                              │
+│  ├── :idle → :preparing → :inferring → :executing_tools    │
+│  ├── 工具并行执行                                           │
+│  ├── 流式响应 (PubSub)                                      │
+│  └── 消息持久化                                             │
 ├─────────────────────────────────────────────────────────────┤
-│  Storage                                                   │
-│  └── PostgreSQL + pgvector                                 │
+│  AI Providers (Req HTTP + SSE)                             │
+│  ├── Anthropic Claude (流式)                               │
+│  ├── OpenAI GPT (流式)                                     │
+│  └── Google Gemini (流式)                                  │
+├─────────────────────────────────────────────────────────────┤
+│  Tools System                                              │
+│  ├── Registry (工具注册/查找)                               │
+│  └── Tools: read, write, edit, exec, memory_*              │
+├─────────────────────────────────────────────────────────────┤
+│  Memory (pgvector)                                         │
+│  ├── Semantic Search (HNSW 索引)                           │
+│  └── Chunk Management                                       │
+├─────────────────────────────────────────────────────────────┤
+│  Storage: PostgreSQL + pgvector                            │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -44,25 +56,38 @@
 ```
 lib/
 ├── clawd_ex/
-│   ├── agents/           # Agent 配置和管理
-│   │   └── agent.ex
-│   ├── ai/               # AI 提供商接口
-│   │   ├── chat.ex       # 聊天补全
-│   │   └── embeddings.ex # 嵌入向量
+│   ├── agent/            # Agent 核心
+│   │   ├── loop.ex       # Agent Loop (GenStateMachine)
+│   │   └── prompt.ex     # 系统提示构建器
+│   ├── agents/           # Agent 配置
+│   │   └── agent.ex      # Agent Schema
+│   ├── ai/               # AI 提供商
+│   │   ├── chat.ex       # 同步聊天补全
+│   │   ├── stream.ex     # 流式聊天 (SSE)
+│   │   └── embeddings.ex # 嵌入向量生成
 │   ├── channels/         # 消息渠道
 │   │   ├── channel.ex    # Behaviour 定义
 │   │   └── telegram.ex   # Telegram 实现
 │   ├── memory/           # 记忆系统
 │   │   ├── chunk.ex      # 记忆块 Schema
-│   │   └── memory.ex     # 记忆服务
+│   │   └── memory.ex     # 向量搜索服务
 │   ├── sessions/         # 会话管理
 │   │   ├── message.ex    # 消息 Schema
 │   │   ├── session.ex    # 会话 Schema
-│   │   ├── session_manager.ex
-│   │   └── session_worker.ex
-│   ├── application.ex
+│   │   ├── session_manager.ex  # DynamicSupervisor
+│   │   └── session_worker.ex   # 会话工作进程
+│   ├── tools/            # 工具系统
+│   │   ├── registry.ex   # 工具注册表
+│   │   ├── read.ex       # 读取文件
+│   │   ├── write.ex      # 写入文件
+│   │   ├── edit.ex       # 编辑文件
+│   │   ├── exec.ex       # 执行命令
+│   │   ├── memory_search.ex
+│   │   ├── memory_get.ex
+│   │   └── session_status.ex
+│   ├── application.ex    # OTP Application
 │   ├── postgres_types.ex # pgvector 类型
-│   └── repo.ex
+│   └── repo.ex           # Ecto Repo
 └── clawd_ex_web/         # Phoenix Web 层
 ```
 
@@ -157,14 +182,16 @@ results = ClawdEx.Memory.search(agent_id, "用户偏好设置", limit: 5)
 - [x] 基础架构 (Phoenix + Ecto)
 - [x] pgvector 记忆系统
 - [x] 会话管理 (OTP)
-- [x] AI 提供商集成
-- [x] Telegram 渠道
+- [x] AI 提供商集成 (Anthropic/OpenAI/Gemini)
+- [x] Agent Loop (GenStateMachine)
+- [x] 工具系统 (read/write/edit/exec/memory)
+- [x] 流式响应 (SSE + PubSub)
+- [x] Telegram 渠道 (基础)
 - [ ] Discord 渠道
-- [ ] WebSocket 渠道
-- [ ] 工具/函数调用
-- [ ] 流式响应
-- [ ] 记忆压缩
-- [ ] 管理后台
+- [ ] WebSocket 实时渠道
+- [ ] 记忆压缩/清理
+- [ ] 管理后台 (LiveView)
+- [ ] 多模态支持 (图片/文件)
 
 ## License
 
