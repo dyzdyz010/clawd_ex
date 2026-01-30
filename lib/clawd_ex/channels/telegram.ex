@@ -69,7 +69,8 @@ defmodule ClawdEx.Channels.Telegram do
     session_key = "telegram:#{chat_id}"
 
     # 启动或获取会话
-    {:ok, _pid} = SessionManager.start_session(session_key,
+    {:ok, _pid} = SessionManager.start_session(
+      session_key: session_key,
       agent_id: nil,
       channel: "telegram"
     )

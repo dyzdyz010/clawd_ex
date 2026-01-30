@@ -17,15 +17,19 @@ defmodule ClawdEx.Sessions.SessionManager do
 
   @doc """
   启动或获取会话进程
+
+  接受 keyword list 参数，必须包含 :session_key
   """
-  @spec start_session(String.t(), keyword()) :: {:ok, pid()} | {:error, term()}
-  def start_session(session_key, opts \\ []) do
+  @spec start_session(keyword()) :: {:ok, pid()} | {:error, term()}
+  def start_session(opts) when is_list(opts) do
+    session_key = Keyword.fetch!(opts, :session_key)
+
     case find_session(session_key) do
       {:ok, pid} ->
         {:ok, pid}
 
       :not_found ->
-        spec = {SessionWorker, [session_key: session_key] ++ opts}
+        spec = {SessionWorker, opts}
         DynamicSupervisor.start_child(__MODULE__, spec)
     end
   end
