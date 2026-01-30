@@ -179,19 +179,32 @@ results = ClawdEx.Memory.search(agent_id, "用户偏好设置", limit: 5)
 
 ## 开发计划
 
-- [x] 基础架构 (Phoenix + Ecto)
-- [x] pgvector 记忆系统
-- [x] 会话管理 (OTP)
+### ✅ 已完成
+
+- [x] 基础架构 (Phoenix 1.8 + Ecto + PostgreSQL)
+- [x] pgvector 记忆系统 (HNSW 向量索引)
+- [x] 会话管理 (OTP DynamicSupervisor)
 - [x] AI 提供商集成 (Anthropic/OpenAI/Gemini)
-- [x] Agent Loop (GenStateMachine)
+- [x] Agent Loop (GenStateMachine 状态机)
 - [x] 工具系统 (read/write/edit/exec/memory)
 - [x] 流式响应 (SSE + PubSub)
-- [x] Telegram 渠道 (基础)
+- [x] **WebChat 界面** (Phoenix LiveView)
+- [x] Telegram 渠道 (基础实现)
+
+### 🚧 进行中
+
 - [ ] Discord 渠道
 - [ ] WebSocket 实时渠道
+
+### 📋 计划中
+
+- [ ] 管理后台 (LiveView Dashboard)
 - [ ] 记忆压缩/清理
-- [ ] 管理后台 (LiveView)
 - [ ] 多模态支持 (图片/文件)
+- [ ] API 接口
+- [ ] 插件系统
+
+详细状态见 [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)
 
 ## License
 
