@@ -48,7 +48,7 @@ defmodule ClawdEx.Automation.CronJob do
   defp maybe_set_next_run(changeset) do
     case get_change(changeset, :schedule) do
       nil -> changeset
-      schedule ->
+      _schedule ->
         # Calculate next run from schedule
         # For now, just set to 1 hour from now as placeholder
         next_run = DateTime.utc_now() |> DateTime.add(3600, :second)

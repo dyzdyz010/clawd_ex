@@ -3,19 +3,17 @@ defmodule ClawdEx.Nodes.RegistryTest do
 
   alias ClawdEx.Nodes.Registry
 
-  # We use the global registry started by the application
-  # For isolated tests, you could start a named registry
+  # Start a fresh Registry for each test using start_supervised!
+  # This ensures proper isolation and cleanup
 
   setup do
-    # Clean up nodes before each test
-    # Note: In production, you'd want a proper cleanup mechanism
-    for node <- Registry.list_nodes() do
-      Registry.remove(node.id)
+    # Stop any existing Registry if running
+    if pid = Process.whereis(Registry) do
+      GenServer.stop(pid, :normal, 5000)
     end
 
-    for node <- Registry.list_pending() do
-      Registry.remove(node.id)
-    end
+    # Start a fresh Registry for this test
+    start_supervised!({Registry, name: Registry})
 
     :ok
   end

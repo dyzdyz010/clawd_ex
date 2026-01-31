@@ -47,21 +47,44 @@ defmodule ClawdEx.AI.Chat do
     if is_nil(api_key) do
       {:error, :missing_api_key}
     else
+      is_oauth = String.contains?(api_key, "sk-ant-oat")
+
       body = %{
         model: model,
         max_tokens: max_tokens,
         messages: format_messages_anthropic(messages)
       }
 
-      body = if system_prompt, do: Map.put(body, :system, system_prompt), else: body
-      body = if tools != [], do: Map.put(body, :tools, format_tools_anthropic(tools)), else: body
+      # OAuth tokens require special system prompt format (Claude Code identity)
+      body = if is_oauth do
+        system_blocks = [
+          %{
+            type: "text",
+            text: "You are Claude Code, Anthropic's official CLI for Claude.",
+            cache_control: %{type: "ephemeral"}
+          }
+        ]
+
+        system_blocks = if system_prompt do
+          system_blocks ++ [%{
+            type: "text",
+            text: system_prompt,
+            cache_control: %{type: "ephemeral"}
+          }]
+        else
+          system_blocks
+        end
+
+        Map.put(body, :system, system_blocks)
+      else
+        if system_prompt, do: Map.put(body, :system, system_prompt), else: body
+      end
+
+      body = if tools != [], do: Map.put(body, :tools, format_tools_anthropic(tools, is_oauth)), else: body
 
       case Req.post("https://api.anthropic.com/v1/messages",
              json: body,
-             headers: [
-               {"x-api-key", api_key},
-               {"anthropic-version", "2023-06-01"}
-             ]
+             headers: anthropic_auth_headers(api_key)
            ) do
         {:ok, %{status: 200, body: body}} ->
           {:ok, parse_anthropic_response(body)}
@@ -172,13 +195,30 @@ defmodule ClawdEx.AI.Chat do
     end)
   end
 
-  defp format_tools_anthropic(tools) do
+  defp format_tools_anthropic(tools, is_oauth) do
     Enum.map(tools, fn tool ->
+      name = if is_oauth do
+        # Claude Code uses specific tool name casing
+        to_claude_code_name(tool[:name])
+      else
+        tool[:name]
+      end
+
       %{
-        name: tool[:name],
+        name: name,
         description: tool[:description],
         input_schema: tool[:parameters]
       }
+    end)
+  end
+
+  # Claude Code tool name mapping (case-sensitive)
+  @claude_code_tools ~w(Read Write Edit Bash Grep Glob AskUserQuestion EnterPlanMode ExitPlanMode KillShell NotebookEdit Skill Task TaskOutput TodoWrite WebFetch WebSearch)
+
+  defp to_claude_code_name(name) do
+    lower_name = String.downcase(to_string(name))
+    Enum.find(@claude_code_tools, name, fn cc_name ->
+      String.downcase(cc_name) == lower_name
     end)
   end
 
@@ -232,6 +272,28 @@ defmodule ClawdEx.AI.Chat do
       tokens_out: nil,
       stop_reason: candidate["finishReason"]
     }
+  end
+
+  # OAuth tokens (sk-ant-oat*) need special headers to mimic Claude Code
+  defp anthropic_auth_headers(api_key) do
+    if String.contains?(api_key, "sk-ant-oat") do
+      # OAuth token - mimic Claude Code headers exactly
+      [
+        {"authorization", "Bearer #{api_key}"},
+        {"anthropic-version", "2023-06-01"},
+        {"anthropic-dangerous-direct-browser-access", "true"},
+        {"anthropic-beta", "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14,interleaved-thinking-2025-05-14"},
+        {"user-agent", "claude-cli/2.1.2 (external, cli)"},
+        {"x-app", "cli"},
+        {"accept", "application/json"}
+      ]
+    else
+      # Regular API key - use x-api-key header
+      [
+        {"x-api-key", api_key},
+        {"anthropic-version", "2023-06-01"}
+      ]
+    end
   end
 
   defp get_api_key(:anthropic) do

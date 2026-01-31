@@ -2,6 +2,23 @@ defmodule ClawdEx.Browser.ServerTest do
   use ExUnit.Case, async: false
 
   alias ClawdEx.Browser.Server
+  alias ClawdEx.Browser.CDP
+
+  setup do
+    # Ensure CDP is running (may already be started by application)
+    unless Process.whereis(CDP) do
+      start_supervised!({CDP, name: CDP})
+    end
+
+    # Stop existing Server if running, then start fresh
+    if pid = Process.whereis(Server) do
+      GenServer.stop(pid, :normal, 5000)
+    end
+
+    start_supervised!({Server, name: Server})
+
+    :ok
+  end
 
   describe "status/0" do
     test "returns stopped status when browser is not running" do
