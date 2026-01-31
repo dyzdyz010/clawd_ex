@@ -311,18 +311,23 @@ defmodule ClawdEx.Agent.Loop do
 
     parent = self()
 
-    # 并行执行所有工具
-    tasks =
-      Enum.map(data.pending_tool_calls, fn tool_call ->
-        Task.async(fn ->
-          result = execute_tool(tool_call, data)
-          {tool_call, result}
-        end)
-      end)
-
-    # 等待所有工具完成
+    # 在单独的 Task 中并行执行所有工具，避免 Task.async 消息干扰
     Task.start(fn ->
-      results = Task.await_many(tasks, 60_000)
+      results = 
+        data.pending_tool_calls
+        |> Task.async_stream(
+          fn tool_call ->
+            result = execute_tool(tool_call, data)
+            {tool_call, result}
+          end,
+          timeout: 60_000,
+          on_timeout: :kill_task
+        )
+        |> Enum.map(fn
+          {:ok, result} -> result
+          {:exit, :timeout} -> {%{}, {:error, :timeout}}
+        end)
+      
       send(parent, {:tools_done, results})
     end)
 
@@ -452,7 +457,10 @@ defmodule ClawdEx.Agent.Loop do
   end
 
   defp execute_tool(tool_call, data) do
-    tool_name = tool_call["name"]
+    # 兼容两种格式：
+    # OpenAI: %{"id" => ..., "function" => %{"name" => ..., "arguments" => ...}}
+    # Anthropic: %{"name" => ..., "input" => ...}
+    tool_name = tool_call["name"] || get_in(tool_call, ["function", "name"])
     params = extract_tool_params(tool_call)
 
     context = %{
@@ -469,22 +477,24 @@ defmodule ClawdEx.Agent.Loop do
     end
   end
 
-  # 提取工具参数，兼容 Anthropic (input) 和 OpenAI (arguments) 格式
+  # 提取工具参数，兼容 Anthropic (input) 和 OpenAI (function.arguments) 格式
   defp extract_tool_params(tool_call) do
+    # 先尝试获取参数
+    raw_args = tool_call["input"] || 
+               tool_call["arguments"] || 
+               get_in(tool_call, ["function", "arguments"])
+    
     cond do
-      # Anthropic 格式: input 是 map
-      is_map(tool_call["input"]) ->
-        tool_call["input"]
+      # 已经是 map
+      is_map(raw_args) ->
+        raw_args
 
-      # OpenAI 格式: arguments 可能是 JSON 字符串或 map
-      is_binary(tool_call["arguments"]) ->
-        case Jason.decode(tool_call["arguments"]) do
+      # JSON 字符串需要解析
+      is_binary(raw_args) ->
+        case Jason.decode(raw_args) do
           {:ok, parsed} -> parsed
           {:error, _} -> %{}
         end
-
-      is_map(tool_call["arguments"]) ->
-        tool_call["arguments"]
 
       true ->
         %{}

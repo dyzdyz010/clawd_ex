@@ -58,8 +58,17 @@ defmodule ClawdEx.AI.Stream do
       body = if system_prompt, do: Map.put(body, :system, system_prompt), else: body
       body = if tools != [], do: Map.put(body, :tools, tools), else: body
 
-      headers = [
-        {"x-api-key", api_key},
+      # OAuth tokens (sk-ant-oat*) need Bearer auth, API keys need x-api-key
+      auth_headers = if String.contains?(api_key, "sk-ant-oat") do
+        [
+          {"authorization", "Bearer #{api_key}"},
+          {"anthropic-beta", "oauth-2025-01-01"}
+        ]
+      else
+        [{"x-api-key", api_key}]
+      end
+      
+      headers = auth_headers ++ [
         {"anthropic-version", "2023-06-01"},
         {"content-type", "application/json"},
         {"accept", "text/event-stream"}
