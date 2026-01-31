@@ -11,12 +11,12 @@
 - [ ] **apply_patch** - 多文件补丁
 - [ ] **image** - 图像分析工具
 
-### Phase 2: 会话与代理系统
-- [ ] **sessions_list** - 列出会话
-- [ ] **sessions_history** - 会话历史
-- [ ] **sessions_send** - 跨会话消息
-- [ ] **sessions_spawn** - 子代理生成
-- [ ] **agents_list** - 代理列表
+### Phase 2: 会话与代理系统 ✅
+- [x] **sessions_list** - 列出会话
+- [x] **sessions_history** - 会话历史
+- [x] **sessions_send** - 跨会话消息
+- [x] **sessions_spawn** - 子代理生成
+- [x] **agents_list** - 代理列表
 
 ### Phase 3: 自动化系统
 - [ ] **cron** - 定时任务管理
@@ -67,7 +67,7 @@
 - 渠道 (Telegram/Discord/WebSocket)
 
 **进行中:**
-- Phase 2: 会话与代理系统
+- Phase 3: 自动化系统
 
 ---
 
