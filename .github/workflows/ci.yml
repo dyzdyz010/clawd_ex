@@ -53,6 +53,7 @@ jobs:
 
       - name: Compile dependencies (fix telegex order)
         run: |
+          mix deps.compile mime plug_crypto jason typed_struct --force
           mix deps.compile plug --force
           mix deps.compile telegex --force
           mix deps.compile
