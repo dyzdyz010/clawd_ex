@@ -1,7 +1,7 @@
 defmodule ClawdEx.Tools.ToolsTest do
   use ExUnit.Case, async: true
 
-  alias ClawdEx.Tools.{Registry, Read, Write, Edit, Exec}
+  alias ClawdEx.Tools.{Registry, Read, Write, Edit, Exec, AgentsList}
 
   describe "Registry" do
     test "lists available tools" do
