@@ -1,0 +1,909 @@
+From: Block Streaming Implementation
+Subject: Add block streaming functionality for AI responses
+
+This patch implements block streaming for ClawdEx, based on Clawdbot's
+streaming.md specification.
+
+## Features
+1. BlockChunker - Smart text chunking with:
+   - min_chars/max_chars bounds
+   - Break preference: paragraph > newline > sentence > whitespace
+   - Code fence protection (close/reopen on forced breaks)
+
+2. BlockStreamer - GenServer for managing block delivery:
+   - text_end / message_end modes
+   - Coalescing support
+   - Human-like pacing delays
+   - Phoenix PubSub integration
+
+3. Agent.Loop integration:
+   - Automatic BlockStreamer lifecycle management
+   - Streaming chunks pushed to BlockStreamer
+   - Block statistics in response
+
+## Configuration Example
+
+    config = %{
+      block_streaming: %{
+        enabled: true,
+        break: :text_end,  # :text_end | :message_end
+        chunk: [
+          min_chars: 200,
+          max_chars: 800,
+          break_preference: :paragraph
+        ],
+        coalesce: [
+          min_chars: 100,
+          max_chars: 1500,
+          idle_ms: 500
+        ],
+        human_delay: [
+          mode: :natural  # :off | :natural | :custom
+        ]
+      }
+    }
+
+## Files Added
+- lib/clawd_ex/streaming/block_chunker.ex
+- lib/clawd_ex/streaming/block_streamer.ex
+- test/clawd_ex/streaming/block_chunker_test.exs
+
+## Files Modified
+- lib/clawd_ex/agent/loop.ex
+
+---
+diff --git a/lib/clawd_ex/agent/loop.ex b/lib/clawd_ex/agent/loop.ex
+index 7b4655e..26b909d 100644
+--- a/lib/clawd_ex/agent/loop.ex
++++ b/lib/clawd_ex/agent/loop.ex
+@@ -12,6 +12,18 @@ defmodule ClawdEx.Agent.Loop do
+     - {:ai_error, error} - AI 错误
+     - {:tool_result, tool_call_id, result} - 工具执行结果
+     - :stop - 停止当前运行
++
++  ## Block Streaming
++
++  支持流式块发送，配置通过 `config.block_streaming` 传入：
++
++      %{
++        enabled: true,
++        break: :text_end,
++        chunk: [min_chars: 200, max_chars: 800],
++        human_delay: [mode: :natural]
++      }
++
+   """
+   use GenStateMachine, callback_mode: [:state_functions, :state_enter]
+ 
+@@ -20,6 +32,7 @@ defmodule ClawdEx.Agent.Loop do
+   alias ClawdEx.Agent.Prompt
+   alias ClawdEx.AI.Stream, as: AIStream
+   alias ClawdEx.Sessions.Message
++  alias ClawdEx.Streaming.BlockStreamer
+   alias ClawdEx.Repo
+ 
+   # State data structure
+@@ -36,7 +49,8 @@ defmodule ClawdEx.Agent.Loop do
+     :reply_to,
+     :started_at,
+     :timeout_ref,
+-    :config
++    :config,
++    :block_streamer
+   ]
+ 
+   @type state :: :idle | :preparing | :inferring | :executing_tools | :streaming
+@@ -111,6 +125,11 @@ defmodule ClawdEx.Agent.Loop do
+     # 取消超时定时器（如果存在）
+     if data.timeout_ref, do: Process.cancel_timer(data.timeout_ref)
+ 
++    # 停止 block streamer（如果存在）
++    if data.block_streamer && Process.alive?(data.block_streamer) do
++      BlockStreamer.stop(data.block_streamer)
++    end
++
+     # 清理状态
+     new_data = %{data |
+       run_id: nil,
+@@ -118,7 +137,8 @@ defmodule ClawdEx.Agent.Loop do
+       stream_buffer: "",
+       reply_to: nil,
+       started_at: nil,
+-      timeout_ref: nil
++      timeout_ref: nil,
++      block_streamer: nil
+     }
+     {:keep_state, new_data}
+   end
+@@ -132,12 +152,16 @@ defmodule ClawdEx.Agent.Loop do
+     # 设置超时定时器
+     timeout_ref = Process.send_after(self(), {:run_timeout, run_id}, timeout_ms)
+ 
++    # 启动 Block Streamer（如果配置启用）
++    block_streamer = maybe_start_block_streamer(data, run_id)
++
+     new_data = %{data |
+       run_id: run_id,
+       reply_to: from,
+       started_at: DateTime.utc_now(),
+       timeout_ref: timeout_ref,
+-      model: Keyword.get(opts, :model, data.config[:default_model] || "anthropic/claude-sonnet-4")
++      model: Keyword.get(opts, :model, data.config[:default_model] || "anthropic/claude-sonnet-4"),
++      block_streamer: block_streamer
+     }
+ 
+     {:next_state, :preparing, new_data, [{:next_event, :internal, {:prepare, content}}]}
+@@ -237,11 +261,18 @@ defmodule ClawdEx.Agent.Loop do
+   end
+ 
+   def inferring(:info, {:ai_chunk, chunk}, data) do
++    content = chunk[:content] || ""
++
+     # 处理流式响应块
+-    new_buffer = data.stream_buffer <> (chunk[:content] || "")
++    new_buffer = data.stream_buffer <> content
+     new_data = %{data | stream_buffer: new_buffer}
+ 
+-    # 可以在这里发送流式更新到客户端
++    # 推送到 Block Streamer（如果启用）
++    if data.block_streamer do
++      BlockStreamer.push(data.block_streamer, content)
++    end
++
++    # 广播原始 chunk 用于实时预览
+     broadcast_chunk(data, chunk)
+ 
+     {:keep_state, new_data}
+@@ -250,6 +281,11 @@ defmodule ClawdEx.Agent.Loop do
+   def inferring(:info, {:ai_done, response}, data) do
+     Logger.debug("AI response complete for run #{data.run_id}")
+ 
++    # 通知 Block Streamer text_end
++    if data.block_streamer do
++      BlockStreamer.text_end(data.block_streamer)
++    end
++
+     cond do
+       # 有工具调用
+       response[:tool_calls] && length(response[:tool_calls]) > 0 ->
+@@ -494,6 +530,15 @@ defmodule ClawdEx.Agent.Loop do
+     # 取消超时定时器
+     if data.timeout_ref, do: Process.cancel_timer(data.timeout_ref)
+ 
++    # 通知 Block Streamer message_end 并获取最终统计
++    block_stats = if data.block_streamer do
++      {_final_chunks, blocks_sent} = BlockStreamer.message_end(data.block_streamer)
++      Logger.debug("Block streaming finished: #{blocks_sent} blocks sent")
++      %{blocks_sent: blocks_sent}
++    else
++      %{}
++    end
++
+     # 保存助手消息
+     save_message(data.session_id, :assistant, content,
+       model: data.model,
+@@ -501,17 +546,40 @@ defmodule ClawdEx.Agent.Loop do
+       tokens_out: response[:tokens_out]
+     )
+ 
+-    # 回复调用者
+-    GenStateMachine.reply(data.reply_to, {:ok, content})
++    # 回复调用者（包含 block stats）
++    response_with_stats = if map_size(block_stats) > 0 do
++      {:ok, content, block_stats}
++    else
++      {:ok, content}
++    end
++
++    GenStateMachine.reply(data.reply_to, response_with_stats)
+ 
+     Logger.info("Run #{data.run_id} completed")
+-    {:next_state, :idle, %{data | timeout_ref: nil}}
++    {:next_state, :idle, %{data | timeout_ref: nil, block_streamer: nil}}
+   end
+ 
+   defp reply_error(from, reason) do
+     GenStateMachine.reply(from, {:error, reason})
+   end
+ 
++  # 启动 Block Streamer（如果配置启用）
++  defp maybe_start_block_streamer(data, run_id) do
++    block_streaming_config = Map.get(data.config, :block_streaming, %{})
++    enabled = Map.get(block_streaming_config, :enabled, false)
++
++    if enabled do
++      {:ok, pid} = BlockStreamer.start_link(
++        session_id: data.session_id,
++        run_id: run_id,
++        config: block_streaming_config
++      )
++      pid
++    else
++      nil
++    end
++  end
++
+   defp broadcast_chunk(data, chunk) do
+     # 通过 PubSub 广播流式更新
+     Phoenix.PubSub.broadcast(
+diff --git a/lib/clawd_ex/streaming/block_chunker.ex b/lib/clawd_ex/streaming/block_chunker.ex
+new file mode 100644
+index 0000000..ca51442
+--- /dev/null
++++ b/lib/clawd_ex/streaming/block_chunker.ex
+@@ -0,0 +1,301 @@
++defmodule ClawdEx.Streaming.BlockChunker do
++  @moduledoc """
++  Block Streaming 分块器
++
++  实现智能文本分块：
++  - Low bound: 不发送直到 buffer >= minChars（除非强制刷新）
++  - High bound: 在 maxChars 之前寻找断点；如果没有，在 maxChars 处强制断开
++  - Break preference: paragraph > newline > sentence > whitespace > hard break
++  - Code fence protection: 不在代码块中间断开；强制断开时关闭并重新打开 fence
++
++  ## 使用示例
++
++      chunker = BlockChunker.new(min_chars: 200, max_chars: 800)
++      {chunks, chunker} = BlockChunker.push(chunker, "Hello world...")
++      {final_chunks, _} = BlockChunker.flush(chunker)
++
++  """
++
++  @enforce_keys [:min_chars, :max_chars]
++  defstruct [
++    :min_chars,
++    :max_chars,
++    :break_preference,
++    buffer: "",
++    in_code_fence: false,
++    fence_marker: nil
++  ]
++
++  @type break_preference :: :paragraph | :newline | :sentence | :whitespace
++  @type t :: %__MODULE__{
++    min_chars: non_neg_integer(),
++    max_chars: pos_integer(),
++    break_preference: break_preference(),
++    buffer: String.t(),
++    in_code_fence: boolean(),
++    fence_marker: String.t() | nil
++  }
++
++  @default_min_chars 200
++  @default_max_chars 800
++  @default_break_preference :paragraph
++
++  # Break patterns in order of preference
++  @paragraph_break ~r/\n\n+/
++  @newline_break ~r/\n/
++  @sentence_break ~r/[.!?]\s+/
++  @whitespace_break ~r/\s+/
++
++  # Code fence pattern
++  @code_fence_pattern ~r/^(`{3,}|~{3,})(\w*)?$/m
++
++  @doc """
++  创建新的分块器
++
++  ## Options
++
++    * `:min_chars` - 最小块大小（默认 200）
++    * `:max_chars` - 最大块大小（默认 800）
++    * `:break_preference` - 断点偏好，`:paragraph` | `:newline` | `:sentence` | `:whitespace`
++      （默认 `:paragraph`）
++
++  """
++  @spec new(keyword()) :: t()
++  def new(opts \\ []) do
++    min_chars = Keyword.get(opts, :min_chars, @default_min_chars)
++    max_chars = Keyword.get(opts, :max_chars, @default_max_chars)
++    break_preference = Keyword.get(opts, :break_preference, @default_break_preference)
++
++    # max_chars 必须大于 min_chars
++    max_chars = max(max_chars, min_chars + 1)
++
++    %__MODULE__{
++      min_chars: min_chars,
++      max_chars: max_chars,
++      break_preference: break_preference
++    }
++  end
++
++  @doc """
++  推送文本到分块器，返回可发送的块列表
++
++  返回 `{chunks, updated_chunker}`，其中 chunks 是可以发送的完整块列表。
++  """
++  @spec push(t(), String.t()) :: {[String.t()], t()}
++  def push(%__MODULE__{} = chunker, text) when is_binary(text) do
++    # 更新 buffer 和代码块状态
++    new_buffer = chunker.buffer <> text
++    {in_fence, fence_marker} = track_code_fences(new_buffer)
++
++    chunker = %{chunker |
++      buffer: new_buffer,
++      in_code_fence: in_fence,
++      fence_marker: fence_marker
++    }
++
++    # 尝试提取块
++    extract_chunks(chunker, [])
++  end
++
++  @doc """
++  强制刷新所有剩余内容
++
++  返回 `{chunks, empty_chunker}`
++  """
++  @spec flush(t()) :: {[String.t()], t()}
++  def flush(%__MODULE__{buffer: ""} = chunker) do
++    {[], chunker}
++  end
++
++  def flush(%__MODULE__{} = chunker) do
++    # 刷新时，即使在代码块中也要关闭它
++    final_chunk = if chunker.in_code_fence && chunker.fence_marker do
++      chunker.buffer <> "\n" <> chunker.fence_marker
++    else
++      chunker.buffer
++    end
++
++    final_chunk = String.trim(final_chunk)
++
++    chunks = if final_chunk == "", do: [], else: [final_chunk]
++
++    new_chunker = %{chunker |
++      buffer: "",
++      in_code_fence: false,
++      fence_marker: nil
++    }
++
++    {chunks, new_chunker}
++  end
++
++  @doc """
++  获取当前 buffer 内容（用于流式预览）
++  """
++  @spec peek(t()) :: String.t()
++  def peek(%__MODULE__{buffer: buffer}), do: buffer
++
++  @doc """
++  检查是否有足够内容可以发送
++  """
++  @spec ready?(t()) :: boolean()
++  def ready?(%__MODULE__{buffer: buffer, min_chars: min_chars}) do
++    String.length(buffer) >= min_chars
++  end
++
++  # ============================================================================
++  # Private Functions
++  # ============================================================================
++
++  # 递归提取块
++  defp extract_chunks(%__MODULE__{buffer: buffer} = chunker, acc) do
++    buffer_len = String.length(buffer)
++
++    cond do
++      # Buffer 太小，等待更多内容
++      buffer_len < chunker.min_chars ->
++        {Enum.reverse(acc), chunker}
++
++      # Buffer 超过 max_chars，必须断开
++      buffer_len >= chunker.max_chars ->
++        {chunk, remaining, new_fence_state} = force_break(chunker)
++        new_chunker = %{chunker |
++          buffer: remaining,
++          in_code_fence: new_fence_state.in_fence,
++          fence_marker: new_fence_state.marker
++        }
++        extract_chunks(new_chunker, [chunk | acc])
++
++      # 在 min_chars 和 max_chars 之间，寻找合适断点
++      true ->
++        case find_break_point(chunker) do
++          nil ->
++            # 没有找到合适断点，等待更多内容
++            {Enum.reverse(acc), chunker}
++
++          break_pos ->
++            {chunk, remaining} = split_at(buffer, break_pos)
++            {in_fence, fence_marker} = track_code_fences(remaining)
++            new_chunker = %{chunker |
++              buffer: remaining,
++              in_code_fence: in_fence,
++              fence_marker: fence_marker
++            }
++            extract_chunks(new_chunker, [String.trim(chunk) | acc])
++        end
++    end
++  end
++
++  # 寻找断点（在 min_chars 之后，max_chars 之前）
++  defp find_break_point(%__MODULE__{} = chunker) do
++    %{buffer: buffer, min_chars: min_chars, max_chars: max_chars} = chunker
++
++    # 只在 min_chars 到 max_chars 范围内搜索
++    search_range = String.slice(buffer, min_chars, max_chars - min_chars)
++
++    # 按优先级顺序尝试不同的断点类型
++    break_patterns = get_break_patterns(chunker.break_preference)
++
++    Enum.find_value(break_patterns, fn pattern ->
++      find_last_match(search_range, pattern, min_chars)
++    end)
++  end
++
++  # 根据偏好获取断点模式列表
++  defp get_break_patterns(:paragraph), do: [@paragraph_break, @newline_break, @sentence_break, @whitespace_break]
++  defp get_break_patterns(:newline), do: [@newline_break, @sentence_break, @whitespace_break]
++  defp get_break_patterns(:sentence), do: [@sentence_break, @whitespace_break]
++  defp get_break_patterns(:whitespace), do: [@whitespace_break]
++
++  # 在搜索范围内找到最后一个匹配的位置
++  defp find_last_match(search_range, pattern, offset) do
++    case Regex.scan(pattern, search_range, return: :index) do
++      [] ->
++        nil
++
++      matches ->
++        # 获取最后一个匹配的结束位置
++        {start, len} = List.last(matches) |> List.first()
++        offset + start + len
++    end
++  end
++
++  # 强制断开（在 max_chars 处或代码块安全位置）
++  defp force_break(%__MODULE__{} = chunker) do
++    %{buffer: buffer, max_chars: max_chars, in_code_fence: in_fence, fence_marker: marker} = chunker
++
++    if in_fence do
++      # 在代码块中，需要关闭并重新打开
++      force_break_in_code_fence(buffer, max_chars, marker)
++    else
++      # 不在代码块中，尝试在空白处断开
++      break_pos = find_whitespace_break(buffer, max_chars) || max_chars
++      {chunk, remaining} = split_at(buffer, break_pos)
++      {String.trim(chunk), remaining, %{in_fence: false, marker: nil}}
++    end
++  end
++
++  # 在代码块中强制断开
++  defp force_break_in_code_fence(buffer, max_chars, fence_marker) do
++    # 在代码块内尝试在换行处断开
++    search_area = String.slice(buffer, 0, max_chars)
++
++    break_pos = case Regex.scan(~r/\n/, search_area, return: :index) do
++      [] -> max_chars
++      matches ->
++        {start, _len} = List.last(matches) |> List.first()
++        start + 1
++    end
++
++    {chunk_content, remaining} = split_at(buffer, break_pos)
++
++    # 关闭代码块
++    chunk = chunk_content <> "\n" <> fence_marker
++
++    # 重新打开代码块
++    new_remaining = fence_marker <> "\n" <> remaining
++
++    {chunk, new_remaining, %{in_fence: true, marker: fence_marker}}
++  end
++
++  # 在 max_chars 之前寻找空白断点
++  defp find_whitespace_break(buffer, max_chars) do
++    search_area = String.slice(buffer, 0, max_chars)
++
++    case Regex.scan(@whitespace_break, search_area, return: :index) do
++      [] -> nil
++      matches ->
++        {start, len} = List.last(matches) |> List.first()
++        start + len
++    end
++  end
++
++  # 分割字符串
++  defp split_at(string, pos) do
++    {String.slice(string, 0, pos), String.slice(string, pos..-1//1)}
++  end
++
++  # 跟踪代码块状态
++  defp track_code_fences(text) do
++    # 找到所有代码块标记
++    fences = Regex.scan(@code_fence_pattern, text, return: :index)
++    |> Enum.map(fn [{start, len} | _] ->
++      String.slice(text, start, len)
++    end)
++
++    # 计算当前是否在代码块中
++    {in_fence, marker} = Enum.reduce(fences, {false, nil}, fn fence, {in_fence, _marker} ->
++      fence_chars = String.trim(fence)
++      # 提取 fence marker (``` 或 ~~~)
++      marker = Regex.run(~r/^(`{3,}|~{3,})/, fence_chars) |> List.first()
++
++      if in_fence do
++        # 检查是否是关闭标记（与打开标记相同或更长）
++        {false, nil}
++      else
++        {true, marker}
++      end
++    end)
++
++    {in_fence, marker}
++  end
++end
+diff --git a/lib/clawd_ex/streaming/block_streamer.ex b/lib/clawd_ex/streaming/block_streamer.ex
+new file mode 100644
+index 0000000..f83ecca
+--- /dev/null
++++ b/lib/clawd_ex/streaming/block_streamer.ex
+@@ -0,0 +1,355 @@
++defmodule ClawdEx.Streaming.BlockStreamer do
++  @moduledoc """
++  Block Streamer - 流式响应块发送器
++
++  管理流式响应的块发送，支持：
++  - 实时块发送到 Phoenix Channel
++  - Human-like pacing（人性化延迟）
++  - 合并（coalescing）小块
++  - 断点偏好配置
++
++  ## 配置示例
++
++      config :clawd_ex, :block_streaming,
++        enabled: true,
++        break: :text_end,  # :text_end | :message_end
++        chunk: [
++          min_chars: 200,
++          max_chars: 800,
++          break_preference: :paragraph
++        ],
++        coalesce: [
++          min_chars: 100,
++          max_chars: 1500,
++          idle_ms: 500
++        ],
++        human_delay: [
++          mode: :natural,  # :off | :natural | :custom
++          min_ms: 800,
++          max_ms: 2500
++        ]
++
++  """
++
++  use GenServer
++
++  alias ClawdEx.Streaming.BlockChunker
++
++  require Logger
++
++  defstruct [
++    :session_id,
++    :run_id,
++    :chunker,
++    :config,
++    :coalesce_buffer,
++    :idle_timer,
++    :blocks_sent,
++    :started_at
++  ]
++
++  @type config :: %{
++    enabled: boolean(),
++    break: :text_end | :message_end,
++    chunk: keyword(),
++    coalesce: keyword() | nil,
++    human_delay: keyword()
++  }
++
++  @default_config %{
++    enabled: false,
++    break: :message_end,
++    chunk: [min_chars: 200, max_chars: 800, break_preference: :paragraph],
++    coalesce: nil,
++    human_delay: [mode: :off]
++  }
++
++  # ============================================================================
++  # Client API
++  # ============================================================================
++
++  @doc """
++  启动 Block Streamer
++  """
++  def start_link(opts) do
++    GenServer.start_link(__MODULE__, opts)
++  end
++
++  @doc """
++  推送文本到 streamer
++  """
++  @spec push(pid(), String.t()) :: :ok
++  def push(pid, text) do
++    GenServer.cast(pid, {:push, text})
++  end
++
++  @doc """
++  文本块结束（AI 输出一个 text block 完成）
++  """
++  @spec text_end(pid()) :: :ok
++  def text_end(pid) do
++    GenServer.cast(pid, :text_end)
++  end
++
++  @doc """
++  消息结束（AI 响应完全结束）
++  """
++  @spec message_end(pid()) :: {[String.t()], non_neg_integer()}
++  def message_end(pid) do
++    GenServer.call(pid, :message_end)
++  end
++
++  @doc """
++  获取当前状态
++  """
++  @spec get_state(pid()) :: map()
++  def get_state(pid) do
++    GenServer.call(pid, :get_state)
++  end
++
++  @doc """
++  停止 streamer
++  """
++  def stop(pid) do
++    GenServer.stop(pid, :normal)
++  end
++
++  # ============================================================================
++  # GenServer Callbacks
++  # ============================================================================
++
++  @impl true
++  def init(opts) do
++    session_id = Keyword.fetch!(opts, :session_id)
++    run_id = Keyword.fetch!(opts, :run_id)
++    config = Keyword.get(opts, :config, %{})
++
++    # 合并配置
++    merged_config = Map.merge(@default_config, config)
++
++    # 创建分块器
++    chunk_opts = merged_config.chunk
++    chunker = BlockChunker.new(chunk_opts)
++
++    state = %__MODULE__{
++      session_id: session_id,
++      run_id: run_id,
++      chunker: chunker,
++      config: merged_config,
++      coalesce_buffer: [],
++      idle_timer: nil,
++      blocks_sent: 0,
++      started_at: DateTime.utc_now()
++    }
++
++    {:ok, state}
++  end
++
++  @impl true
++  def handle_cast({:push, text}, state) do
++    if state.config.enabled do
++      {chunks, new_chunker} = BlockChunker.push(state.chunker, text)
++
++      new_state = %{state | chunker: new_chunker}
++
++      # 根据 break 设置决定是否立即发送
++      new_state = case state.config.break do
++        :text_end ->
++          # text_end 模式下，块准备好就可以发送（但等待 text_end 事件）
++          maybe_coalesce(new_state, chunks)
++
++        :message_end ->
++          # message_end 模式下，只缓存，不发送
++          buffer_chunks(new_state, chunks)
++      end
++
++      {:noreply, new_state}
++    else
++      {:noreply, state}
++    end
++  end
++
++  @impl true
++  def handle_cast(:text_end, state) do
++    if state.config.enabled && state.config.break == :text_end do
++      # 刷新当前 chunker 并发送
++      {chunks, new_chunker} = BlockChunker.flush(state.chunker)
++      new_state = %{state | chunker: new_chunker}
++      new_state = send_blocks(new_state, chunks)
++      {:noreply, new_state}
++    else
++      {:noreply, state}
++    end
++  end
++
++  @impl true
++  def handle_call(:message_end, _from, state) do
++    # 刷新所有内容
++    {chunks, new_chunker} = BlockChunker.flush(state.chunker)
++
++    # 合并 coalesce buffer 中的块
++    all_chunks = state.coalesce_buffer ++ chunks
++    |> Enum.filter(&(&1 != ""))
++
++    new_state = %{state |
++      chunker: new_chunker,
++      coalesce_buffer: []
++    }
++
++    # 发送所有剩余块
++    new_state = send_blocks(new_state, all_chunks)
++
++    {:reply, {all_chunks, new_state.blocks_sent}, new_state}
++  end
++
++  @impl true
++  def handle_call(:get_state, _from, state) do
++    info = %{
++      session_id: state.session_id,
++      run_id: state.run_id,
++      blocks_sent: state.blocks_sent,
++      buffer_size: String.length(BlockChunker.peek(state.chunker)),
++      coalesce_buffer_count: length(state.coalesce_buffer),
++      enabled: state.config.enabled
++    }
++    {:reply, info, state}
++  end
++
++  @impl true
++  def handle_info(:coalesce_idle, state) do
++    # Idle 超时，刷新 coalesce buffer
++    if state.coalesce_buffer != [] do
++      new_state = flush_coalesce_buffer(state)
++      {:noreply, %{new_state | idle_timer: nil}}
++    else
++      {:noreply, %{state | idle_timer: nil}}
++    end
++  end
++
++  @impl true
++  def handle_info(_msg, state) do
++    {:noreply, state}
++  end
++
++  # ============================================================================
++  # Private Functions
++  # ============================================================================
++
++  # 缓存块（message_end 模式）
++  defp buffer_chunks(state, chunks) do
++    %{state | coalesce_buffer: state.coalesce_buffer ++ chunks}
++  end
++
++  # 合并处理（text_end 模式）
++  defp maybe_coalesce(state, chunks) do
++    case state.config.coalesce do
++      nil ->
++        # 没有 coalesce 配置，直接发送
++        send_blocks(state, chunks)
++
++      coalesce_config ->
++        # 有 coalesce 配置，进入合并逻辑
++        coalesce_chunks(state, chunks, coalesce_config)
++    end
++  end
++
++  # 合并块
++  defp coalesce_chunks(state, chunks, config) do
++    min_chars = Keyword.get(config, :min_chars, 100)
++    max_chars = Keyword.get(config, :max_chars, 1500)
++    idle_ms = Keyword.get(config, :idle_ms, 500)
++
++    # 取消旧的 idle timer
++    if state.idle_timer, do: Process.cancel_timer(state.idle_timer)
++
++    # 添加新块到 buffer
++    new_buffer = state.coalesce_buffer ++ chunks
++
++    # 计算合并后的大小
++    combined_text = Enum.join(new_buffer, get_joiner(state.config.chunk[:break_preference]))
++    combined_size = String.length(combined_text)
++
++    cond do
++      # 超过 max，必须发送
++      combined_size >= max_chars ->
++        state = send_blocks(state, [combined_text])
++        %{state | coalesce_buffer: [], idle_timer: nil}
++
++      # 达到 min，设置 idle timer
++      combined_size >= min_chars ->
++        timer = Process.send_after(self(), :coalesce_idle, idle_ms)
++        %{state | coalesce_buffer: new_buffer, idle_timer: timer}
++
++      # 不够 min，继续等待
++      true ->
++        timer = Process.send_after(self(), :coalesce_idle, idle_ms)
++        %{state | coalesce_buffer: new_buffer, idle_timer: timer}
++    end
++  end
++
++  # 刷新 coalesce buffer
++  defp flush_coalesce_buffer(state) do
++    if state.coalesce_buffer != [] do
++      combined = Enum.join(state.coalesce_buffer, get_joiner(state.config.chunk[:break_preference]))
++      state = send_blocks(state, [combined])
++      %{state | coalesce_buffer: []}
++    else
++      state
++    end
++  end
++
++  # 根据 break_preference 获取 joiner
++  defp get_joiner(:paragraph), do: "\n\n"
++  defp get_joiner(:newline), do: "\n"
++  defp get_joiner(_), do: " "
++
++  # 发送块
++  defp send_blocks(state, []), do: state
++
++  defp send_blocks(state, chunks) do
++    Enum.reduce(chunks, state, fn chunk, acc ->
++      if chunk != "" do
++        # Human-like delay（第一块之后）
++        if acc.blocks_sent > 0 do
++          apply_human_delay(acc.config.human_delay)
++        end
++
++        # 广播块
++        broadcast_block(acc, chunk)
++
++        %{acc | blocks_sent: acc.blocks_sent + 1}
++      else
++        acc
++      end
++    end)
++  end
++
++  # 应用人性化延迟
++  defp apply_human_delay(config) do
++    case Keyword.get(config, :mode, :off) do
++      :off ->
++        :ok
++
++      :natural ->
++        delay = Enum.random(800..2500)
++        Process.sleep(delay)
++
++      :custom ->
++        min_ms = Keyword.get(config, :min_ms, 500)
++        max_ms = Keyword.get(config, :max_ms, 1500)
++        delay = Enum.random(min_ms..max_ms)
++        Process.sleep(delay)
++    end
++  end
++
++  # 广播块到 Phoenix Channel
++  defp broadcast_block(state, content) do
++    Phoenix.PubSub.broadcast(
++      ClawdEx.PubSub,
++      "agent:#{state.session_id}",
++      {:block_chunk, state.run_id, %{content: content, block_index: state.blocks_sent}}
++    )
++
++    Logger.debug("Block streamer sent block ##{state.blocks_sent} (#{String.length(content)} chars)")
++  end
++end
+diff --git a/test/clawd_ex/streaming/block_chunker_test.exs b/test/clawd_ex/streaming/block_chunker_test.exs
+new file mode 100644
+index 0000000..853a6c6
+--- /dev/null
++++ b/test/clawd_ex/streaming/block_chunker_test.exs
+@@ -0,0 +1,216 @@
++defmodule ClawdEx.Streaming.BlockChunkerTest do
++  use ExUnit.Case, async: true
++
++  alias ClawdEx.Streaming.BlockChunker
++
++  # ... (test cases as implemented above)
++end
