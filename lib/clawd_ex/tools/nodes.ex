@@ -21,7 +21,6 @@ defmodule ClawdEx.Tools.Nodes do
   require Logger
 
   @default_timeout 60_000
-  @media_actions ["camera_snap", "camera_clip", "screen_record"]
 
   @impl true
   def name, do: "nodes"

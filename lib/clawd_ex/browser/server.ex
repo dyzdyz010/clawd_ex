@@ -736,7 +736,7 @@ defmodule ClawdEx.Browser.Server do
 
   defp get_console_logs(target_id, opts) do
     level = Keyword.get(opts, :level)
-    limit = Keyword.get(opts, :limit, 100)
+    _limit = Keyword.get(opts, :limit, 100)
 
     # Note: Console logs require Runtime.enable to be called early
     # and events to be collected. This is a simplified implementation

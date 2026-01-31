@@ -14,7 +14,6 @@ defmodule ClawdEx.Tools.Gateway do
 
   @config_dir "priv/gateway"
   @config_file "config.json"
-  @config_schema_file "config_schema.json"
 
   # 默认配置
   @default_config %{

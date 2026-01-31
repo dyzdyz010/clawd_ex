@@ -23,7 +23,8 @@ defmodule ClawdEx.Cron.Job do
     field :run_count, :integer, default: 0
     field :metadata, :map, default: %{}
 
-    has_many :runs, ClawdEx.Cron.JobRun, foreign_key: :job_id
+    # TODO: Add job run tracking when ClawdEx.Cron.JobRun is implemented
+    # has_many :runs, ClawdEx.Cron.JobRun, foreign_key: :job_id
 
     timestamps(type: :utc_datetime_usec)
   end
@@ -107,7 +108,7 @@ defmodule ClawdEx.Cron.Job do
           [start_s, end_s] ->
             with {start_i, ""} <- Integer.parse(start_s),
                  {end_i, ""} <- Integer.parse(end_s),
-                 true <- start_i in range and end_i in range and start_i <= end_i do
+                 true <- in_range?(start_i, range) and in_range?(end_i, range) and start_i <= end_i do
               {:ok, {:range, start_i, end_i}}
             else
               _ -> {:error, "invalid range in #{name}: #{field}"}
@@ -125,7 +126,7 @@ defmodule ClawdEx.Cron.Job do
           |> Enum.map(&Integer.parse/1)
 
         if Enum.all?(values, fn
-             {v, ""} -> v in range
+             {v, ""} -> in_range?(v, range)
              _ -> false
            end) do
           {:ok, {:list, Enum.map(values, fn {v, ""} -> v end)}}
@@ -136,8 +137,15 @@ defmodule ClawdEx.Cron.Job do
       # single value
       true ->
         case Integer.parse(field) do
-          {value, ""} when value in range -> {:ok, {:value, value}}
-          _ -> {:error, "invalid value in #{name}: #{field}"}
+          {value, ""} ->
+            if in_range?(value, range) do
+              {:ok, {:value, value}}
+            else
+              {:error, "invalid value in #{name}: #{field}"}
+            end
+
+          _ ->
+            {:error, "invalid value in #{name}: #{field}"}
         end
     end
   end
@@ -193,4 +201,9 @@ defmodule ClawdEx.Cron.Job do
   defp matches_field?({:step, step}, value), do: rem(value, step) == 0
   defp matches_field?({:range, min, max}, value), do: value >= min and value <= max
   defp matches_field?({:list, values}, value), do: value in values
+
+  # Helper to check if value is within a range (avoids guard expression issues)
+  defp in_range?(value, range) do
+    value >= range.first and value <= range.last
+  end
 end
