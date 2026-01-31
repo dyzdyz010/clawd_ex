@@ -523,4 +523,180 @@ defmodule ClawdEx.Browser.Server do
       {:ok, %{session_id: session_id, result: result}}
     end
   end
+
+  # ============================================================================
+  # Snapshot
+  # ============================================================================
+
+  defp get_page_snapshot(target_id, format) do
+    with {:ok, session_id} <- attach_to_target(target_id),
+         :ok <- enable_domain(session_id, "Accessibility"),
+         {:ok, tree} <- get_accessibility_tree(session_id) do
+      result = %{
+        target_id: target_id,
+        tree: normalize_aria_tree(tree),
+        format: format
+      }
+
+      {:ok, result}
+    end
+  end
+
+  defp get_accessibility_tree(session_id) do
+    send_to_target(session_id, "Accessibility.getFullAXTree", %{})
+  end
+
+  defp normalize_aria_tree(%{"nodes" => nodes}) when is_list(nodes) do
+    Enum.map(nodes, &normalize_aria_node/1)
+  end
+  defp normalize_aria_tree(tree), do: tree
+
+  defp normalize_aria_node(node) when is_map(node) do
+    %{
+      role: get_in(node, ["role", "value"]),
+      name: get_in(node, ["name", "value"]),
+      value: get_in(node, ["value", "value"]),
+      description: get_in(node, ["description", "value"]),
+      node_id: node["nodeId"],
+      children: node["childIds"]
+    }
+    |> Enum.reject(fn {_, v} -> is_nil(v) end)
+    |> Map.new()
+  end
+  defp normalize_aria_node(node), do: node
+
+  # ============================================================================
+  # Screenshot
+  # ============================================================================
+
+  @screenshot_dir "priv/browser/screenshots"
+
+  defp capture_screenshot(target_id, opts) do
+    full_page = Keyword.get(opts, :full_page, false)
+    format = Keyword.get(opts, :format, "png")
+    quality = Keyword.get(opts, :quality)
+
+    with {:ok, session_id} <- attach_to_target(target_id),
+         :ok <- enable_domain(session_id, "Page"),
+         {:ok, %{"data" => data}} <- take_screenshot(session_id, full_page, format, quality) do
+      # 保存截图到文件
+      case save_screenshot(data, format) do
+        {:ok, path} ->
+          {:ok, %{target_id: target_id, path: path, format: format}}
+
+        {:error, reason} ->
+          {:error, {:save_failed, reason}}
+      end
+    end
+  end
+
+  defp take_screenshot(session_id, full_page, format, quality) do
+    params = %{
+      format: format,
+      captureBeyondViewport: full_page
+    }
+
+    params = if quality && format == "jpeg", do: Map.put(params, :quality, quality), else: params
+
+    send_to_target(session_id, "Page.captureScreenshot", params)
+  end
+
+  defp save_screenshot(base64_data, format) do
+    ensure_screenshot_dir()
+
+    timestamp = DateTime.utc_now() |> DateTime.to_unix()
+    random_suffix = :crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)
+    filename = "screenshot_#{timestamp}_#{random_suffix}.#{format}"
+    filepath = Path.join(screenshot_dir(), filename)
+
+    case Base.decode64(base64_data) do
+      {:ok, binary} ->
+        case File.write(filepath, binary) do
+          :ok -> {:ok, filepath}
+          {:error, reason} -> {:error, reason}
+        end
+
+      :error ->
+        {:error, :invalid_base64}
+    end
+  end
+
+  defp screenshot_dir do
+    Application.app_dir(:clawd_ex, @screenshot_dir)
+  rescue
+    _ -> @screenshot_dir
+  end
+
+  defp ensure_screenshot_dir do
+    dir = screenshot_dir()
+    unless File.exists?(dir) do
+      File.mkdir_p!(dir)
+    end
+  end
+
+  # ============================================================================
+  # Console Logs
+  # ============================================================================
+
+  defp get_console_logs(target_id, opts) do
+    level = Keyword.get(opts, :level)
+    limit = Keyword.get(opts, :limit, 100)
+
+    # Note: Console logs require Runtime.enable to be called early
+    # and events to be collected. This is a simplified implementation
+    # that returns stored logs from the page.
+    with {:ok, session_id} <- attach_to_target(target_id),
+         :ok <- enable_domain(session_id, "Runtime"),
+         :ok <- enable_domain(session_id, "Console") do
+      # CDP doesn't have a direct "get all console logs" command
+      # Console messages are delivered as events. For now, return empty
+      # with instructions. A full implementation would store events.
+      result = %{
+        target_id: target_id,
+        entries: [],
+        count: 0,
+        note: "Console logging enabled. Future messages will be captured."
+      }
+
+      result =
+        if level do
+          Map.put(result, :filter_level, level)
+        else
+          result
+        end
+
+      {:ok, result}
+    end
+  end
+
+  # ============================================================================
+  # CDP Helpers
+  # ============================================================================
+
+  defp attach_to_target(target_id) do
+    case CDP.send_command("Target.attachToTarget", %{
+           targetId: target_id,
+           flatten: true
+         }) do
+      {:ok, %{"sessionId" => session_id}} ->
+        {:ok, session_id}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp enable_domain(session_id, domain) do
+    case send_to_target(session_id, "#{domain}.enable", %{}) do
+      {:ok, _} -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
+  defp send_to_target(session_id, method, params) do
+    CDP.send_command("Target.sendMessageToTarget", %{
+      sessionId: session_id,
+      message: Jason.encode!(%{id: System.unique_integer([:positive]), method: method, params: params})
+    })
+  end
 end

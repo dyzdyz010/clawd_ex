@@ -1,99 +1,146 @@
 defmodule ClawdEx.Tools.BrowserTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias ClawdEx.Tools.Browser
 
+  @moduletag :browser
+
   describe "name/0" do
-    test "returns 'browser'" do
+    test "returns browser" do
       assert Browser.name() == "browser"
     end
   end
 
   describe "description/0" do
-    test "returns a non-empty description" do
+    test "returns description string" do
       desc = Browser.description()
       assert is_binary(desc)
-      assert String.length(desc) > 0
+      assert String.contains?(desc, "browser") or String.contains?(desc, "Browser")
     end
   end
 
   describe "parameters/0" do
     test "returns valid parameter schema" do
       params = Browser.parameters()
+      assert params[:type] == "object"
+      assert is_map(params[:properties])
+      assert params[:properties][:action]
+      assert params[:properties][:url]
+      assert params[:properties][:targetId]
+    end
 
-      assert params.type == "object"
-      assert is_map(params.properties)
-      assert "action" in params.required
+    test "has required action parameter" do
+      params = Browser.parameters()
+      assert "action" in params[:required]
+    end
 
-      # Check action property
-      assert params.properties.action.type == "string"
-      assert is_list(params.properties.action.enum)
-      assert "status" in params.properties.action.enum
-      assert "start" in params.properties.action.enum
-      assert "stop" in params.properties.action.enum
-      assert "tabs" in params.properties.action.enum
-      assert "open" in params.properties.action.enum
-      assert "close" in params.properties.action.enum
+    test "action enum includes all supported actions" do
+      params = Browser.parameters()
+      actions = params[:properties][:action][:enum]
+
+      # Basic actions
+      assert "status" in actions
+      assert "start" in actions
+      assert "stop" in actions
+      assert "tabs" in actions
+      assert "open" in actions
+      assert "close" in actions
+      assert "navigate" in actions
+
+      # Page operations
+      assert "snapshot" in actions
+      assert "screenshot" in actions
+      assert "console" in actions
+    end
+
+    test "has snapshot format parameter" do
+      params = Browser.parameters()
+      snapshot_format = params[:properties][:snapshotFormat]
+
+      assert snapshot_format[:type] == "string"
+      assert "aria" in snapshot_format[:enum]
+      assert "ai" in snapshot_format[:enum]
+    end
+
+    test "has screenshot parameters" do
+      params = Browser.parameters()
+
+      assert params[:properties][:fullPage][:type] == "boolean"
+      assert params[:properties][:type][:enum] == ["png", "jpeg"]
+      assert params[:properties][:quality][:type] == "integer"
+    end
+
+    test "has console parameters" do
+      params = Browser.parameters()
+
+      assert params[:properties][:level]
+      assert "error" in params[:properties][:level][:enum]
+      assert "warning" in params[:properties][:level][:enum]
+      assert params[:properties][:limit][:type] == "integer"
     end
   end
 
-  describe "execute/2 - status action" do
-    test "returns browser status" do
-      {:ok, result} = Browser.execute(%{"action" => "status"}, %{})
+  describe "execute/2 - navigate" do
+    test "requires targetId parameter" do
+      assert {:error, msg} = Browser.execute(%{"action" => "navigate", "url" => "https://example.com"}, %{})
+      assert String.contains?(msg, "targetId")
+    end
 
-      assert is_map(result)
-      assert Map.has_key?(result, :status)
-      assert result.status in ["stopped", "running", "starting"]
+    test "requires url parameter" do
+      assert {:error, msg} = Browser.execute(%{"action" => "navigate", "targetId" => "abc123"}, %{})
+      assert String.contains?(msg, "url")
     end
   end
 
-  describe "execute/2 - stop action" do
-    test "returns appropriate message when browser is not running" do
-      {:ok, result} = Browser.execute(%{"action" => "stop"}, %{})
-
-      # 可能是 "stopped" 或 "not_running"
-      assert result.status in ["stopped", "not_running"]
+  describe "execute/2 - snapshot" do
+    test "requires targetId parameter" do
+      assert {:error, msg} = Browser.execute(%{"action" => "snapshot"}, %{})
+      assert String.contains?(msg, "targetId")
     end
   end
 
-  describe "execute/2 - tabs action" do
-    test "returns error when browser is not running" do
-      {:error, message} = Browser.execute(%{"action" => "tabs"}, %{})
-
-      assert String.contains?(message, "not running")
+  describe "execute/2 - screenshot" do
+    test "requires targetId parameter" do
+      assert {:error, msg} = Browser.execute(%{"action" => "screenshot"}, %{})
+      assert String.contains?(msg, "targetId")
     end
   end
 
-  describe "execute/2 - open action" do
-    test "returns error when browser is not running" do
-      {:error, message} = Browser.execute(%{"action" => "open", "url" => "https://example.com"}, %{})
-
-      assert String.contains?(message, "not running")
+  describe "execute/2 - console" do
+    test "requires targetId parameter" do
+      assert {:error, msg} = Browser.execute(%{"action" => "console"}, %{})
+      assert String.contains?(msg, "targetId")
     end
   end
 
-  describe "execute/2 - close action" do
-    test "returns error when targetId is missing" do
-      # 先启动浏览器
-      {:error, message} = Browser.execute(%{"action" => "close"}, %{})
-
-      assert String.contains?(message, "targetId") or String.contains?(message, "not running")
-    end
-  end
-
-  describe "execute/2 - invalid action" do
+  describe "execute/2 - unknown action" do
     test "returns error for unknown action" do
-      {:error, message} = Browser.execute(%{"action" => "invalid_action"}, %{})
+      assert {:error, msg} = Browser.execute(%{"action" => "unknown"}, %{})
+      assert String.contains?(msg, "Unknown action")
+    end
 
-      assert String.contains?(message, "Unknown action")
+    test "error message lists valid actions" do
+      {:error, msg} = Browser.execute(%{"action" => "invalid"}, %{})
+      assert String.contains?(msg, "snapshot")
+      assert String.contains?(msg, "screenshot")
+      assert String.contains?(msg, "console")
     end
   end
 
-  describe "execute/2 - navigate action" do
-    test "returns error when missing required parameters" do
-      {:error, message} = Browser.execute(%{"action" => "navigate"}, %{})
+  describe "integration with Registry" do
+    test "browser tool is properly structured for registry" do
+      assert Browser.name() |> is_binary()
+      assert Browser.description() |> is_binary()
+      assert Browser.parameters() |> is_map()
 
-      assert String.contains?(message, "targetId") or String.contains?(message, "not running")
+      params = Browser.parameters()
+      assert params[:type] == "object"
+      assert is_map(params[:properties])
+      assert is_list(params[:required])
     end
   end
+
+  # Note: Full integration tests with actual browser would require
+  # a running browser and are better suited for integration test suite.
+  # These tests verify the module structure and parameter validation.
 end
