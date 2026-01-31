@@ -10,6 +10,7 @@ env:
   MIX_ENV: test
   ELIXIR_VERSION: "1.19"
   OTP_VERSION: "28"
+  DATABASE_URL: postgres://postgres:postgres@localhost:5432/clawd_ex_test
 
 jobs:
   test:
@@ -63,5 +64,3 @@ jobs:
 
       - name: Run tests
         run: mix test
-        env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/clawd_ex_test
