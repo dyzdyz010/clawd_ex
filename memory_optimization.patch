@@ -1,0 +1,1155 @@
+diff --git a/lib/clawd_ex/memory/bm25.ex b/lib/clawd_ex/memory/bm25.ex
+new file mode 100644
+index 0000000..3ddcc0c
+--- /dev/null
++++ b/lib/clawd_ex/memory/bm25.ex
+@@ -0,0 +1,150 @@
++defmodule ClawdEx.Memory.BM25 do
++  @moduledoc """
++  BM25 关键词搜索实现
++  
++  用于 Hybrid 搜索中的文本匹配部分。
++  BM25 擅长精确匹配：ID、代码符号、错误字符串等。
++  """
++
++  # BM25 参数
++  @k1 1.2  # 词频饱和参数
++  @b 0.75  # 文档长度归一化参数
++
++  @type document :: %{
++    id: any(),
++    content: String.t(),
++    tokens: [String.t()],
++    length: non_neg_integer()
++  }
++
++  @type index :: %{
++    documents: %{any() => document()},
++    idf: %{String.t() => float()},
++    avg_doc_length: float(),
++    doc_count: non_neg_integer()
++  }
++
++  @doc """
++  构建 BM25 索引
++  """
++  @spec build_index([{any(), String.t()}]) :: index()
++  def build_index(docs) do
++    documents = 
++      docs
++      |> Enum.map(fn {id, content} ->
++        tokens = tokenize(content)
++        {id, %{id: id, content: content, tokens: tokens, length: length(tokens)}}
++      end)
++      |> Map.new()
++
++    doc_count = map_size(documents)
++    
++    avg_doc_length = 
++      if doc_count > 0 do
++        total_length = documents |> Map.values() |> Enum.map(& &1.length) |> Enum.sum()
++        total_length / doc_count
++      else
++        0.0
++      end
++
++    # 计算 IDF (Inverse Document Frequency)
++    idf = calculate_idf(documents, doc_count)
++
++    %{
++      documents: documents,
++      idf: idf,
++      avg_doc_length: avg_doc_length,
++      doc_count: doc_count
++    }
++  end
++
++  @doc """
++  使用 BM25 搜索
++  返回 [{id, score}] 按分数降序排列
++  """
++  @spec search(index(), String.t(), keyword()) :: [{any(), float()}]
++  def search(index, query, opts \\ []) do
++    limit = Keyword.get(opts, :limit, 10)
++    query_tokens = tokenize(query)
++
++    if Enum.empty?(query_tokens) or index.doc_count == 0 do
++      []
++    else
++      index.documents
++      |> Enum.map(fn {id, doc} ->
++        score = calculate_bm25_score(query_tokens, doc, index)
++        {id, score}
++      end)
++      |> Enum.filter(fn {_, score} -> score > 0 end)
++      |> Enum.sort_by(fn {_, score} -> score end, :desc)
++      |> Enum.take(limit)
++    end
++  end
++
++  @doc """
++  将 BM25 分数归一化到 0-1 范围
++  使用 sigmoid 变换: score / (1 + score)
++  """
++  @spec normalize_score(float()) :: float()
++  def normalize_score(score) when score > 0, do: score / (1 + score)
++  def normalize_score(_), do: 0.0
++
++  # 分词：支持中英文
++  defp tokenize(text) do
++    text
++    |> String.downcase()
++    |> String.replace(~r/[^\w\s\p{Han}\p{Hiragana}\p{Katakana}]+/u, " ")
++    |> String.split(~r/\s+/, trim: true)
++    |> Enum.reject(&(String.length(&1) < 2))  # 过滤太短的词
++    |> Enum.uniq()  # 用于 IDF 计算时需要去重
++  end
++
++  # 分词但保留重复（用于词频计算）
++  defp tokenize_with_freq(text) do
++    text
++    |> String.downcase()
++    |> String.replace(~r/[^\w\s\p{Han}\p{Hiragana}\p{Katakana}]+/u, " ")
++    |> String.split(~r/\s+/, trim: true)
++    |> Enum.reject(&(String.length(&1) < 2))
++  end
++
++  # 计算 IDF
++  defp calculate_idf(documents, doc_count) do
++    # 统计每个词出现在多少文档中
++    doc_freq = 
++      documents
++      |> Map.values()
++      |> Enum.flat_map(fn doc -> doc.tokens |> Enum.uniq() end)
++      |> Enum.frequencies()
++
++    # 计算 IDF: log((N - n + 0.5) / (n + 0.5) + 1)
++    doc_freq
++    |> Enum.map(fn {term, freq} ->
++      idf = :math.log((doc_count - freq + 0.5) / (freq + 0.5) + 1)
++      {term, max(idf, 0)}  # IDF 不应为负
++    end)
++    |> Map.new()
++  end
++
++  # 计算文档的 BM25 分数
++  defp calculate_bm25_score(query_tokens, doc, index) do
++    doc_tokens = tokenize_with_freq(doc.content)
++    term_freq = Enum.frequencies(doc_tokens)
++
++    query_tokens
++    |> Enum.map(fn term ->
++      tf = Map.get(term_freq, term, 0)
++      idf = Map.get(index.idf, term, 0)
++      
++      if tf > 0 and idf > 0 do
++        # BM25 公式
++        numerator = tf * (@k1 + 1)
++        denominator = tf + @k1 * (1 - @b + @b * (doc.length / max(index.avg_doc_length, 1)))
++        idf * (numerator / denominator)
++      else
++        0.0
++      end
++    end)
++    |> Enum.sum()
++  end
++end
+diff --git a/lib/clawd_ex/memory/chunker.ex b/lib/clawd_ex/memory/chunker.ex
+new file mode 100644
+index 0000000..e93f6d4
+--- /dev/null
++++ b/lib/clawd_ex/memory/chunker.ex
+@@ -0,0 +1,168 @@
++defmodule ClawdEx.Memory.Chunker do
++  @moduledoc """
++  智能文本分块器
++  
++  实现基于 token 的分块，并优先在语义边界处断开：
++  1. 标题（Markdown # ## ### 等）
++  2. 段落（双换行）
++  3. 句子结尾
++  4. 行尾
++  
++  默认配置：~400 tokens/块，80 tokens 重叠
++  """
++
++  alias ClawdEx.Memory.Tokenizer
++
++  @default_chunk_size 400      # 目标 tokens
++  @default_overlap 80          # 重叠 tokens
++  @min_chunk_size 100          # 最小块大小
++  @max_chunk_size 600          # 最大块大小（允许少量超出以保持边界完整）
++
++  @type chunk :: {String.t(), pos_integer(), pos_integer()}
++
++  @doc """
++  将文本分块，返回 {content, start_line, end_line} 列表
++  
++  Options:
++    - chunk_size: 目标 token 数量 (default: 400)
++    - overlap: 重叠 token 数量 (default: 80)
++  """
++  @spec chunk_text(String.t(), keyword()) :: [chunk()]
++  def chunk_text(content, opts \\ []) do
++    chunk_size = Keyword.get(opts, :chunk_size, @default_chunk_size)
++    overlap = Keyword.get(opts, :overlap, @default_overlap)
++
++    lines = String.split(content, "\n")
++    
++    if Enum.empty?(lines) do
++      []
++    else
++      lines
++      |> Enum.with_index(1)
++      |> build_chunks(chunk_size, overlap, [])
++      |> Enum.reverse()
++    end
++  end
++
++  # 构建分块
++  defp build_chunks([], _chunk_size, _overlap, acc), do: acc
++
++  defp build_chunks(lines_with_idx, chunk_size, overlap, acc) do
++    {chunk_lines, remaining, _tokens_used} = 
++      collect_chunk(lines_with_idx, chunk_size, [])
++
++    if Enum.empty?(chunk_lines) do
++      acc
++    else
++      chunk = make_chunk(chunk_lines)
++      
++      # 计算重叠：回退 overlap tokens
++      overlap_lines = calculate_overlap_lines(chunk_lines, overlap)
++      next_lines = overlap_lines ++ remaining
++      
++      build_chunks(next_lines, chunk_size, overlap, [chunk | acc])
++    end
++  end
++
++  # 收集一个分块的行
++  defp collect_chunk([], _target, collected), do: {Enum.reverse(collected), [], 0}
++
++  defp collect_chunk([{line, idx} | rest] = _lines, target, collected) do
++    current_text = collected 
++                   |> Enum.reverse() 
++                   |> Enum.map(&elem(&1, 0)) 
++                   |> Enum.join("\n")
++    
++    new_text = if current_text == "", do: line, else: current_text <> "\n" <> line
++    tokens = Tokenizer.estimate_tokens(new_text)
++
++    cond do
++      # 还没到目标大小，继续收集
++      tokens < target ->
++        collect_chunk(rest, target, [{line, idx} | collected])
++
++      # 刚好或稍微超过，检查是否在好的边界
++      tokens <= @max_chunk_size and good_boundary?(line, rest) ->
++        {Enum.reverse([{line, idx} | collected]), rest, tokens}
++
++      # 超过最大限制，停在当前位置
++      tokens > @max_chunk_size and length(collected) > 0 ->
++        {Enum.reverse(collected), [{line, idx} | rest], Tokenizer.estimate_tokens(current_text)}
++
++      # 单行就超过限制，还是要包含它
++      true ->
++        {Enum.reverse([{line, idx} | collected]), rest, tokens}
++    end
++  end
++
++  # 检测是否在好的语义边界
++  defp good_boundary?(current_line, remaining) do
++    next_line = case remaining do
++      [{line, _} | _] -> line
++      _ -> ""
++    end
++
++    # 当前行是好的结束点
++    ends_paragraph?(current_line) or
++    # 下一行是好的开始点
++    starts_new_section?(next_line) or
++    # 当前行是空行
++    String.trim(current_line) == "" or
++    # 下一行是空行
++    String.trim(next_line) == ""
++  end
++
++  # 检查是否结束一个段落
++  defp ends_paragraph?(line) do
++    trimmed = String.trim(line)
++    
++    # 空行
++    trimmed == "" or
++    # 以标点结尾的句子
++    String.ends_with?(trimmed, [".", "。", "!", "！", "?", "？", "```"]) or
++    # 列表项
++    Regex.match?(~r/^[-*]\s/, trimmed) or
++    # 编号列表
++    Regex.match?(~r/^\d+\.\s/, trimmed)
++  end
++
++  # 检查是否开始新的部分
++  defp starts_new_section?(line) do
++    trimmed = String.trim(line)
++    
++    # Markdown 标题
++    String.starts_with?(trimmed, "#") or
++    # 代码块开始
++    String.starts_with?(trimmed, "```") or
++    # 水平线
++    Regex.match?(~r/^[-*_]{3,}$/, trimmed) or
++    # 日期标题格式 (常见于日记)
++    Regex.match?(~r/^\d{4}-\d{2}-\d{2}/, trimmed)
++  end
++
++  # 计算需要重叠的行
++  defp calculate_overlap_lines(chunk_lines, target_overlap) do
++    chunk_lines
++    |> Enum.reverse()
++    |> Enum.reduce_while({[], 0}, fn {line, idx}, {acc, tokens} ->
++      line_tokens = Tokenizer.estimate_tokens(line)
++      new_tokens = tokens + line_tokens
++      
++      if new_tokens >= target_overlap do
++        {:halt, {[{line, idx} | acc], new_tokens}}
++      else
++        {:cont, {[{line, idx} | acc], new_tokens}}
++      end
++    end)
++    |> elem(0)
++  end
++
++  # 从行列表创建分块
++  defp make_chunk(lines_with_idx) do
++    texts = Enum.map(lines_with_idx, &elem(&1, 0))
++    start_line = lines_with_idx |> List.first() |> elem(1)
++    end_line = lines_with_idx |> List.last() |> elem(1)
++    
++    {Enum.join(texts, "\n"), start_line, end_line}
++  end
++end
+diff --git a/lib/clawd_ex/memory/memory.ex b/lib/clawd_ex/memory/memory.ex
+index 112fca0..6a4e452 100644
+--- a/lib/clawd_ex/memory/memory.ex
++++ b/lib/clawd_ex/memory/memory.ex
+@@ -1,20 +1,108 @@
+ defmodule ClawdEx.Memory do
+   @moduledoc """
+   记忆服务 - 向量语义搜索和记忆管理
++  
++  实现 Hybrid 搜索：结合 BM25 关键词匹配和 Vector 语义搜索
++  - Vector: 语义相似（同义词、换个说法）
++  - BM25: 精确匹配（ID、代码符号、错误字符串）
+   """
+   import Ecto.Query
+   alias ClawdEx.Repo
+-  alias ClawdEx.Memory.Chunk
++  alias ClawdEx.Memory.{Chunk, Chunker, BM25}
+   alias ClawdEx.AI.Embeddings
+ 
++  # Hybrid 搜索权重配置
++  @default_vector_weight 0.7
++  @default_text_weight 0.3
++  @default_candidate_multiplier 4
++
+   @doc """
+-  语义搜索记忆块
++  Hybrid 搜索记忆块
++  
++  结合 Vector 相似度和 BM25 关键词匹配，返回综合排序结果。
++  
++  Options:
++    - limit: 返回结果数量 (default: 10)
++    - min_score: 最低分数阈值 (default: 0.3)
++    - vector_weight: 向量搜索权重 (default: 0.7)
++    - text_weight: BM25 文本权重 (default: 0.3)
++    - mode: :hybrid | :vector | :bm25 (default: :hybrid)
+   """
+   @spec search(integer(), String.t(), keyword()) :: [Chunk.t()]
+   def search(agent_id, query, opts \\ []) do
+     limit = Keyword.get(opts, :limit, 10)
+-    min_score = Keyword.get(opts, :min_score, 0.7)
++    min_score = Keyword.get(opts, :min_score, 0.3)
++    mode = Keyword.get(opts, :mode, :hybrid)
++    vector_weight = Keyword.get(opts, :vector_weight, @default_vector_weight)
++    text_weight = Keyword.get(opts, :text_weight, @default_text_weight)
++
++    # 归一化权重
++    total_weight = vector_weight + text_weight
++    vector_w = vector_weight / total_weight
++    text_w = text_weight / total_weight
++
++    case mode do
++      :vector -> 
++        vector_search(agent_id, query, limit * @default_candidate_multiplier)
++        |> Enum.take(limit)
++
++      :bm25 -> 
++        bm25_search(agent_id, query, limit)
++
++      :hybrid ->
++        hybrid_search(agent_id, query, limit, min_score, vector_w, text_w)
++    end
++  end
++
++  # Hybrid 搜索实现
++  defp hybrid_search(agent_id, query, limit, min_score, vector_w, text_w) do
++    candidate_count = limit * @default_candidate_multiplier
++
++    # 并行获取两种搜索结果
++    vector_task = Task.async(fn -> vector_search(agent_id, query, candidate_count) end)
++    bm25_task = Task.async(fn -> bm25_search(agent_id, query, candidate_count) end)
+ 
++    vector_results = Task.await(vector_task, 30_000)
++    bm25_results = Task.await(bm25_task, 30_000)
++
++    # 构建分数映射
++    vector_scores = vector_results |> Enum.map(&{&1.id, &1.similarity}) |> Map.new()
++    bm25_scores = bm25_results |> Enum.map(&{&1.id, &1.bm25_score}) |> Map.new()
++
++    # 合并所有候选文档
++    all_ids = MapSet.union(
++      MapSet.new(Map.keys(vector_scores)),
++      MapSet.new(Map.keys(bm25_scores))
++    )
++
++    # 获取所有候选 chunks
++    chunks_by_id = 
++      (vector_results ++ bm25_results)
++      |> Enum.uniq_by(& &1.id)
++      |> Map.new(&{&1.id, &1})
++
++    # 计算综合分数
++    all_ids
++    |> Enum.map(fn id ->
++      chunk = chunks_by_id[id]
++      v_score = Map.get(vector_scores, id, 0.0)
++      t_score = Map.get(bm25_scores, id, 0.0)
++      
++      # 加权综合分数
++      final_score = vector_w * v_score + text_w * t_score
++      
++      chunk
++      |> Map.put(:similarity, final_score)
++      |> Map.put(:vector_score, v_score)
++      |> Map.put(:bm25_score, t_score)
++    end)
++    |> Enum.filter(&(&1.similarity >= min_score))
++    |> Enum.sort_by(&(&1.similarity), :desc)
++    |> Enum.take(limit)
++  end
++
++  # Vector 语义搜索
++  defp vector_search(agent_id, query, limit) do
+     case Embeddings.generate(query) do
+       {:ok, query_embedding} ->
+         query_embedding_str = "[#{Enum.join(query_embedding, ",")}]"
+@@ -34,9 +122,10 @@ defmodule ClawdEx.Memory do
+           limit: ^limit
+         )
+         |> Repo.all()
+-        |> Enum.filter(fn %{similarity: sim} -> sim >= min_score end)
+         |> Enum.map(fn %{chunk: chunk, similarity: sim} ->
+-          Map.put(chunk, :similarity, sim)
++          chunk
++          |> Map.put(:similarity, sim)
++          |> Map.put(:vector_score, sim)
+         end)
+ 
+       {:error, _reason} ->
+@@ -44,49 +133,120 @@ defmodule ClawdEx.Memory do
+     end
+   end
+ 
++  # BM25 关键词搜索
++  defp bm25_search(agent_id, query, limit) do
++    # 获取该 agent 的所有 chunks
++    chunks = 
++      from(c in Chunk,
++        where: c.agent_id == ^agent_id,
++        select: c
++      )
++      |> Repo.all()
++
++    if Enum.empty?(chunks) do
++      []
++    else
++      # 构建 BM25 索引
++      docs = Enum.map(chunks, &{&1.id, &1.content})
++      index = BM25.build_index(docs)
++      
++      # 搜索
++      results = BM25.search(index, query, limit: limit)
++      
++      # 构建 id -> chunk 映射
++      chunks_by_id = Map.new(chunks, &{&1.id, &1})
++      
++      # 返回结果
++      results
++      |> Enum.map(fn {id, score} ->
++        chunk = chunks_by_id[id]
++        normalized_score = BM25.normalize_score(score)
++        
++        chunk
++        |> Map.put(:bm25_score, normalized_score)
++        |> Map.put(:similarity, normalized_score)
++      end)
++    end
++  end
++
+   @doc """
+   索引新的记忆内容
++  
++  使用智能分块算法：
++  - 基于 token 的分块 (~400 tokens, 80 tokens 重叠)
++  - 智能边界检测（段落、标题优先）
++  
++  Options:
++    - source_type: :memory_file | :session | :document (default: :memory_file)
++    - chunk_size: 目标 token 数量 (default: 400)
++    - overlap: 重叠 token 数量 (default: 80)
+   """
+   @spec index_content(integer(), String.t(), String.t(), keyword()) :: {:ok, [Chunk.t()]} | {:error, term()}
+   def index_content(agent_id, source_file, content, opts \\ []) do
+     source_type = Keyword.get(opts, :source_type, :memory_file)
+-    chunk_size = Keyword.get(opts, :chunk_size, 400)  # tokens
+-    overlap = Keyword.get(opts, :overlap, 80)  # tokens
++    chunk_size = Keyword.get(opts, :chunk_size, 400)
++    overlap = Keyword.get(opts, :overlap, 80)
+ 
+-    chunks = chunk_text(content, chunk_size, overlap)
++    # 使用新的智能分块器
++    chunks = Chunker.chunk_text(content, chunk_size: chunk_size, overlap: overlap)
+ 
+-    results =
+-      chunks
+-      |> Enum.with_index()
+-      |> Enum.map(fn {{text, start_line, end_line}, _idx} ->
+-        case Embeddings.generate(text) do
+-          {:ok, embedding} ->
+-            %{
+-              agent_id: agent_id,
+-              content: text,
+-              source_file: source_file,
+-              source_type: source_type,
+-              start_line: start_line,
+-              end_line: end_line,
+-              embedding: embedding,
+-              embedding_model: Embeddings.model(),
+-              inserted_at: DateTime.utc_now(),
+-              updated_at: DateTime.utc_now()
+-            }
+-
+-          {:error, _} ->
+-            nil
+-        end
+-      end)
+-      |> Enum.reject(&is_nil/1)
++    if Enum.empty?(chunks) do
++      {:error, :empty_content}
++    else
++      results = 
++        chunks
++        |> Enum.map(fn {text, start_line, end_line} ->
++          case Embeddings.generate(text) do
++            {:ok, embedding} ->
++              %{
++                agent_id: agent_id,
++                content: text,
++                source_file: source_file,
++                source_type: source_type,
++                start_line: start_line,
++                end_line: end_line,
++                embedding: embedding,
++                embedding_model: Embeddings.model(),
++                metadata: %{
++                  chunk_size: chunk_size,
++                  overlap: overlap,
++                  version: 2  # 新版分块算法
++                },
++                inserted_at: DateTime.utc_now(),
++                updated_at: DateTime.utc_now()
++              }
++
++            {:error, reason} ->
++              # 即使嵌入失败也保存内容（支持纯 BM25 搜索）
++              %{
++                agent_id: agent_id,
++                content: text,
++                source_file: source_file,
++                source_type: source_type,
++                start_line: start_line,
++                end_line: end_line,
++                embedding: nil,
++                embedding_model: nil,
++                metadata: %{
++                  chunk_size: chunk_size,
++                  overlap: overlap,
++                  version: 2,
++                  embedding_error: inspect(reason)
++                },
++                inserted_at: DateTime.utc_now(),
++                updated_at: DateTime.utc_now()
++              }
++          end
++        end)
+ 
+-    case results do
+-      [] ->
+-        {:error, :no_chunks_indexed}
++      case results do
++        [] ->
++          {:error, :no_chunks_created}
+ 
+-      chunks_data ->
+-        {_count, inserted} = Repo.insert_all(Chunk, chunks_data, returning: true)
+-        {:ok, inserted}
++        chunks_data ->
++          {_count, inserted} = Repo.insert_all(Chunk, chunks_data, returning: true)
++          {:ok, inserted}
++      end
+     end
+   end
+ 
+@@ -135,19 +295,45 @@ defmodule ClawdEx.Memory do
+     Repo.all(query) |> Enum.join("\n")
+   end
+ 
+-  # 将文本分割成带有行号的块
+-  defp chunk_text(content, _chunk_size, _overlap) do
+-    lines = String.split(content, "\n")
+-
+-    # 简单的按行分块，后续可以改进为基于 token 的分块
+-    lines
+-    |> Enum.with_index(1)
+-    |> Enum.chunk_every(20, 15, :discard)  # 每20行一块，15行重叠
+-    |> Enum.map(fn chunk ->
+-      texts = Enum.map(chunk, fn {line, _idx} -> line end)
+-      start_line = chunk |> List.first() |> elem(1)
+-      end_line = chunk |> List.last() |> elem(1)
+-      {Enum.join(texts, "\n"), start_line, end_line}
+-    end)
++  @doc """
++  重新索引指定来源的内容
++  先删除旧的，再重新分块索引
++  """
++  @spec reindex_content(integer(), String.t(), String.t(), keyword()) :: {:ok, [Chunk.t()]} | {:error, term()}
++  def reindex_content(agent_id, source_file, content, opts \\ []) do
++    delete_by_source(agent_id, source_file)
++    index_content(agent_id, source_file, content, opts)
++  end
++
++  @doc """
++  获取索引统计信息
++  """
++  @spec stats(integer()) :: map()
++  def stats(agent_id) do
++    chunks = 
++      from(c in Chunk,
++        where: c.agent_id == ^agent_id,
++        select: c
++      )
++      |> Repo.all()
++
++    total_chunks = length(chunks)
++    chunks_with_embedding = Enum.count(chunks, &(&1.embedding != nil))
++    chunks_without_embedding = total_chunks - chunks_with_embedding
++
++    sources = 
++      chunks
++      |> Enum.group_by(& &1.source_file)
++      |> Enum.map(fn {file, file_chunks} ->
++        {file, length(file_chunks)}
++      end)
++      |> Map.new()
++
++    %{
++      total_chunks: total_chunks,
++      chunks_with_embedding: chunks_with_embedding,
++      chunks_without_embedding: chunks_without_embedding,
++      sources: sources
++    }
+   end
+ end
+diff --git a/lib/clawd_ex/memory/tokenizer.ex b/lib/clawd_ex/memory/tokenizer.ex
+new file mode 100644
+index 0000000..064f6a2
+--- /dev/null
++++ b/lib/clawd_ex/memory/tokenizer.ex
+@@ -0,0 +1,83 @@
++defmodule ClawdEx.Memory.Tokenizer do
++  @moduledoc """
++  简易 Token 估算器
++  
++  使用字符/单词比例估算 token 数量，适用于大多数 LLM tokenizer。
++  规则：~4 字符 ≈ 1 token（英文），中文约 1.5-2 字符 ≈ 1 token
++  """
++
++  @chars_per_token_en 4.0
++  @chars_per_token_cjk 1.8
++
++  @doc """
++  估算文本的 token 数量
++  """
++  @spec estimate_tokens(String.t()) :: non_neg_integer()
++  def estimate_tokens(text) when is_binary(text) do
++    # 分离 CJK 字符和其他字符
++    {cjk_count, other_count} = count_char_types(text)
++    
++    cjk_tokens = cjk_count / @chars_per_token_cjk
++    other_tokens = other_count / @chars_per_token_en
++    
++    round(cjk_tokens + other_tokens)
++  end
++
++  def estimate_tokens(_), do: 0
++
++  @doc """
++  将文本截断到指定的 token 数量
++  """
++  @spec truncate_to_tokens(String.t(), non_neg_integer()) :: String.t()
++  def truncate_to_tokens(text, max_tokens) do
++    current_tokens = estimate_tokens(text)
++    
++    if current_tokens <= max_tokens do
++      text
++    else
++      # 估算需要保留的字符数
++      ratio = max_tokens / max(current_tokens, 1)
++      chars_to_keep = round(String.length(text) * ratio * 0.95)  # 保守一点
++      String.slice(text, 0, chars_to_keep)
++    end
++  end
++
++  @doc """
++  检查文本是否超过 token 限制
++  """
++  @spec exceeds_limit?(String.t(), non_neg_integer()) :: boolean()
++  def exceeds_limit?(text, limit) do
++    estimate_tokens(text) > limit
++  end
++
++  # 统计 CJK 字符和其他字符数量
++  defp count_char_types(text) do
++    text
++    |> String.graphemes()
++    |> Enum.reduce({0, 0}, fn char, {cjk, other} ->
++      if cjk_char?(char) do
++        {cjk + 1, other}
++      else
++        {cjk, other + 1}
++      end
++    end)
++  end
++
++  # 检测是否为 CJK 字符
++  defp cjk_char?(char) do
++    case char |> String.to_charlist() |> List.first() do
++      nil -> false
++      codepoint ->
++        # CJK 统一汉字范围
++        (codepoint >= 0x4E00 and codepoint <= 0x9FFF) or
++        # CJK 扩展 A
++        (codepoint >= 0x3400 and codepoint <= 0x4DBF) or
++        # 日文平假名
++        (codepoint >= 0x3040 and codepoint <= 0x309F) or
++        # 日文片假名
++        (codepoint >= 0x30A0 and codepoint <= 0x30FF) or
++        # 韩文音节
++        (codepoint >= 0xAC00 and codepoint <= 0xD7AF)
++    end
++  end
++end
+diff --git a/lib/clawd_ex/tools/memory_search.ex b/lib/clawd_ex/tools/memory_search.ex
+index a0d73dc..418accf 100644
+--- a/lib/clawd_ex/tools/memory_search.ex
++++ b/lib/clawd_ex/tools/memory_search.ex
+@@ -1,6 +1,11 @@
+ defmodule ClawdEx.Tools.MemorySearch do
+   @moduledoc """
+   记忆语义搜索工具
++  
++  支持 Hybrid 搜索模式：
++  - hybrid: 结合 Vector 语义 + BM25 关键词 (默认)
++  - vector: 纯语义搜索（擅长同义词、换种说法）
++  - bm25: 纯关键词搜索（擅长精确匹配 ID、代码符号）
+   """
+   @behaviour ClawdEx.Tools.Tool
+ 
+@@ -11,7 +16,16 @@ defmodule ClawdEx.Tools.MemorySearch do
+ 
+   @impl true
+   def description do
+-    "Semantically search memory files (MEMORY.md + memory/*.md). Use before answering questions about prior work, decisions, dates, people, preferences, or todos. Returns top snippets with path and lines."
++    """
++    Semantically search memory files (MEMORY.md + memory/*.md).
++    
++    Uses hybrid search combining:
++    - Vector similarity (semantic match, finds synonyms and paraphrases)
++    - BM25 keyword search (exact match, good for IDs, code symbols, error strings)
++    
++    Use before answering questions about prior work, decisions, dates, people, preferences, or todos.
++    Returns top snippets with path, lines, and relevance scores.
++    """
+   end
+ 
+   @impl true
+@@ -21,7 +35,7 @@ defmodule ClawdEx.Tools.MemorySearch do
+       properties: %{
+         query: %{
+           type: "string",
+-          description: "Search query"
++          description: "Search query - natural language or exact terms"
+         },
+         max_results: %{
+           type: "integer",
+@@ -29,7 +43,12 @@ defmodule ClawdEx.Tools.MemorySearch do
+         },
+         min_score: %{
+           type: "number",
+-          description: "Minimum similarity score 0-1 (default 0.7)"
++          description: "Minimum similarity score 0-1 (default 0.3)"
++        },
++        mode: %{
++          type: "string",
++          enum: ["hybrid", "vector", "bm25"],
++          description: "Search mode: 'hybrid' (default), 'vector' (semantic only), 'bm25' (keyword only)"
+         }
+       },
+       required: ["query"]
+@@ -40,14 +59,19 @@ defmodule ClawdEx.Tools.MemorySearch do
+   def execute(params, context) do
+     query = params["query"] || params[:query]
+     max_results = params["max_results"] || params[:max_results] || 10
+-    min_score = params["min_score"] || params[:min_score] || 0.7
++    min_score = params["min_score"] || params[:min_score] || 0.3
++    mode = parse_mode(params["mode"] || params[:mode])
+ 
+     agent_id = context[:agent_id]
+ 
+     if is_nil(agent_id) do
+       {:error, "No agent context available for memory search"}
+     else
+-      results = Memory.search(agent_id, query, limit: max_results, min_score: min_score)
++      results = Memory.search(agent_id, query, 
++        limit: max_results, 
++        min_score: min_score,
++        mode: mode
++      )
+ 
+       if results == [] do
+         {:ok, "No relevant memories found for query: #{query}"}
+@@ -55,18 +79,39 @@ defmodule ClawdEx.Tools.MemorySearch do
+         formatted = results
+         |> Enum.map(fn chunk ->
+           score = Map.get(chunk, :similarity, 0) |> Float.round(3)
++          vector_score = Map.get(chunk, :vector_score, 0) |> format_score()
++          bm25_score = Map.get(chunk, :bm25_score, 0) |> format_score()
++          
++          score_detail = case mode do
++            :hybrid -> " (vector: #{vector_score}, bm25: #{bm25_score})"
++            :vector -> " (vector)"
++            :bm25 -> " (bm25)"
++          end
++          
+           """
+           ---
+           **Source:** #{chunk.source_file} (lines #{chunk.start_line}-#{chunk.end_line})
+-          **Score:** #{score}
++          **Score:** #{score}#{score_detail}
+ 
+-          #{String.slice(chunk.content, 0, 500)}
++          #{String.slice(chunk.content, 0, 700)}
+           """
+         end)
+         |> Enum.join("\n")
+ 
+-        {:ok, "Found #{length(results)} relevant memories:\n\n#{formatted}"}
++        {:ok, "Found #{length(results)} relevant memories (mode: #{mode}):\n\n#{formatted}"}
+       end
+     end
+   end
++
++  defp parse_mode("hybrid"), do: :hybrid
++  defp parse_mode("vector"), do: :vector
++  defp parse_mode("bm25"), do: :bm25
++  defp parse_mode(:hybrid), do: :hybrid
++  defp parse_mode(:vector), do: :vector
++  defp parse_mode(:bm25), do: :bm25
++  defp parse_mode(_), do: :hybrid
++
++  defp format_score(score) when is_float(score), do: Float.round(score, 3) |> to_string()
++  defp format_score(score) when is_integer(score), do: to_string(score)
++  defp format_score(_), do: "0"
+ end
+diff --git a/test/clawd_ex/memory/bm25_test.exs b/test/clawd_ex/memory/bm25_test.exs
+new file mode 100644
+index 0000000..7a1c9ae
+--- /dev/null
++++ b/test/clawd_ex/memory/bm25_test.exs
+@@ -0,0 +1,108 @@
++defmodule ClawdEx.Memory.BM25Test do
++  use ExUnit.Case, async: true
++
++  alias ClawdEx.Memory.BM25
++
++  describe "build_index/1" do
++    test "builds index from documents" do
++      docs = [
++        {1, "The quick brown fox jumps over the lazy dog"},
++        {2, "A fast brown fox leaps over a sleepy canine"},
++        {3, "Python programming language documentation"}
++      ]
++
++      index = BM25.build_index(docs)
++
++      assert index.doc_count == 3
++      assert index.avg_doc_length > 0
++      assert map_size(index.documents) == 3
++      assert map_size(index.idf) > 0
++    end
++
++    test "handles empty documents" do
++      index = BM25.build_index([])
++
++      assert index.doc_count == 0
++      assert index.avg_doc_length == 0.0
++    end
++  end
++
++  describe "search/3" do
++    test "finds relevant documents" do
++      docs = [
++        {1, "The quick brown fox jumps over the lazy dog"},
++        {2, "A fast brown fox leaps over a sleepy canine"},
++        {3, "Python programming language documentation"}
++      ]
++
++      index = BM25.build_index(docs)
++      results = BM25.search(index, "brown fox")
++
++      # 应该找到前两个文档
++      assert length(results) >= 2
++      
++      ids = Enum.map(results, fn {id, _score} -> id end)
++      assert 1 in ids
++      assert 2 in ids
++    end
++
++    test "ranks exact matches higher" do
++      docs = [
++        {1, "error code ABC123 occurred"},
++        {2, "some error happened"},
++        {3, "ABC123 is the code we need"}
++      ]
++
++      index = BM25.build_index(docs)
++      results = BM25.search(index, "ABC123")
++
++      # 包含 ABC123 的文档应该排名靠前
++      assert length(results) >= 2
++      
++      [{first_id, _} | _] = results
++      assert first_id in [1, 3]
++    end
++
++    test "returns empty for no matches" do
++      docs = [
++        {1, "hello world"},
++        {2, "foo bar baz"}
++      ]
++
++      index = BM25.build_index(docs)
++      results = BM25.search(index, "completely unrelated xyz123")
++
++      # 可能返回空或低分结果
++      assert is_list(results)
++    end
++
++    test "handles Chinese text" do
++      docs = [
++        {1, "这是一个测试文档"},
++        {2, "另一个包含测试的文档"},
++        {3, "完全不相关的内容"}
++      ]
++
++      index = BM25.build_index(docs)
++      results = BM25.search(index, "测试")
++
++      # 应该找到前两个文档
++      assert length(results) >= 2
++    end
++  end
++
++  describe "normalize_score/1" do
++    test "normalizes positive scores to 0-1 range" do
++      assert BM25.normalize_score(1.0) == 0.5
++      assert BM25.normalize_score(0.0) == 0.0
++      
++      high_score = BM25.normalize_score(10.0)
++      assert high_score > 0.9 and high_score < 1.0
++    end
++
++    test "handles zero and negative scores" do
++      assert BM25.normalize_score(0) == 0.0
++      assert BM25.normalize_score(-1) == 0.0
++    end
++  end
++end
+diff --git a/test/clawd_ex/memory/chunker_test.exs b/test/clawd_ex/memory/chunker_test.exs
+new file mode 100644
+index 0000000..50b7ba6
+--- /dev/null
++++ b/test/clawd_ex/memory/chunker_test.exs
+@@ -0,0 +1,81 @@
++defmodule ClawdEx.Memory.ChunkerTest do
++  use ExUnit.Case, async: true
++
++  alias ClawdEx.Memory.Chunker
++  alias ClawdEx.Memory.Tokenizer
++
++  describe "chunk_text/2" do
++    test "chunks text based on token count" do
++      # 创建一个足够长的文本
++      lines = Enum.map(1..100, fn i -> "This is line number #{i} with some content." end)
++      content = Enum.join(lines, "\n")
++
++      chunks = Chunker.chunk_text(content, chunk_size: 100, overlap: 20)
++
++      # 应该产生多个 chunks
++      assert length(chunks) > 1
++
++      # 每个 chunk 应该有正确的结构
++      for {text, start_line, end_line} <- chunks do
++        assert is_binary(text)
++        assert is_integer(start_line)
++        assert is_integer(end_line)
++        assert start_line <= end_line
++        assert Tokenizer.estimate_tokens(text) <= 600  # 允许一定超出
++      end
++    end
++
++    test "respects semantic boundaries" do
++      content = """
++      # Section 1
++      This is the first section.
++      It has multiple lines.
++
++      # Section 2
++      This is the second section.
++      With more content here.
++
++      # Section 3
++      Final section content.
++      """
++
++      chunks = Chunker.chunk_text(content, chunk_size: 50, overlap: 10)
++
++      # 检查是否在标题处断开
++      chunk_texts = Enum.map(chunks, fn {text, _, _} -> text end)
++      
++      # 至少应该有一个 chunk 以标题开头
++      assert Enum.any?(chunk_texts, &String.starts_with?(String.trim(&1), "#"))
++    end
++
++    test "handles empty content" do
++      assert Chunker.chunk_text("") == []
++    end
++
++    test "handles single line" do
++      chunks = Chunker.chunk_text("Hello world")
++      assert length(chunks) == 1
++      [{text, start, end_line}] = chunks
++      assert text == "Hello world"
++      assert start == 1
++      assert end_line == 1
++    end
++
++    test "handles Chinese content" do
++      content = """
++      # 中文标题
++
++      这是第一段内容，包含一些中文字符。
++
++      ## 子标题
++
++      这是第二段内容，同样使用中文。
++      """
++
++      chunks = Chunker.chunk_text(content, chunk_size: 50, overlap: 10)
++      
++      # 应该能正常分块
++      assert length(chunks) >= 1
++    end
++  end
++end
+diff --git a/test/clawd_ex/memory/tokenizer_test.exs b/test/clawd_ex/memory/tokenizer_test.exs
+new file mode 100644
+index 0000000..4dea560
+--- /dev/null
++++ b/test/clawd_ex/memory/tokenizer_test.exs
+@@ -0,0 +1,64 @@
++defmodule ClawdEx.Memory.TokenizerTest do
++  use ExUnit.Case, async: true
++
++  alias ClawdEx.Memory.Tokenizer
++
++  describe "estimate_tokens/1" do
++    test "estimates tokens for English text" do
++      text = "Hello world this is a test"
++      tokens = Tokenizer.estimate_tokens(text)
++      
++      # ~26 chars / 4 = ~6-7 tokens
++      assert tokens >= 5 and tokens <= 10
++    end
++
++    test "estimates tokens for Chinese text" do
++      text = "你好世界这是一个测试"
++      tokens = Tokenizer.estimate_tokens(text)
++      
++      # 10 chars / 1.8 = ~5-6 tokens
++      assert tokens >= 4 and tokens <= 8
++    end
++
++    test "handles mixed content" do
++      text = "Hello 你好 World 世界"
++      tokens = Tokenizer.estimate_tokens(text)
++      
++      assert tokens > 0
++    end
++
++    test "returns 0 for empty string" do
++      assert Tokenizer.estimate_tokens("") == 0
++    end
++
++    test "returns 0 for nil" do
++      assert Tokenizer.estimate_tokens(nil) == 0
++    end
++  end
++
++  describe "truncate_to_tokens/2" do
++    test "returns full text if under limit" do
++      text = "Short text"
++      assert Tokenizer.truncate_to_tokens(text, 100) == text
++    end
++
++    test "truncates text that exceeds limit" do
++      text = String.duplicate("word ", 100)
++      truncated = Tokenizer.truncate_to_tokens(text, 10)
++      
++      assert String.length(truncated) < String.length(text)
++      assert Tokenizer.estimate_tokens(truncated) <= 15  # 允许一点误差
++    end
++  end
++
++  describe "exceeds_limit?/2" do
++    test "returns false for text under limit" do
++      refute Tokenizer.exceeds_limit?("hello", 10)
++    end
++
++    test "returns true for text over limit" do
++      text = String.duplicate("word ", 100)
++      assert Tokenizer.exceeds_limit?(text, 10)
++    end
++  end
++end

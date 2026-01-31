@@ -9,7 +9,8 @@ config :clawd_ex, ClawdEx.Repo,
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
   pool_size: 10,
-  types: ClawdEx.PostgresTypes  # pgvector 支持
+  # pgvector 支持
+  types: ClawdEx.PostgresTypes
 
 # For development, we disable any cache and enable
 # debugging and code reloading.

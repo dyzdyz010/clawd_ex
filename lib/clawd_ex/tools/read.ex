@@ -48,9 +48,10 @@ defmodule ClawdEx.Tools.Read do
         lines = String.split(content, "\n")
 
         # 应用 offset 和 limit
-        selected_lines = lines
-        |> Enum.drop(offset - 1)
-        |> Enum.take(limit)
+        selected_lines =
+          lines
+          |> Enum.drop(offset - 1)
+          |> Enum.take(limit)
 
         result = Enum.join(selected_lines, "\n")
 
@@ -70,6 +71,7 @@ defmodule ClawdEx.Tools.Read do
         case File.ls(resolved_path) do
           {:ok, files} ->
             {:ok, "Directory listing:\n" <> Enum.join(files, "\n")}
+
           {:error, reason} ->
             {:error, "Cannot read directory: #{reason}"}
         end

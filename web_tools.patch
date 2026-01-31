@@ -1,0 +1,76 @@
+From: Web Tools Implementation
+Subject: Add web_search and web_fetch tools
+
+This patch implements two web tools for ClawdEx:
+1. WebSearch - Brave Search API integration
+2. WebFetch - URL fetching with HTML to Markdown conversion
+
+Files added:
+- lib/clawd_ex/tools/web_search.ex
+- lib/clawd_ex/tools/web_fetch.ex
+
+Files modified:
+- config/config.exs (added web tools configuration)
+- lib/clawd_ex/application.ex (start web tools agents)
+- lib/clawd_ex/tools/registry.ex (register new tools)
+
+---
+diff --git a/config/config.exs b/config/config.exs
+index 78aaf5e..ea8b72a 100644
+--- a/config/config.exs
++++ b/config/config.exs
+@@ -51,6 +51,25 @@ config :logger, :default_formatter,
+ # Use Jason for JSON parsing in Phoenix
+ config :phoenix, :json_library, Jason
+ 
++# ClawdEx Tools Configuration
++config :clawd_ex, :tools,
++  web: [
++    search: [
++      enabled: true,
++      # api_key: "BRAVE_API_KEY_HERE",  # or set BRAVE_API_KEY env var
++      max_results: 5,
++      timeout_seconds: 30,
++      cache_ttl_minutes: 15
++    ],
++    fetch: [
++      enabled: true,
++      max_chars: 50_000,
++      timeout_seconds: 30,
++      cache_ttl_minutes: 15,
++      max_redirects: 3
++    ]
++  ]
++
+ # Import environment specific config. This must remain at the bottom
+ # of this file so it overrides the configuration defined above.
+ import_config "#{config_env()}.exs"
+diff --git a/lib/clawd_ex/application.ex b/lib/clawd_ex/application.ex
+index 883ffa4..dcd2ac8 100644
+--- a/lib/clawd_ex/application.ex
++++ b/lib/clawd_ex/application.ex
+@@ -18,6 +18,9 @@ defmodule ClawdEx.Application do
+       {Registry, keys: :unique, name: ClawdEx.AgentLoopRegistry},
+       # Background process manager
+       ClawdEx.Tools.Process,
++      # Web tools caches
++      ClawdEx.Tools.WebSearch,
++      ClawdEx.Tools.WebFetch,
+       # Session Manager (DynamicSupervisor)
+       ClawdEx.Sessions.SessionManager,
+       # Start to serve requests, typically the last entry
+diff --git a/lib/clawd_ex/tools/registry.ex b/lib/clawd_ex/tools/registry.ex
+index 8c535e3..new 100644
+--- a/lib/clawd_ex/tools/registry.ex
++++ b/lib/clawd_ex/tools/registry.ex
+@@ -22,7 +22,9 @@ defmodule ClawdEx.Tools.Registry do
+     "process" => ClawdEx.Tools.Process,
+     "memory_search" => ClawdEx.Tools.MemorySearch,
+     "memory_get" => ClawdEx.Tools.MemoryGet,
+-    "session_status" => ClawdEx.Tools.SessionStatus
++    "session_status" => ClawdEx.Tools.SessionStatus,
++    "web_search" => ClawdEx.Tools.WebSearch,
++    "web_fetch" => ClawdEx.Tools.WebFetch
+   }
+ 
+   @doc """

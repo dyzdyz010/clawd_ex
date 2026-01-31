@@ -115,21 +115,29 @@ defmodule ClawdEx.Tools.ToolsTest do
     end
 
     test "replaces text", %{test_file: test_file} do
-      assert {:ok, _} = Edit.execute(%{
-        path: test_file,
-        old_string: "World",
-        new_string: "Elixir"
-      }, %{})
+      assert {:ok, _} =
+               Edit.execute(
+                 %{
+                   path: test_file,
+                   old_string: "World",
+                   new_string: "Elixir"
+                 },
+                 %{}
+               )
 
       assert File.read!(test_file) == "Hello Elixir\nThis is a test"
     end
 
     test "returns error when text not found", %{test_file: test_file} do
-      assert {:error, message} = Edit.execute(%{
-        path: test_file,
-        old_string: "Nonexistent",
-        new_string: "New"
-      }, %{})
+      assert {:error, message} =
+               Edit.execute(
+                 %{
+                   path: test_file,
+                   old_string: "Nonexistent",
+                   new_string: "New"
+                 },
+                 %{}
+               )
 
       assert message =~ "not found"
     end
@@ -147,10 +155,14 @@ defmodule ClawdEx.Tools.ToolsTest do
     end
 
     test "respects timeout" do
-      assert {:error, message} = Exec.execute(%{
-        command: "sleep 10",
-        timeout: 1
-      }, %{})
+      assert {:error, message} =
+               Exec.execute(
+                 %{
+                   command: "sleep 10",
+                   timeout: 1
+                 },
+                 %{}
+               )
 
       assert message =~ "timed out"
     end

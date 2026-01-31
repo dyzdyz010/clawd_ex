@@ -62,8 +62,10 @@ defmodule ClawdEx.Agent.Prompt do
 
   defp identity_section(nil), do: nil
   defp identity_section(%{config: nil}), do: nil
+
   defp identity_section(%{config: config}) when is_map(config) do
     identity = config["identity"] || config[:identity]
+
     if identity && is_map(identity) do
       name = identity["name"] || identity[:name]
       emoji = identity["emoji"] || identity[:emoji]
@@ -81,14 +83,16 @@ defmodule ClawdEx.Agent.Prompt do
       nil
     end
   end
+
   defp identity_section(_), do: nil
 
   defp workspace_section(agent, config) do
-    workspace = cond do
-      agent && agent.workspace_path -> agent.workspace_path
-      config[:workspace] -> config[:workspace]
-      true -> "~/clawd"
-    end
+    workspace =
+      cond do
+        agent && agent.workspace_path -> agent.workspace_path
+        config[:workspace] -> config[:workspace]
+        true -> "~/clawd"
+      end
 
     """
     ## Workspace
@@ -98,11 +102,12 @@ defmodule ClawdEx.Agent.Prompt do
   end
 
   defp bootstrap_section(agent, config) do
-    workspace = cond do
-      agent && agent.workspace_path -> agent.workspace_path
-      config[:workspace] -> config[:workspace]
-      true -> nil
-    end
+    workspace =
+      cond do
+        agent && agent.workspace_path -> agent.workspace_path
+        config[:workspace] -> config[:workspace]
+        true -> nil
+      end
 
     if workspace do
       expanded = Path.expand(workspace)
@@ -116,24 +121,31 @@ defmodule ClawdEx.Agent.Prompt do
         {"MEMORY.md", "Long-term memory"}
       ]
 
-      loaded_files = files
-      |> Enum.map(fn {filename, _desc} ->
-        path = Path.join(expanded, filename)
-        if File.exists?(path) do
-          case File.read(path) do
-            {:ok, content} ->
-              truncated = truncate_content(content, 10_000)
-              "## #{filename}\n#{truncated}"
-            _ -> nil
+      loaded_files =
+        files
+        |> Enum.map(fn {filename, _desc} ->
+          path = Path.join(expanded, filename)
+
+          if File.exists?(path) do
+            case File.read(path) do
+              {:ok, content} ->
+                truncated = truncate_content(content, 10_000)
+                "## #{filename}\n#{truncated}"
+
+              _ ->
+                nil
+            end
+          else
+            nil
           end
-        else
-          nil
-        end
-      end)
-      |> Enum.reject(&is_nil/1)
+        end)
+        |> Enum.reject(&is_nil/1)
 
       if loaded_files != [] do
-        ["# Project Context", "The following project context files have been loaded:" | loaded_files]
+        [
+          "# Project Context",
+          "The following project context files have been loaded:" | loaded_files
+        ]
         |> Enum.join("\n\n")
       else
         nil
@@ -147,11 +159,12 @@ defmodule ClawdEx.Agent.Prompt do
     tools = Map.get(config, :tools, [])
 
     if tools != [] do
-      tool_list = tools
-      |> Enum.map(fn tool ->
-        "- **#{tool.name}**: #{tool.description}"
-      end)
-      |> Enum.join("\n")
+      tool_list =
+        tools
+        |> Enum.map(fn tool ->
+          "- **#{tool.name}**: #{tool.description}"
+        end)
+        |> Enum.join("\n")
 
       """
       ## Available Tools
@@ -171,8 +184,9 @@ defmodule ClawdEx.Agent.Prompt do
     timezone = config[:timezone] || "UTC"
 
     # 使用 UTC 时间，避免时区数据库问题
-    now = DateTime.utc_now()
-    |> Calendar.strftime("%Y-%m-%d %H:%M:%S UTC")
+    now =
+      DateTime.utc_now()
+      |> Calendar.strftime("%Y-%m-%d %H:%M:%S UTC")
 
     """
     ## Runtime

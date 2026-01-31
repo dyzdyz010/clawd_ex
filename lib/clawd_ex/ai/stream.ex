@@ -12,11 +12,11 @@ defmodule ClawdEx.AI.Stream do
 
   @type message :: %{role: String.t(), content: String.t()}
   @type stream_opts :: [
-    system: String.t() | nil,
-    tools: [map()],
-    max_tokens: integer(),
-    stream_to: pid() | nil
-  ]
+          system: String.t() | nil,
+          tools: [map()],
+          max_tokens: integer(),
+          stream_to: pid() | nil
+        ]
 
   @doc """
   流式聊天补全 - 发送流式块到指定进程
@@ -66,7 +66,13 @@ defmodule ClawdEx.AI.Stream do
       ]
 
       # 使用 Req 的流式处理
-      case stream_request("https://api.anthropic.com/v1/messages", body, headers, stream_to, :anthropic) do
+      case stream_request(
+             "https://api.anthropic.com/v1/messages",
+             body,
+             headers,
+             stream_to,
+             :anthropic
+           ) do
         {:ok, accumulated} -> {:ok, accumulated}
         {:error, reason} -> {:error, reason}
       end
@@ -88,11 +94,12 @@ defmodule ClawdEx.AI.Stream do
       max_tokens = Keyword.get(opts, :max_tokens, 4096)
 
       # 将系统提示添加到消息开头
-      messages = if system_prompt do
-        [%{role: "system", content: system_prompt} | messages]
-      else
-        messages
-      end
+      messages =
+        if system_prompt do
+          [%{role: "system", content: system_prompt} | messages]
+        else
+          messages
+        end
 
       body = %{
         model: model,
@@ -101,11 +108,12 @@ defmodule ClawdEx.AI.Stream do
         stream: true
       }
 
-      body = if tools != [] do
-        Map.put(body, :tools, format_tools_openai(tools))
-      else
-        body
-      end
+      body =
+        if tools != [] do
+          Map.put(body, :tools, format_tools_openai(tools))
+        else
+          body
+        end
 
       headers = [
         {"Authorization", "Bearer #{api_key}"},
@@ -113,7 +121,13 @@ defmodule ClawdEx.AI.Stream do
         {"accept", "text/event-stream"}
       ]
 
-      case stream_request("https://api.openai.com/v1/chat/completions", body, headers, stream_to, :openai) do
+      case stream_request(
+             "https://api.openai.com/v1/chat/completions",
+             body,
+             headers,
+             stream_to,
+             :openai
+           ) do
         {:ok, accumulated} -> {:ok, accumulated}
         {:error, reason} -> {:error, reason}
       end
@@ -132,7 +146,8 @@ defmodule ClawdEx.AI.Stream do
     else
       max_tokens = Keyword.get(opts, :max_tokens, 4096)
 
-      url = "https://generativelanguage.googleapis.com/v1beta/models/#{model}:streamGenerateContent?key=#{api_key}&alt=sse"
+      url =
+        "https://generativelanguage.googleapis.com/v1beta/models/#{model}:streamGenerateContent?key=#{api_key}&alt=sse"
 
       body = %{
         contents: format_messages_gemini(messages),
@@ -166,14 +181,15 @@ defmodule ClawdEx.AI.Stream do
     }
 
     # 使用 Req 发送请求
-    request = Req.new(
-      url: url,
-      method: :post,
-      json: body,
-      headers: headers,
-      receive_timeout: 120_000,
-      into: :self
-    )
+    request =
+      Req.new(
+        url: url,
+        method: :post,
+        json: body,
+        headers: headers,
+        receive_timeout: 120_000,
+        into: :self
+      )
 
     case Req.request(request) do
       {:ok, response} ->
@@ -185,7 +201,14 @@ defmodule ClawdEx.AI.Stream do
   end
 
   defp process_stream(response, acc, stream_to, provider) do
-    receive_loop(response, acc, stream_to, provider, "")
+    case receive_loop(response, acc, stream_to, provider, "") do
+      {:ok, final_acc} ->
+        # 最终处理：解析 OpenAI 累积的 JSON 参数
+        {:ok, finalize_response(final_acc, provider)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   defp receive_loop(response, acc, stream_to, provider, buffer) do
@@ -198,9 +221,10 @@ defmodule ClawdEx.AI.Stream do
         {events, new_buffer} = parse_sse_events(full_data)
 
         # 处理每个事件
-        new_acc = Enum.reduce(events, acc, fn event, current_acc ->
-          process_sse_event(event, current_acc, stream_to, provider)
-        end)
+        new_acc =
+          Enum.reduce(events, acc, fn event, current_acc ->
+            process_sse_event(event, current_acc, stream_to, provider)
+          end)
 
         receive_loop(response, new_acc, stream_to, provider, new_buffer)
 
@@ -209,35 +233,60 @@ defmodule ClawdEx.AI.Stream do
 
       {ref, {:error, reason}} when ref == response.async.ref ->
         {:error, reason}
-
     after
       120_000 ->
         {:error, :timeout}
     end
   end
 
+  # 最终处理：解析 OpenAI 的 JSON arguments
+  defp finalize_response(acc, :openai) do
+    finalized_tool_calls =
+      Enum.map(acc.tool_calls, fn tc ->
+        args_raw = tc["arguments_raw"] || ""
+
+        input =
+          case Jason.decode(args_raw) do
+            {:ok, parsed} -> parsed
+            {:error, _} -> %{}
+          end
+
+        %{
+          "id" => tc["id"],
+          "name" => tc["name"],
+          "input" => input
+        }
+      end)
+
+    %{acc | tool_calls: finalized_tool_calls}
+  end
+
+  defp finalize_response(acc, _provider), do: acc
+
   defp parse_sse_events(data) do
     lines = String.split(data, "\n")
 
     # 检查最后一行是否完整
-    {complete_lines, incomplete} = if String.ends_with?(data, "\n") do
-      {lines, ""}
-    else
-      case List.pop_at(lines, -1) do
-        {nil, []} -> {[], ""}
-        {last, rest} -> {rest, last}
+    {complete_lines, incomplete} =
+      if String.ends_with?(data, "\n") do
+        {lines, ""}
+      else
+        case List.pop_at(lines, -1) do
+          {nil, []} -> {[], ""}
+          {last, rest} -> {rest, last}
+        end
       end
-    end
 
     # 解析完整的事件
-    events = complete_lines
-    |> Enum.filter(&String.starts_with?(&1, "data: "))
-    |> Enum.map(fn line ->
-      line
-      |> String.trim_leading("data: ")
-      |> String.trim()
-    end)
-    |> Enum.reject(&(&1 == "[DONE]" || &1 == ""))
+    events =
+      complete_lines
+      |> Enum.filter(&String.starts_with?(&1, "data: "))
+      |> Enum.map(fn line ->
+        line
+        |> String.trim_leading("data: ")
+        |> String.trim()
+      end)
+      |> Enum.reject(&(&1 == "[DONE]" || &1 == ""))
 
     {events, incomplete}
   end
@@ -253,7 +302,12 @@ defmodule ClawdEx.AI.Stream do
   end
 
   # Anthropic event processing
-  defp process_event(%{"type" => "content_block_delta", "delta" => delta}, acc, stream_to, :anthropic) do
+  defp process_event(
+         %{"type" => "content_block_delta", "delta" => delta},
+         acc,
+         stream_to,
+         :anthropic
+       ) do
     text = delta["text"] || ""
 
     if stream_to && text != "" do
@@ -263,27 +317,41 @@ defmodule ClawdEx.AI.Stream do
     %{acc | content: acc.content <> text}
   end
 
-  defp process_event(%{"type" => "message_delta", "delta" => delta, "usage" => usage}, acc, _stream_to, :anthropic) do
-    %{acc |
-      stop_reason: delta["stop_reason"],
-      tokens_out: usage["output_tokens"]
-    }
+  defp process_event(
+         %{"type" => "message_delta", "delta" => delta, "usage" => usage},
+         acc,
+         _stream_to,
+         :anthropic
+       ) do
+    %{acc | stop_reason: delta["stop_reason"], tokens_out: usage["output_tokens"]}
   end
 
-  defp process_event(%{"type" => "message_start", "message" => message}, acc, _stream_to, :anthropic) do
+  defp process_event(
+         %{"type" => "message_start", "message" => message},
+         acc,
+         _stream_to,
+         :anthropic
+       ) do
     %{acc | tokens_in: message["usage"]["input_tokens"]}
   end
 
-  defp process_event(%{"type" => "content_block_start", "content_block" => %{"type" => "tool_use"} = block}, acc, _stream_to, :anthropic) do
+  defp process_event(
+         %{"type" => "content_block_start", "content_block" => %{"type" => "tool_use"} = block},
+         acc,
+         _stream_to,
+         :anthropic
+       ) do
     tool_call = %{
       "id" => block["id"],
       "name" => block["name"],
       "input" => %{}
     }
+
     %{acc | tool_calls: acc.tool_calls ++ [tool_call]}
   end
 
   # OpenAI event processing
+  # OpenAI 流式 tool_calls 是增量的，需要按 index 累积
   defp process_event(%{"choices" => [%{"delta" => delta} | _]} = event, acc, stream_to, :openai) do
     content = delta["content"] || ""
 
@@ -291,38 +359,67 @@ defmodule ClawdEx.AI.Stream do
       send(stream_to, {:ai_chunk, %{content: content}})
     end
 
-    # 处理工具调用
-    tool_calls = if delta["tool_calls"] do
-      Enum.map(delta["tool_calls"], fn tc ->
-        %{
-          "id" => tc["id"],
-          "name" => tc["function"]["name"],
-          "input" => tc["function"]["arguments"]
-        }
-      end)
-    else
-      []
-    end
+    # 处理工具调用 - OpenAI 按 index 增量发送
+    new_tool_calls =
+      if delta["tool_calls"] do
+        Enum.reduce(delta["tool_calls"], acc.tool_calls, fn tc, current_calls ->
+          index = tc["index"] || 0
 
-    new_tool_calls = acc.tool_calls ++ tool_calls
+          # 获取或创建该 index 的 tool_call
+          existing = Enum.at(current_calls, index)
+
+          updated_call =
+            if existing do
+              # 累积 arguments (JSON 字符串片段)
+              existing_args = existing["arguments_raw"] || ""
+              new_args = get_in(tc, ["function", "arguments"]) || ""
+
+              existing
+              |> Map.put("arguments_raw", existing_args <> new_args)
+            else
+              # 新的 tool_call
+              %{
+                "id" => tc["id"],
+                "name" => get_in(tc, ["function", "name"]),
+                "arguments_raw" => get_in(tc, ["function", "arguments"]) || ""
+              }
+            end
+
+          # 更新或追加
+          if existing do
+            List.replace_at(current_calls, index, updated_call)
+          else
+            current_calls ++ [updated_call]
+          end
+        end)
+      else
+        acc.tool_calls
+      end
 
     # 处理 usage
     usage = event["usage"] || %{}
 
-    %{acc |
-      content: acc.content <> content,
-      tool_calls: new_tool_calls,
-      tokens_in: usage["prompt_tokens"] || acc.tokens_in,
-      tokens_out: usage["completion_tokens"] || acc.tokens_out
+    %{
+      acc
+      | content: acc.content <> content,
+        tool_calls: new_tool_calls,
+        tokens_in: usage["prompt_tokens"] || acc.tokens_in,
+        tokens_out: usage["completion_tokens"] || acc.tokens_out
     }
   end
 
   # Gemini event processing
-  defp process_event(%{"candidates" => [%{"content" => %{"parts" => parts}} | _]}, acc, stream_to, :gemini) do
-    text = parts
-    |> Enum.filter(&Map.has_key?(&1, "text"))
-    |> Enum.map(& &1["text"])
-    |> Enum.join("")
+  defp process_event(
+         %{"candidates" => [%{"content" => %{"parts" => parts}} | _]},
+         acc,
+         stream_to,
+         :gemini
+       ) do
+    text =
+      parts
+      |> Enum.filter(&Map.has_key?(&1, "text"))
+      |> Enum.map(& &1["text"])
+      |> Enum.join("")
 
     if stream_to && text != "" do
       send(stream_to, {:ai_chunk, %{content: text}})
@@ -360,29 +457,33 @@ defmodule ClawdEx.AI.Stream do
         role == "tool" && tool_call_id ->
           %{
             role: "user",
-            content: [%{
-              type: "tool_result",
-              tool_use_id: tool_call_id,
-              content: content
-            }]
+            content: [
+              %{
+                type: "tool_result",
+                tool_use_id: tool_call_id,
+                content: content
+              }
+            ]
           }
 
         # 助手消息带工具调用
         role == "assistant" && tool_calls && tool_calls != [] ->
-          content_blocks = if content && content != "" do
-            [%{type: "text", text: content}]
-          else
-            []
-          end
+          content_blocks =
+            if content && content != "" do
+              [%{type: "text", text: content}]
+            else
+              []
+            end
 
-          tool_use_blocks = Enum.map(tool_calls, fn tc ->
-            %{
-              type: "tool_use",
-              id: tc["id"],
-              name: tc["name"],
-              input: tc["input"] || tc["arguments"] || %{}
-            }
-          end)
+          tool_use_blocks =
+            Enum.map(tool_calls, fn tc ->
+              %{
+                type: "tool_use",
+                id: tc["id"],
+                name: tc["name"],
+                input: tc["input"] || tc["arguments"] || %{}
+              }
+            end)
 
           %{role: "assistant", content: content_blocks ++ tool_use_blocks}
 
@@ -395,12 +496,15 @@ defmodule ClawdEx.AI.Stream do
 
   defp format_messages_gemini(messages) do
     Enum.map(messages, fn msg ->
-      role = case msg[:role] || msg["role"] do
-        "user" -> "user"
-        "assistant" -> "model"
-        "system" -> "user"  # Gemini 不支持 system role
-        _ -> "user"
-      end
+      role =
+        case msg[:role] || msg["role"] do
+          "user" -> "user"
+          "assistant" -> "model"
+          # Gemini 不支持 system role
+          "system" -> "user"
+          _ -> "user"
+        end
+
       %{role: role, parts: [%{text: msg[:content] || msg["content"]}]}
     end)
   end

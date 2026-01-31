@@ -62,7 +62,8 @@ defmodule ClawdEx.Repo.Migrations.CreateCoreTables do
       add :source_type, :string, null: false
       add :start_line, :integer
       add :end_line, :integer
-      add :embedding, :vector, size: 1536  # OpenAI text-embedding-3-small 维度
+      # OpenAI text-embedding-3-small 维度
+      add :embedding, :vector, size: 1536
       add :embedding_model, :string
       add :metadata, :map, default: %{}
 
@@ -76,10 +77,10 @@ defmodule ClawdEx.Repo.Migrations.CreateCoreTables do
 
     # 创建 HNSW 向量索引 (用于快速相似度搜索)
     execute """
-    CREATE INDEX memory_chunks_embedding_idx ON memory_chunks
-    USING hnsw (embedding vector_cosine_ops)
-    WITH (m = 16, ef_construction = 64)
-    """,
-    "DROP INDEX memory_chunks_embedding_idx"
+            CREATE INDEX memory_chunks_embedding_idx ON memory_chunks
+            USING hnsw (embedding vector_cosine_ops)
+            WITH (m = 16, ef_construction = 64)
+            """,
+            "DROP INDEX memory_chunks_embedding_idx"
   end
 end

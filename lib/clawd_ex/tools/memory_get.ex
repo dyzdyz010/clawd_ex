@@ -65,16 +65,20 @@ defmodule ClawdEx.Tools.MemoryGet do
           {:ok, content} ->
             lines = String.split(content, "\n")
 
-            selected = cond do
-              from_line && num_lines ->
-                lines |> Enum.drop(from_line - 1) |> Enum.take(num_lines)
-              from_line ->
-                Enum.drop(lines, from_line - 1)
-              num_lines ->
-                Enum.take(lines, num_lines)
-              true ->
-                lines
-            end
+            selected =
+              cond do
+                from_line && num_lines ->
+                  lines |> Enum.drop(from_line - 1) |> Enum.take(num_lines)
+
+                from_line ->
+                  Enum.drop(lines, from_line - 1)
+
+                num_lines ->
+                  Enum.take(lines, num_lines)
+
+                true ->
+                  lines
+              end
 
             {:ok, Enum.join(selected, "\n")}
 
@@ -90,6 +94,6 @@ defmodule ClawdEx.Tools.MemoryGet do
 
   defp valid_memory_path?(path) do
     path == "MEMORY.md" ||
-    String.starts_with?(path, "memory/") && String.ends_with?(path, ".md")
+      (String.starts_with?(path, "memory/") && String.ends_with?(path, ".md"))
   end
 end

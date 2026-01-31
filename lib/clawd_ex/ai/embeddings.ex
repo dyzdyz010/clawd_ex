@@ -38,18 +38,19 @@ defmodule ClawdEx.AI.Embeddings do
     if is_nil(api_key) do
       {:error, :missing_api_key}
     else
-      body = Jason.encode!(%{
-        input: text,
-        model: model
-      })
+      body =
+        Jason.encode!(%{
+          input: text,
+          model: model
+        })
 
       case Req.post("#{base_url}/embeddings",
-        body: body,
-        headers: [
-          {"Authorization", "Bearer #{api_key}"},
-          {"Content-Type", "application/json"}
-        ]
-      ) do
+             body: body,
+             headers: [
+               {"Authorization", "Bearer #{api_key}"},
+               {"Content-Type", "application/json"}
+             ]
+           ) do
         {:ok, %{status: 200, body: %{"data" => [%{"embedding" => embedding} | _]}}} ->
           {:ok, embedding}
 
@@ -70,19 +71,21 @@ defmodule ClawdEx.AI.Embeddings do
     if is_nil(api_key) do
       {:error, :missing_api_key}
     else
-      url = "https://generativelanguage.googleapis.com/v1beta/models/#{model}:embedContent?key=#{api_key}"
+      url =
+        "https://generativelanguage.googleapis.com/v1beta/models/#{model}:embedContent?key=#{api_key}"
 
-      body = Jason.encode!(%{
-        model: "models/#{model}",
-        content: %{
-          parts: [%{text: text}]
-        }
-      })
+      body =
+        Jason.encode!(%{
+          model: "models/#{model}",
+          content: %{
+            parts: [%{text: text}]
+          }
+        })
 
       case Req.post(url,
-        body: body,
-        headers: [{"Content-Type", "application/json"}]
-      ) do
+             body: body,
+             headers: [{"Content-Type", "application/json"}]
+           ) do
         {:ok, %{status: 200, body: %{"embedding" => %{"values" => embedding}}}} ->
           {:ok, embedding}
 

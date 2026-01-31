@@ -63,6 +63,7 @@ defmodule ClawdEx.Tools.SessionStatus do
   end
 
   defp format_datetime(nil), do: "N/A"
+
   defp format_datetime(dt) do
     Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
   end

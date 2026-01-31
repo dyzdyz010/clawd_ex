@@ -56,7 +56,8 @@ defmodule ClawdEx.Tools.Edit do
               {:error, "Failed to write file: #{reason}"}
           end
         else
-          {:error, "The specified old_string was not found in the file. Make sure it matches exactly, including whitespace."}
+          {:error,
+           "The specified old_string was not found in the file. Make sure it matches exactly, including whitespace."}
         end
 
       {:error, :enoent} ->

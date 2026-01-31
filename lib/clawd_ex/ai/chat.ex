@@ -57,12 +57,12 @@ defmodule ClawdEx.AI.Chat do
       body = if tools != [], do: Map.put(body, :tools, format_tools_anthropic(tools)), else: body
 
       case Req.post("https://api.anthropic.com/v1/messages",
-        json: body,
-        headers: [
-          {"x-api-key", api_key},
-          {"anthropic-version", "2023-06-01"}
-        ]
-      ) do
+             json: body,
+             headers: [
+               {"x-api-key", api_key},
+               {"anthropic-version", "2023-06-01"}
+             ]
+           ) do
         {:ok, %{status: 200, body: body}} ->
           {:ok, parse_anthropic_response(body)}
 
@@ -93,9 +93,9 @@ defmodule ClawdEx.AI.Chat do
       body = if tools != [], do: Map.put(body, :tools, format_tools_openai(tools)), else: body
 
       case Req.post("https://api.openai.com/v1/chat/completions",
-        json: body,
-        headers: [{"Authorization", "Bearer #{api_key}"}]
-      ) do
+             json: body,
+             headers: [{"Authorization", "Bearer #{api_key}"}]
+           ) do
         {:ok, %{status: 200, body: body}} ->
           {:ok, parse_openai_response(body)}
 
@@ -116,7 +116,8 @@ defmodule ClawdEx.AI.Chat do
     if is_nil(api_key) do
       {:error, :missing_api_key}
     else
-      url = "https://generativelanguage.googleapis.com/v1beta/models/#{model}:generateContent?key=#{api_key}"
+      url =
+        "https://generativelanguage.googleapis.com/v1beta/models/#{model}:generateContent?key=#{api_key}"
 
       body = %{
         contents: format_messages_gemini(messages),
@@ -146,7 +147,8 @@ defmodule ClawdEx.AI.Chat do
       ["anthropic", name] -> {:anthropic, name}
       ["openai", name] -> {:openai, name}
       ["google", name] -> {:google, name}
-      [name] -> {:anthropic, name}  # 默认 Anthropic
+      # 默认 Anthropic
+      [name] -> {:anthropic, name}
       _ -> {:unknown, model}
     end
   end
@@ -159,11 +161,13 @@ defmodule ClawdEx.AI.Chat do
 
   defp format_messages_gemini(messages) do
     Enum.map(messages, fn msg ->
-      role = case msg[:role] || msg["role"] do
-        "user" -> "user"
-        "assistant" -> "model"
-        _ -> "user"
-      end
+      role =
+        case msg[:role] || msg["role"] do
+          "user" -> "user"
+          "assistant" -> "model"
+          _ -> "user"
+        end
+
       %{role: role, parts: [%{text: msg[:content] || msg["content"]}]}
     end)
   end
@@ -192,7 +196,9 @@ defmodule ClawdEx.AI.Chat do
   end
 
   defp parse_anthropic_response(%{"content" => content, "usage" => usage} = resp) do
-    text = content |> Enum.filter(&(&1["type"] == "text")) |> Enum.map(&(&1["text"])) |> Enum.join("")
+    text =
+      content |> Enum.filter(&(&1["type"] == "text")) |> Enum.map(& &1["text"]) |> Enum.join("")
+
     tool_calls = content |> Enum.filter(&(&1["type"] == "tool_use"))
 
     %{
@@ -206,6 +212,7 @@ defmodule ClawdEx.AI.Chat do
 
   defp parse_openai_response(%{"choices" => [choice | _], "usage" => usage}) do
     message = choice["message"]
+
     %{
       content: message["content"],
       tool_calls: message["tool_calls"] || [],
@@ -216,7 +223,8 @@ defmodule ClawdEx.AI.Chat do
   end
 
   defp parse_gemini_response(%{"candidates" => [candidate | _]}) do
-    content = candidate["content"]["parts"] |> Enum.map(&(&1["text"])) |> Enum.join("")
+    content = candidate["content"]["parts"] |> Enum.map(& &1["text"]) |> Enum.join("")
+
     %{
       content: content,
       tool_calls: [],

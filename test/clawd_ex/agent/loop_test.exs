@@ -8,12 +8,14 @@ defmodule ClawdEx.Agent.LoopTest do
   describe "Agent Loop lifecycle" do
     setup do
       # 创建测试 agent
-      {:ok, agent} = %Agent{}
+      {:ok, agent} =
+        %Agent{}
         |> Agent.changeset(%{name: "test-agent-#{System.unique_integer()}"})
         |> Repo.insert()
 
       # 创建测试 session
-      {:ok, session} = %Session{}
+      {:ok, session} =
+        %Session{}
         |> Session.changeset(%{
           session_key: "test-session-#{System.unique_integer()}",
           channel: "test",
