@@ -51,6 +51,17 @@ config :logger, :default_formatter,
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
+# Discord channel configuration
+# Set discord_enabled to true and configure nostrum token to enable
+config :clawd_ex,
+  discord_enabled: false
+
+# Nostrum (Discord) configuration
+# Token should be set via environment variable DISCORD_BOT_TOKEN
+# config :nostrum,
+#   token: System.get_env("DISCORD_BOT_TOKEN"),
+#   gateway_intents: [:guilds, :guild_messages, :message_content, :direct_messages]
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

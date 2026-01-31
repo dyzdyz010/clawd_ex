@@ -51,6 +51,11 @@ defmodule ClawdEx.MixProject do
       # WebSocket 支持
       {:websock_adapter, "~> 0.5"},
       # {:telegex, "~> 1.8"},  # Telegram Bot API - TODO: fix compilation issue
+      # Discord Bot API
+      {:nostrum, "~> 0.10"},
+      # Required for Nostrum
+      {:certifi, "~> 2.12"},
+      {:gun, "~> 2.0", override: true}
       # 状态机
       {:gen_state_machine, "~> 3.0"},
       # 测试监控
