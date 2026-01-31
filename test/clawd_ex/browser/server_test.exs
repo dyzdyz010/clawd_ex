@@ -5,17 +5,11 @@ defmodule ClawdEx.Browser.ServerTest do
   alias ClawdEx.Browser.CDP
 
   setup do
-    # Ensure CDP is running (may already be started by application)
-    unless Process.whereis(CDP) do
-      start_supervised!({CDP, name: CDP})
+    # These are started by the application supervisor
+    # Just ensure browser is stopped for a clean state
+    if Process.whereis(Server) do
+      Server.stop_browser()
     end
-
-    # Stop existing Server if running, then start fresh
-    if pid = Process.whereis(Server) do
-      GenServer.stop(pid, :normal, 5000)
-    end
-
-    start_supervised!({Server, name: Server})
 
     :ok
   end
