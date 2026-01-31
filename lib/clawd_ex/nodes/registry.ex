@@ -116,6 +116,14 @@ defmodule ClawdEx.Nodes.Registry do
     GenServer.call(__MODULE__, :stats)
   end
 
+  @doc """
+  重置注册表状态（仅用于测试）
+  """
+  @spec reset() :: :ok
+  def reset do
+    GenServer.call(__MODULE__, :reset)
+  end
+
   # ============================================================================
   # GenServer Callbacks
   # ============================================================================
@@ -265,6 +273,12 @@ defmodule ClawdEx.Nodes.Registry do
     }
 
     {:reply, stats, state}
+  end
+
+  @impl true
+  def handle_call(:reset, _from, _state) do
+    # Reset to initial empty state (for testing)
+    {:reply, :ok, %{nodes: %{}, pending: %{}}}
   end
 
   @impl true

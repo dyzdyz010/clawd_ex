@@ -7,13 +7,14 @@ defmodule ClawdEx.Nodes.RegistryTest do
   # This ensures proper isolation and cleanup
 
   setup do
-    # Stop any existing Registry if running
-    if pid = Process.whereis(Registry) do
-      GenServer.stop(pid, :normal, 5000)
+    # Ensure Registry is running (start if not already)
+    unless Process.whereis(Registry) do
+      {:ok, _} = Registry.start_link(name: Registry)
     end
-
-    # Start a fresh Registry for this test
-    start_supervised!({Registry, name: Registry})
+    
+    # Clear the registry state for test isolation
+    # We call reset which clears all nodes
+    Registry.reset()
 
     :ok
   end
