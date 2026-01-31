@@ -58,27 +58,42 @@
 
 ## 当前状态
 
-**已完成:**
-- 核心框架 (Agent Loop, Sessions, Memory)
-- 基础工具 (read/write/edit/exec/process)
-- 记忆系统 (BM25 + Vector hybrid)
-- 流式响应 (Block Streaming)
-- 会话压缩 (Compaction)
-- 渠道 (Telegram/Discord/WebSocket)
+### ✅ 已完成 (Phase 1-6)
+- **核心框架**: Agent Loop, Sessions, Memory
+- **基础工具**: read/write/edit/exec/process
+- **记忆系统**: BM25 + Vector hybrid, 中文支持
+- **流式响应**: Block Streaming, 代码块保护
+- **会话压缩**: AI 摘要自动压缩
+- **渠道**: Telegram (Telegex), Discord (Nostrum), WebSocket
+- **会话管理**: sessions_list/history/send/spawn, agents_list
+- **自动化**: cron, gateway, message
+- **浏览器**: CDP 完整控制
+- **节点**: 远程设备控制
+- **画布**: Canvas/A2UI
 
-**进行中:**
-- Phase 1: apply_patch, image (剩余)
+### 📋 剩余工作 (低优先级)
+- `apply_patch` - 多文件补丁
+- `image` - 图像分析工具
+
+### 📊 统计
+- **工具数量**: 21 个
+- **渠道数量**: 3 个 (Telegram/Discord/WebSocket)
+- **AI 提供商**: 3 个 (Anthropic/OpenAI/Gemini)
 
 ---
 
 ## 更新日志
 
-### 2026-01-31
-- Phase 6 完成: Canvas/A2UI 工具
-- 所有主要 Phase (2-6) 已完成
-- 剩余: Phase 1 的 apply_patch 和 image 工具
+### 2026-01-31 (v0.2.0)
+- 🎉 **里程碑**: 所有主要功能阶段完成
+- Phase 6: Canvas/A2UI 工具
+- Phase 5: 节点系统 (notify/run/camera/screen/location)
+- Phase 4: 浏览器控制 (CDP, 完整自动化)
+- Phase 3: 自动化系统 (cron/gateway/message)
+- Phase 2: 会话与代理系统
+- 优化: 记忆系统中文分词, 流式响应
 
-### 2026-01-30
+### 2026-01-30 (v0.1.0)
 - 初始路线图创建
-- Phase 1 基本完成
-- 开始 Phase 2
+- Phase 1 核心工具完成
+- 基础框架搭建
