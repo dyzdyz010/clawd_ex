@@ -54,6 +54,14 @@ defmodule ClawdEx.Browser.CDP do
   end
 
   @doc """
+  发送 CDP 命令到特定 session (用于 flat session 模式)
+  """
+  @spec send_command_to_session(String.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def send_command_to_session(session_id, method, params \\ %{}) do
+    GenServer.call(__MODULE__, {:send_command_to_session, session_id, method, params}, 30_000)
+  end
+
+  @doc """
   获取连接状态
   """
   @spec connected?() :: boolean()
@@ -109,6 +117,27 @@ defmodule ClawdEx.Browser.CDP do
     else
       id = state.next_id
       message = Jason.encode!(%{id: id, method: method, params: params})
+
+      case :gun.ws_send(state.ws_conn, state.ws_ref, {:text, message}) do
+        :ok ->
+          new_pending = Map.put(state.pending, id, from)
+          new_state = %{state | pending: new_pending, next_id: id + 1}
+          {:noreply, new_state}
+
+        {:error, reason} ->
+          {:reply, {:error, reason}, state}
+      end
+    end
+  end
+
+  @impl true
+  def handle_call({:send_command_to_session, session_id, method, params}, from, state) do
+    if state.ws_conn == nil do
+      {:reply, {:error, :not_connected}, state}
+    else
+      id = state.next_id
+      # 使用 flat session 模式：在消息中直接包含 sessionId
+      message = Jason.encode!(%{id: id, sessionId: session_id, method: method, params: params})
 
       case :gun.ws_send(state.ws_conn, state.ws_ref, {:text, message}) do
         :ok ->

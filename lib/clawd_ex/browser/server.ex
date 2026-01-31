@@ -499,11 +499,12 @@ defmodule ClawdEx.Browser.Server do
 
   defp find_chrome do
     paths = [
-      # Linux
+      # Google Chrome (优先 - chromium-browser 在 Ubuntu 22.04 上可能是 snap wrapper)
+      "/usr/bin/google-chrome-stable",
+      "/usr/bin/google-chrome",
+      # Linux Chromium
       "/usr/bin/chromium",
       "/usr/bin/chromium-browser",
-      "/usr/bin/google-chrome",
-      "/usr/bin/google-chrome-stable",
       # macOS
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
       "/Applications/Chromium.app/Contents/MacOS/Chromium",
@@ -606,16 +607,7 @@ defmodule ClawdEx.Browser.Server do
              targetId: target_id,
              flatten: true
            }),
-         {:ok, result} <-
-           CDP.send_command("Target.sendMessageToTarget", %{
-             sessionId: session_id,
-             message:
-               Jason.encode!(%{
-                 id: 1,
-                 method: "Page.navigate",
-                 params: %{url: url}
-               })
-           }) do
+         {:ok, result} <- CDP.send_command_to_session(session_id, "Page.navigate", %{url: url}) do
       {:ok, %{session_id: session_id, result: result}}
     end
   end
@@ -790,10 +782,8 @@ defmodule ClawdEx.Browser.Server do
   end
 
   defp send_to_target(session_id, method, params) do
-    CDP.send_command("Target.sendMessageToTarget", %{
-      sessionId: session_id,
-      message: Jason.encode!(%{id: System.unique_integer([:positive]), method: method, params: params})
-    })
+    # 使用 flat session 模式直接发送命令
+    CDP.send_command_to_session(session_id, method, params)
   end
 
   # ============================================================================
