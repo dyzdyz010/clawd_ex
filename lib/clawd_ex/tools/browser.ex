@@ -39,7 +39,10 @@ defmodule ClawdEx.Tools.Browser do
       properties: %{
         action: %{
           type: "string",
-          enum: ["status", "start", "stop", "tabs", "open", "close", "navigate", "snapshot", "screenshot", "console"],
+          enum: [
+            "status", "start", "stop", "tabs", "open", "close", "navigate",
+            "snapshot", "screenshot", "console", "act", "evaluate", "upload", "dialog"
+          ],
           description: "Action to perform"
         },
         url: %{
@@ -49,6 +52,10 @@ defmodule ClawdEx.Tools.Browser do
         targetId: %{
           type: "string",
           description: "Tab/target ID for actions that operate on a specific tab"
+        },
+        ref: %{
+          type: "string",
+          description: "Element reference from snapshot (e.g., 'e12', CSS selector, or role:name)"
         },
         headless: %{
           type: "boolean",
@@ -80,6 +87,90 @@ defmodule ClawdEx.Tools.Browser do
         limit: %{
           type: "integer",
           description: "Maximum number of console entries to return"
+        },
+        request: %{
+          type: "object",
+          description: "Action request for 'act' action",
+          properties: %{
+            kind: %{
+              type: "string",
+              enum: ["click", "type", "press", "hover", "select", "fill", "drag", "wait"],
+              description: "Interaction type"
+            },
+            ref: %{
+              type: "string",
+              description: "Element reference"
+            },
+            text: %{
+              type: "string",
+              description: "Text to type or fill"
+            },
+            key: %{
+              type: "string",
+              description: "Key to press (e.g., 'Enter', 'Tab', 'Escape')"
+            },
+            modifiers: %{
+              type: "array",
+              items: %{type: "string"},
+              description: "Key modifiers (e.g., ['Shift', 'Control'])"
+            },
+            values: %{
+              type: "array",
+              items: %{type: "string"},
+              description: "Select option values"
+            },
+            fields: %{
+              type: "array",
+              items: %{type: "object"},
+              description: "Form fields for fill action [{ref, text}, ...]"
+            },
+            doubleClick: %{
+              type: "boolean",
+              description: "Double-click instead of single click"
+            },
+            button: %{
+              type: "string",
+              enum: ["left", "right", "middle"],
+              description: "Mouse button for click"
+            },
+            submit: %{
+              type: "boolean",
+              description: "Submit form after fill (press Enter)"
+            },
+            slowly: %{
+              type: "boolean",
+              description: "Type slowly (character by character)"
+            },
+            startRef: %{
+              type: "string",
+              description: "Start element for drag"
+            },
+            endRef: %{
+              type: "string",
+              description: "End element for drag"
+            },
+            timeMs: %{
+              type: "integer",
+              description: "Time to wait in milliseconds"
+            }
+          }
+        },
+        javaScript: %{
+          type: "string",
+          description: "JavaScript code to evaluate"
+        },
+        paths: %{
+          type: "array",
+          items: %{type: "string"},
+          description: "File paths for upload"
+        },
+        accept: %{
+          type: "boolean",
+          description: "Accept (true) or dismiss (false) dialog"
+        },
+        promptText: %{
+          type: "string",
+          description: "Text to enter in prompt dialog"
         }
       },
       required: ["action"]
@@ -277,9 +368,270 @@ defmodule ClawdEx.Tools.Browser do
     end
   end
 
-  defp execute_action(action, _params) do
-    {:error, "Unknown action: #{action}. Valid actions: status, start, stop, tabs, open, close, navigate, snapshot, screenshot, console"}
+  defp execute_action("act", params) do
+    target_id = params["targetId"] || params[:targetId]
+    request = params["request"] || params[:request]
+
+    cond do
+      target_id == nil ->
+        {:error, "Missing required parameter: targetId"}
+
+      request == nil ->
+        {:error, "Missing required parameter: request"}
+
+      true ->
+        # 如果 ref 在顶层，合并到 request 中
+        request = merge_ref_to_request(request, params)
+
+        case validate_act_request(request) do
+          :ok ->
+            case Server.act(target_id, request) do
+              {:ok, result} ->
+                {:ok, Map.merge(result, %{status: "completed"})}
+
+              {:error, :not_running} ->
+                {:error, "Browser is not running. Use action: 'start' first."}
+
+              {:error, reason} ->
+                {:error, "Failed to execute action: #{inspect(reason)}"}
+            end
+
+          {:error, msg} ->
+            {:error, msg}
+        end
+    end
   end
+
+  defp execute_action("evaluate", params) do
+    target_id = params["targetId"] || params[:targetId]
+    js = params["javaScript"] || params[:javaScript]
+
+    cond do
+      target_id == nil ->
+        {:error, "Missing required parameter: targetId"}
+
+      js == nil ->
+        {:error, "Missing required parameter: javaScript"}
+
+      true ->
+        case Server.evaluate(target_id, js) do
+          {:ok, result} ->
+            {:ok, %{status: "evaluated", result: result}}
+
+          {:error, :not_running} ->
+            {:error, "Browser is not running. Use action: 'start' first."}
+
+          {:error, {:js_error, details}} ->
+            {:error, "JavaScript error: #{inspect(details)}"}
+
+          {:error, reason} ->
+            {:error, "Failed to evaluate JavaScript: #{inspect(reason)}"}
+        end
+    end
+  end
+
+  defp execute_action("upload", params) do
+    target_id = params["targetId"] || params[:targetId]
+    ref = params["ref"] || params[:ref]
+    paths = params["paths"] || params[:paths]
+
+    cond do
+      target_id == nil ->
+        {:error, "Missing required parameter: targetId"}
+
+      ref == nil ->
+        {:error, "Missing required parameter: ref (file input element reference)"}
+
+      paths == nil or paths == [] ->
+        {:error, "Missing required parameter: paths (file paths to upload)"}
+
+      true ->
+        # 验证文件存在
+        case validate_file_paths(paths) do
+          :ok ->
+            case Server.upload(target_id, ref, paths) do
+              {:ok, result} ->
+                {:ok, Map.merge(result, %{status: "uploaded"})}
+
+              {:error, :not_running} ->
+                {:error, "Browser is not running. Use action: 'start' first."}
+
+              {:error, reason} ->
+                {:error, "Failed to upload files: #{inspect(reason)}"}
+            end
+
+          {:error, msg} ->
+            {:error, msg}
+        end
+    end
+  end
+
+  defp execute_action("dialog", params) do
+    target_id = params["targetId"] || params[:targetId]
+    accept = params["accept"]
+    prompt_text = params["promptText"] || params[:promptText]
+
+    # 默认为 accept
+    accept = if is_nil(accept), do: true, else: accept
+
+    if target_id == nil do
+      {:error, "Missing required parameter: targetId"}
+    else
+      case Server.dialog(target_id, accept, prompt_text) do
+        {:ok, result} ->
+          {:ok, Map.merge(result, %{status: "handled"})}
+
+        {:error, :not_running} ->
+          {:error, "Browser is not running. Use action: 'start' first."}
+
+        {:error, reason} ->
+          {:error, "Failed to handle dialog: #{inspect(reason)}"}
+      end
+    end
+  end
+
+  defp execute_action(action, _params) do
+    {:error, "Unknown action: #{action}. Valid actions: status, start, stop, tabs, open, close, navigate, snapshot, screenshot, console, act, evaluate, upload, dialog"}
+  end
+
+  # ============================================================================
+  # Validation Helpers
+  # ============================================================================
+
+  defp merge_ref_to_request(request, params) when is_map(request) do
+    top_ref = params["ref"] || params[:ref]
+    request_ref = request["ref"] || request[:ref]
+
+    if top_ref && is_nil(request_ref) do
+      Map.put(request, "ref", top_ref)
+    else
+      request
+    end
+  end
+
+  defp merge_ref_to_request(request, _params), do: request
+
+  defp validate_act_request(request) when is_map(request) do
+    kind = request["kind"] || request[:kind]
+
+    case kind do
+      nil ->
+        {:error, "Missing required field: request.kind"}
+
+      "click" ->
+        validate_has_ref(request)
+
+      "type" ->
+        with :ok <- validate_has_ref(request),
+             :ok <- validate_has_text(request) do
+          :ok
+        end
+
+      "press" ->
+        validate_has_key(request)
+
+      "hover" ->
+        validate_has_ref(request)
+
+      "select" ->
+        with :ok <- validate_has_ref(request),
+             :ok <- validate_has_values(request) do
+          :ok
+        end
+
+      "fill" ->
+        validate_has_fields(request)
+
+      "drag" ->
+        with :ok <- validate_has_start_ref(request),
+             :ok <- validate_has_end_ref(request) do
+          :ok
+        end
+
+      "wait" ->
+        :ok
+
+      other ->
+        {:error, "Unknown action kind: #{other}"}
+    end
+  end
+
+  defp validate_act_request(_), do: {:error, "request must be an object"}
+
+  defp validate_has_ref(request) do
+    if request["ref"] || request[:ref] do
+      :ok
+    else
+      {:error, "Missing required field: ref"}
+    end
+  end
+
+  defp validate_has_text(request) do
+    if request["text"] || request[:text] do
+      :ok
+    else
+      {:error, "Missing required field: text"}
+    end
+  end
+
+  defp validate_has_key(request) do
+    if request["key"] || request[:key] do
+      :ok
+    else
+      {:error, "Missing required field: key"}
+    end
+  end
+
+  defp validate_has_values(request) do
+    values = request["values"] || request[:values]
+
+    if is_list(values) && length(values) > 0 do
+      :ok
+    else
+      {:error, "Missing required field: values (non-empty array)"}
+    end
+  end
+
+  defp validate_has_fields(request) do
+    fields = request["fields"] || request[:fields]
+
+    if is_list(fields) && length(fields) > 0 do
+      :ok
+    else
+      {:error, "Missing required field: fields (non-empty array)"}
+    end
+  end
+
+  defp validate_has_start_ref(request) do
+    if request["startRef"] || request[:startRef] do
+      :ok
+    else
+      {:error, "Missing required field: startRef"}
+    end
+  end
+
+  defp validate_has_end_ref(request) do
+    if request["endRef"] || request[:endRef] do
+      :ok
+    else
+      {:error, "Missing required field: endRef"}
+    end
+  end
+
+  defp validate_file_paths(paths) when is_list(paths) do
+    missing =
+      Enum.reject(paths, fn path ->
+        File.exists?(path)
+      end)
+
+    if missing == [] do
+      :ok
+    else
+      {:error, "Files not found: #{Enum.join(missing, ", ")}"}
+    end
+  end
+
+  defp validate_file_paths(_), do: {:error, "paths must be an array of file paths"}
 
   # ============================================================================
   # Helpers

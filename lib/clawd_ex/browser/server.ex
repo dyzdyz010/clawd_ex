@@ -120,6 +120,38 @@ defmodule ClawdEx.Browser.Server do
     GenServer.call(__MODULE__, {:console_logs, target_id, opts}, 10_000)
   end
 
+  @doc """
+  执行交互动作 (click, type, press, hover, select, fill, drag, wait)
+  """
+  @spec act(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def act(target_id, request) do
+    GenServer.call(__MODULE__, {:act, target_id, request}, 30_000)
+  end
+
+  @doc """
+  执行 JavaScript
+  """
+  @spec evaluate(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def evaluate(target_id, expression) do
+    GenServer.call(__MODULE__, {:evaluate, target_id, expression}, 30_000)
+  end
+
+  @doc """
+  上传文件
+  """
+  @spec upload(String.t(), String.t(), list(String.t())) :: {:ok, map()} | {:error, term()}
+  def upload(target_id, input_ref, paths) do
+    GenServer.call(__MODULE__, {:upload, target_id, input_ref, paths}, 30_000)
+  end
+
+  @doc """
+  处理对话框 (alert, confirm, prompt)
+  """
+  @spec dialog(String.t(), boolean(), String.t() | nil) :: {:ok, map()} | {:error, term()}
+  def dialog(target_id, accept, prompt_text \\ nil) do
+    GenServer.call(__MODULE__, {:dialog, target_id, accept, prompt_text}, 10_000)
+  end
+
   # ============================================================================
   # GenServer Callbacks
   # ============================================================================
@@ -340,6 +372,70 @@ defmodule ClawdEx.Browser.Server do
 
   @impl true
   def handle_call({:console_logs, _target_id, _opts}, _from, state) do
+    {:reply, {:error, :not_running}, state}
+  end
+
+  @impl true
+  def handle_call({:act, target_id, request}, _from, %{status: :running} = state) do
+    case execute_action(target_id, request) do
+      {:ok, result} ->
+        {:reply, {:ok, result}, state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:act, _target_id, _request}, _from, state) do
+    {:reply, {:error, :not_running}, state}
+  end
+
+  @impl true
+  def handle_call({:evaluate, target_id, expression}, _from, %{status: :running} = state) do
+    case execute_javascript(target_id, expression) do
+      {:ok, result} ->
+        {:reply, {:ok, result}, state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:evaluate, _target_id, _expression}, _from, state) do
+    {:reply, {:error, :not_running}, state}
+  end
+
+  @impl true
+  def handle_call({:upload, target_id, input_ref, paths}, _from, %{status: :running} = state) do
+    case upload_files(target_id, input_ref, paths) do
+      {:ok, result} ->
+        {:reply, {:ok, result}, state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:upload, _target_id, _input_ref, _paths}, _from, state) do
+    {:reply, {:error, :not_running}, state}
+  end
+
+  @impl true
+  def handle_call({:dialog, target_id, accept, prompt_text}, _from, %{status: :running} = state) do
+    case handle_dialog(target_id, accept, prompt_text) do
+      {:ok, result} ->
+        {:reply, {:ok, result}, state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:dialog, _target_id, _accept, _prompt_text}, _from, state) do
     {:reply, {:error, :not_running}, state}
   end
 
@@ -698,5 +794,446 @@ defmodule ClawdEx.Browser.Server do
       sessionId: session_id,
       message: Jason.encode!(%{id: System.unique_integer([:positive]), method: method, params: params})
     })
+  end
+
+  # ============================================================================
+  # Interactive Actions
+  # ============================================================================
+
+  defp execute_action(target_id, request) do
+    kind = request["kind"] || request[:kind]
+
+    with {:ok, session_id} <- attach_to_target(target_id),
+         :ok <- enable_domain(session_id, "DOM"),
+         :ok <- enable_domain(session_id, "Input"),
+         :ok <- enable_domain(session_id, "Runtime") do
+      case kind do
+        "click" -> do_click(session_id, request)
+        "type" -> do_type(session_id, request)
+        "press" -> do_press(session_id, request)
+        "hover" -> do_hover(session_id, request)
+        "select" -> do_select(session_id, request)
+        "fill" -> do_fill(session_id, request)
+        "drag" -> do_drag(session_id, request)
+        "wait" -> do_wait(session_id, request)
+        _ -> {:error, {:unknown_action, kind}}
+      end
+    end
+  end
+
+  defp do_click(session_id, request) do
+    ref = request["ref"] || request[:ref]
+    double_click = request["doubleClick"] || request[:doubleClick] || false
+    button = request["button"] || request[:button] || "left"
+
+    with {:ok, %{"x" => x, "y" => y}} <- get_element_center(session_id, ref) do
+      click_count = if double_click, do: 2, else: 1
+      button_code = button_to_code(button)
+
+      # 移动鼠标
+      send_to_target(session_id, "Input.dispatchMouseEvent", %{
+        type: "mouseMoved",
+        x: x,
+        y: y
+      })
+
+      # 鼠标按下
+      send_to_target(session_id, "Input.dispatchMouseEvent", %{
+        type: "mousePressed",
+        x: x,
+        y: y,
+        button: button,
+        clickCount: click_count,
+        buttons: button_code
+      })
+
+      # 鼠标释放
+      send_to_target(session_id, "Input.dispatchMouseEvent", %{
+        type: "mouseReleased",
+        x: x,
+        y: y,
+        button: button,
+        clickCount: click_count,
+        buttons: 0
+      })
+
+      {:ok, %{action: "click", ref: ref, x: x, y: y, double_click: double_click}}
+    end
+  end
+
+  defp do_type(session_id, request) do
+    ref = request["ref"] || request[:ref]
+    text = request["text"] || request[:text] || ""
+    slowly = request["slowly"] || request[:slowly] || false
+
+    # 先点击元素聚焦
+    with {:ok, _} <- do_click(session_id, %{ref: ref}) do
+      if slowly do
+        # 逐字符输入
+        for char <- String.graphemes(text) do
+          send_to_target(session_id, "Input.insertText", %{text: char})
+          Process.sleep(50)
+        end
+      else
+        send_to_target(session_id, "Input.insertText", %{text: text})
+      end
+
+      {:ok, %{action: "type", ref: ref, text: text}}
+    end
+  end
+
+  defp do_press(session_id, request) do
+    key = request["key"] || request[:key]
+    modifiers = request["modifiers"] || request[:modifiers] || []
+    ref = request["ref"] || request[:ref]
+
+    # 如果有 ref，先聚焦元素
+    if ref do
+      do_click(session_id, %{ref: ref})
+    end
+
+    modifier_flags = modifiers_to_flags(modifiers)
+
+    # 按下键
+    send_to_target(session_id, "Input.dispatchKeyEvent", %{
+      type: "keyDown",
+      key: key,
+      modifiers: modifier_flags
+    })
+
+    # 释放键
+    send_to_target(session_id, "Input.dispatchKeyEvent", %{
+      type: "keyUp",
+      key: key,
+      modifiers: modifier_flags
+    })
+
+    {:ok, %{action: "press", key: key, modifiers: modifiers}}
+  end
+
+  defp do_hover(session_id, request) do
+    ref = request["ref"] || request[:ref]
+
+    with {:ok, %{"x" => x, "y" => y}} <- get_element_center(session_id, ref) do
+      send_to_target(session_id, "Input.dispatchMouseEvent", %{
+        type: "mouseMoved",
+        x: x,
+        y: y
+      })
+
+      {:ok, %{action: "hover", ref: ref, x: x, y: y}}
+    end
+  end
+
+  defp do_select(session_id, request) do
+    ref = request["ref"] || request[:ref]
+    values = request["values"] || request[:values] || []
+
+    # 使用 JavaScript 设置 select 的值
+    js = """
+    (function() {
+      const select = document.querySelector('[data-ref="#{ref}"]') ||
+                     document.evaluate('#{ref}', document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+      if (!select) return {error: 'Element not found'};
+
+      const valuesToSelect = #{Jason.encode!(values)};
+      if (select.multiple) {
+        Array.from(select.options).forEach(opt => {
+          opt.selected = valuesToSelect.includes(opt.value);
+        });
+      } else {
+        select.value = valuesToSelect[0];
+      }
+
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return {selected: valuesToSelect};
+    })()
+    """
+
+    case evaluate_js(session_id, js) do
+      {:ok, result} ->
+        {:ok, Map.merge(%{action: "select", ref: ref, values: values}, result)}
+
+      error ->
+        error
+    end
+  end
+
+  defp do_fill(session_id, request) do
+    fields = request["fields"] || request[:fields] || []
+    submit = request["submit"] || request[:submit] || false
+
+    results =
+      Enum.map(fields, fn field ->
+        ref = field["ref"] || field[:ref]
+        text = field["text"] || field[:text] || ""
+
+        case do_type(session_id, %{ref: ref, text: text}) do
+          {:ok, result} -> result
+          {:error, reason} -> %{ref: ref, error: inspect(reason)}
+        end
+      end)
+
+    if submit do
+      do_press(session_id, %{key: "Enter"})
+    end
+
+    {:ok, %{action: "fill", fields: results, submit: submit}}
+  end
+
+  defp do_drag(session_id, request) do
+    start_ref = request["startRef"] || request[:startRef]
+    end_ref = request["endRef"] || request[:endRef]
+
+    with {:ok, %{"x" => x1, "y" => y1}} <- get_element_center(session_id, start_ref),
+         {:ok, %{"x" => x2, "y" => y2}} <- get_element_center(session_id, end_ref) do
+      # 移动到起点
+      send_to_target(session_id, "Input.dispatchMouseEvent", %{
+        type: "mouseMoved",
+        x: x1,
+        y: y1
+      })
+
+      # 按下鼠标
+      send_to_target(session_id, "Input.dispatchMouseEvent", %{
+        type: "mousePressed",
+        x: x1,
+        y: y1,
+        button: "left",
+        buttons: 1
+      })
+
+      # 拖动到终点
+      send_to_target(session_id, "Input.dispatchMouseEvent", %{
+        type: "mouseMoved",
+        x: x2,
+        y: y2,
+        buttons: 1
+      })
+
+      # 释放鼠标
+      send_to_target(session_id, "Input.dispatchMouseEvent", %{
+        type: "mouseReleased",
+        x: x2,
+        y: y2,
+        button: "left",
+        buttons: 0
+      })
+
+      {:ok, %{action: "drag", startRef: start_ref, endRef: end_ref}}
+    end
+  end
+
+  defp do_wait(_session_id, request) do
+    time_ms = request["timeMs"] || request[:timeMs]
+    ref = request["ref"] || request[:ref]
+    text_gone = request["textGone"] || request[:textGone]
+
+    cond do
+      time_ms ->
+        Process.sleep(time_ms)
+        {:ok, %{action: "wait", timeMs: time_ms}}
+
+      ref ->
+        # 等待元素出现 - 简化实现
+        {:ok, %{action: "wait", ref: ref, note: "Element wait not fully implemented"}}
+
+      text_gone ->
+        {:ok, %{action: "wait", textGone: text_gone, note: "Text gone wait not fully implemented"}}
+
+      true ->
+        {:ok, %{action: "wait", note: "No wait condition specified"}}
+    end
+  end
+
+  defp get_element_center(session_id, ref) do
+    # 使用 JavaScript 获取元素的中心坐标
+    # ref 可以是 CSS 选择器、XPath 或者类似 "e12" 的 snapshot ref
+    js = """
+    (function() {
+      let element = null;
+      const ref = '#{ref}';
+
+      // 尝试各种选择方式
+      if (ref.match(/^e\\d+$/)) {
+        // Snapshot ref 格式 (e12)
+        element = document.querySelector('[data-snapshot-ref="' + ref + '"]');
+      }
+
+      if (!element) {
+        // 尝试 CSS 选择器
+        try { element = document.querySelector(ref); } catch(e) {}
+      }
+
+      if (!element) {
+        // 尝试 XPath
+        try {
+          element = document.evaluate(ref, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+        } catch(e) {}
+      }
+
+      if (!element) {
+        // 尝试 aria-label 匹配
+        const parts = ref.split(':');
+        if (parts.length === 2) {
+          const [role, name] = parts;
+          element = document.querySelector('[role="' + role + '"][aria-label="' + name + '"]') ||
+                   document.querySelector(role + ':has-text("' + name + '")') ||
+                   Array.from(document.querySelectorAll(role)).find(el => el.textContent.includes(name));
+        }
+      }
+
+      if (!element) {
+        return {error: 'Element not found: ' + ref};
+      }
+
+      const rect = element.getBoundingClientRect();
+      return {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+        width: rect.width,
+        height: rect.height
+      };
+    })()
+    """
+
+    case evaluate_js(session_id, js) do
+      {:ok, %{"error" => error}} -> {:error, error}
+      {:ok, result} -> {:ok, result}
+      error -> error
+    end
+  end
+
+  defp evaluate_js(session_id, expression) do
+    case send_to_target(session_id, "Runtime.evaluate", %{
+           expression: expression,
+           returnByValue: true,
+           awaitPromise: true
+         }) do
+      {:ok, %{"result" => %{"value" => value}}} ->
+        {:ok, value}
+
+      {:ok, %{"result" => result}} ->
+        {:ok, result}
+
+      {:ok, %{"exceptionDetails" => details}} ->
+        {:error, {:js_error, details}}
+
+      error ->
+        error
+    end
+  end
+
+  defp button_to_code("left"), do: 1
+  defp button_to_code("right"), do: 2
+  defp button_to_code("middle"), do: 4
+  defp button_to_code(_), do: 1
+
+  defp modifiers_to_flags(modifiers) do
+    Enum.reduce(modifiers, 0, fn mod, acc ->
+      case String.downcase(mod) do
+        "alt" -> acc + 1
+        "ctrl" -> acc + 2
+        "control" -> acc + 2
+        "meta" -> acc + 4
+        "command" -> acc + 4
+        "shift" -> acc + 8
+        _ -> acc
+      end
+    end)
+  end
+
+  # ============================================================================
+  # JavaScript Evaluation
+  # ============================================================================
+
+  defp execute_javascript(target_id, expression) do
+    with {:ok, session_id} <- attach_to_target(target_id),
+         :ok <- enable_domain(session_id, "Runtime") do
+      evaluate_js(session_id, expression)
+    end
+  end
+
+  # ============================================================================
+  # File Upload
+  # ============================================================================
+
+  defp upload_files(target_id, input_ref, paths) do
+    with {:ok, session_id} <- attach_to_target(target_id),
+         :ok <- enable_domain(session_id, "DOM"),
+         :ok <- enable_domain(session_id, "Runtime") do
+      # 获取文件输入元素的 node ID
+      js = """
+      (function() {
+        const ref = '#{input_ref}';
+        let element = document.querySelector('[data-snapshot-ref="' + ref + '"]') ||
+                     document.querySelector(ref);
+
+        if (!element) return {error: 'File input not found'};
+        if (element.tagName !== 'INPUT' || element.type !== 'file') {
+          return {error: 'Element is not a file input'};
+        }
+
+        return {found: true};
+      })()
+      """
+
+      case evaluate_js(session_id, js) do
+        {:ok, %{"error" => error}} ->
+          {:error, error}
+
+        {:ok, %{"found" => true}} ->
+          # 使用 DOM.setFileInputFiles 设置文件
+          case send_to_target(session_id, "DOM.getDocument", %{}) do
+            {:ok, %{"root" => %{"nodeId" => _root_id}}} ->
+              # 查找元素
+              case send_to_target(session_id, "DOM.querySelector", %{
+                     nodeId: 1,
+                     selector: input_ref
+                   }) do
+                {:ok, %{"nodeId" => node_id}} when node_id > 0 ->
+                  case send_to_target(session_id, "DOM.setFileInputFiles", %{
+                         files: paths,
+                         nodeId: node_id
+                       }) do
+                    {:ok, _} ->
+                      {:ok, %{action: "upload", ref: input_ref, files: paths}}
+
+                    error ->
+                      error
+                  end
+
+                _ ->
+                  {:error, "Could not find file input element"}
+              end
+
+            error ->
+              error
+          end
+
+        error ->
+          error
+      end
+    end
+  end
+
+  # ============================================================================
+  # Dialog Handling
+  # ============================================================================
+
+  defp handle_dialog(target_id, accept, prompt_text) do
+    with {:ok, session_id} <- attach_to_target(target_id),
+         :ok <- enable_domain(session_id, "Page") do
+      params = %{accept: accept}
+      params = if prompt_text, do: Map.put(params, :promptText, prompt_text), else: params
+
+      case send_to_target(session_id, "Page.handleJavaScriptDialog", params) do
+        {:ok, _} ->
+          {:ok, %{action: "dialog", accept: accept, promptText: prompt_text}}
+
+        error ->
+          error
+      end
+    end
   end
 end

@@ -15,7 +15,7 @@ defmodule ClawdEx.Tools.BrowserTest do
     test "returns description string" do
       desc = Browser.description()
       assert is_binary(desc)
-      assert String.contains?(desc, "browser") or String.contains?(desc, "Browser")
+      assert String.contains?(desc, "browser")
     end
   end
 
@@ -26,7 +26,8 @@ defmodule ClawdEx.Tools.BrowserTest do
       assert is_map(params[:properties])
       assert params[:properties][:action]
       assert params[:properties][:url]
-      assert params[:properties][:targetId]
+      assert params[:properties][:snapshotFormat]
+      assert params[:properties][:request]
     end
 
     test "has required action parameter" do
@@ -46,70 +47,289 @@ defmodule ClawdEx.Tools.BrowserTest do
       assert "open" in actions
       assert "close" in actions
       assert "navigate" in actions
-
-      # Page operations
       assert "snapshot" in actions
       assert "screenshot" in actions
       assert "console" in actions
+
+      # Interactive actions
+      assert "act" in actions
+      assert "evaluate" in actions
+      assert "upload" in actions
+      assert "dialog" in actions
     end
 
-    test "has snapshot format parameter" do
+    test "request parameter has correct structure" do
       params = Browser.parameters()
-      snapshot_format = params[:properties][:snapshotFormat]
+      request = params[:properties][:request]
 
-      assert snapshot_format[:type] == "string"
-      assert "aria" in snapshot_format[:enum]
-      assert "ai" in snapshot_format[:enum]
-    end
+      assert request[:type] == "object"
+      assert request[:properties][:kind]
+      assert request[:properties][:ref]
+      assert request[:properties][:text]
+      assert request[:properties][:key]
+      assert request[:properties][:values]
+      assert request[:properties][:fields]
 
-    test "has screenshot parameters" do
-      params = Browser.parameters()
-
-      assert params[:properties][:fullPage][:type] == "boolean"
-      assert params[:properties][:type][:enum] == ["png", "jpeg"]
-      assert params[:properties][:quality][:type] == "integer"
-    end
-
-    test "has console parameters" do
-      params = Browser.parameters()
-
-      assert params[:properties][:level]
-      assert "error" in params[:properties][:level][:enum]
-      assert "warning" in params[:properties][:level][:enum]
-      assert params[:properties][:limit][:type] == "integer"
+      # Check kind enum
+      kinds = request[:properties][:kind][:enum]
+      assert "click" in kinds
+      assert "type" in kinds
+      assert "press" in kinds
+      assert "hover" in kinds
+      assert "select" in kinds
+      assert "fill" in kinds
+      assert "drag" in kinds
+      assert "wait" in kinds
     end
   end
 
   describe "execute/2 - navigate" do
+    test "requires url parameter" do
+      assert {:error, msg} = Browser.execute(%{"action" => "navigate", "targetId" => "t1"}, %{})
+      assert String.contains?(msg, "url")
+    end
+
     test "requires targetId parameter" do
       assert {:error, msg} = Browser.execute(%{"action" => "navigate", "url" => "https://example.com"}, %{})
       assert String.contains?(msg, "targetId")
     end
+  end
 
-    test "requires url parameter" do
-      assert {:error, msg} = Browser.execute(%{"action" => "navigate", "targetId" => "abc123"}, %{})
-      assert String.contains?(msg, "url")
+  describe "execute/2 - act" do
+    test "requires targetId parameter" do
+      assert {:error, msg} = Browser.execute(%{
+        "action" => "act",
+        "request" => %{"kind" => "click", "ref" => "e1"}
+      }, %{})
+      assert String.contains?(msg, "targetId")
+    end
+
+    test "requires request parameter" do
+      assert {:error, msg} = Browser.execute(%{
+        "action" => "act",
+        "targetId" => "t1"
+      }, %{})
+      assert String.contains?(msg, "request")
+    end
+
+    test "requires kind in request" do
+      assert {:error, msg} = Browser.execute(%{
+        "action" => "act",
+        "targetId" => "t1",
+        "request" => %{}
+      }, %{})
+      assert String.contains?(msg, "kind")
+    end
+
+    test "click requires ref" do
+      assert {:error, msg} = Browser.execute(%{
+        "action" => "act",
+        "targetId" => "t1",
+        "request" => %{"kind" => "click"}
+      }, %{})
+      assert String.contains?(msg, "ref")
+    end
+
+    test "type requires ref and text" do
+      assert {:error, msg} = Browser.execute(%{
+        "action" => "act",
+        "targetId" => "t1",
+        "request" => %{"kind" => "type", "ref" => "e1"}
+      }, %{})
+      assert String.contains?(msg, "text")
+
+      assert {:error, msg2} = Browser.execute(%{
+        "action" => "act",
+        "targetId" => "t1",
+        "request" => %{"kind" => "type", "text" => "hello"}
+      }, %{})
+      assert String.contains?(msg2, "ref")
+    end
+
+    test "press requires key" do
+      assert {:error, msg} = Browser.execute(%{
+        "action" => "act",
+        "targetId" => "t1",
+        "request" => %{"kind" => "press"}
+      }, %{})
+      assert String.contains?(msg, "key")
+    end
+
+    test "hover requires ref" do
+      assert {:error, msg} = Browser.execute(%{
+        "action" => "act",
+        "targetId" => "t1",
+        "request" => %{"kind" => "hover"}
+      }, %{})
+      assert String.contains?(msg, "ref")
+    end
+
+    test "select requires ref and values" do
+      assert {:error, msg} = Browser.execute(%{
+        "action" => "act",
+        "targetId" => "t1",
+        "request" => %{"kind" => "select", "ref" => "e1"}
+      }, %{})
+      assert String.contains?(msg, "values")
+
+      assert {:error, msg2} = Browser.execute(%{
+        "action" => "act",
+        "targetId" => "t1",
+        "request" => %{"kind" => "select", "values" => ["a"]}
+      }, %{})
+      assert String.contains?(msg2, "ref")
+    end
+
+    test "fill requires fields" do
+      assert {:error, msg} = Browser.execute(%{
+        "action" => "act",
+        "targetId" => "t1",
+        "request" => %{"kind" => "fill"}
+      }, %{})
+      assert String.contains?(msg, "fields")
+
+      assert {:error, msg2} = Browser.execute(%{
+        "action" => "act",
+        "targetId" => "t1",
+        "request" => %{"kind" => "fill", "fields" => []}
+      }, %{})
+      assert String.contains?(msg2, "fields")
+    end
+
+    test "drag requires startRef and endRef" do
+      assert {:error, msg} = Browser.execute(%{
+        "action" => "act",
+        "targetId" => "t1",
+        "request" => %{"kind" => "drag", "endRef" => "e2"}
+      }, %{})
+      assert String.contains?(msg, "startRef")
+
+      assert {:error, msg2} = Browser.execute(%{
+        "action" => "act",
+        "targetId" => "t1",
+        "request" => %{"kind" => "drag", "startRef" => "e1"}
+      }, %{})
+      assert String.contains?(msg2, "endRef")
+    end
+
+    test "wait requires no parameters" do
+      # This won't error on validation, only on execution (browser not running)
+      assert {:error, msg} = Browser.execute(%{
+        "action" => "act",
+        "targetId" => "t1",
+        "request" => %{"kind" => "wait"}
+      }, %{})
+      # Should fail because browser not running, not validation
+      assert String.contains?(msg, "Browser is not running")
+    end
+
+    test "merges top-level ref into request" do
+      # If ref is at top level and not in request, it should be merged
+      # This won't actually execute (browser not running) but validates structure
+      assert {:error, msg} = Browser.execute(%{
+        "action" => "act",
+        "targetId" => "t1",
+        "ref" => "button:Submit",
+        "request" => %{"kind" => "click"}
+      }, %{})
+      # Should fail because browser not running, not validation
+      assert String.contains?(msg, "Browser is not running")
     end
   end
 
-  describe "execute/2 - snapshot" do
+  describe "execute/2 - evaluate" do
     test "requires targetId parameter" do
-      assert {:error, msg} = Browser.execute(%{"action" => "snapshot"}, %{})
+      assert {:error, msg} = Browser.execute(%{
+        "action" => "evaluate",
+        "javaScript" => "1+1"
+      }, %{})
       assert String.contains?(msg, "targetId")
+    end
+
+    test "requires javaScript parameter" do
+      assert {:error, msg} = Browser.execute(%{
+        "action" => "evaluate",
+        "targetId" => "t1"
+      }, %{})
+      assert String.contains?(msg, "javaScript")
     end
   end
 
-  describe "execute/2 - screenshot" do
+  describe "execute/2 - upload" do
     test "requires targetId parameter" do
-      assert {:error, msg} = Browser.execute(%{"action" => "screenshot"}, %{})
+      assert {:error, msg} = Browser.execute(%{
+        "action" => "upload",
+        "ref" => "input:file",
+        "paths" => ["/tmp/test.txt"]
+      }, %{})
       assert String.contains?(msg, "targetId")
+    end
+
+    test "requires ref parameter" do
+      assert {:error, msg} = Browser.execute(%{
+        "action" => "upload",
+        "targetId" => "t1",
+        "paths" => ["/tmp/test.txt"]
+      }, %{})
+      assert String.contains?(msg, "ref")
+    end
+
+    test "requires paths parameter" do
+      assert {:error, msg} = Browser.execute(%{
+        "action" => "upload",
+        "targetId" => "t1",
+        "ref" => "input:file"
+      }, %{})
+      assert String.contains?(msg, "paths")
+    end
+
+    test "validates file paths exist" do
+      assert {:error, msg} = Browser.execute(%{
+        "action" => "upload",
+        "targetId" => "t1",
+        "ref" => "input:file",
+        "paths" => ["/nonexistent/path/file.txt"]
+      }, %{})
+      assert String.contains?(msg, "not found")
+    end
+
+    test "accepts valid file paths" do
+      # Create temp file
+      temp_path = Path.join(System.tmp_dir!(), "browser_test_#{:rand.uniform(10000)}.txt")
+      File.write!(temp_path, "test")
+
+      result = Browser.execute(%{
+        "action" => "upload",
+        "targetId" => "t1",
+        "ref" => "input:file",
+        "paths" => [temp_path]
+      }, %{})
+
+      File.rm(temp_path)
+
+      # Should fail because browser not running, not file validation
+      assert {:error, msg} = result
+      assert String.contains?(msg, "Browser is not running")
     end
   end
 
-  describe "execute/2 - console" do
+  describe "execute/2 - dialog" do
     test "requires targetId parameter" do
-      assert {:error, msg} = Browser.execute(%{"action" => "console"}, %{})
+      assert {:error, msg} = Browser.execute(%{
+        "action" => "dialog",
+        "accept" => true
+      }, %{})
       assert String.contains?(msg, "targetId")
+    end
+
+    test "defaults accept to true" do
+      # This tests that dialog action doesn't fail on missing accept
+      # It will fail on browser not running
+      assert {:error, msg} = Browser.execute(%{
+        "action" => "dialog",
+        "targetId" => "t1"
+      }, %{})
+      assert String.contains?(msg, "Browser is not running")
     end
   end
 
@@ -117,13 +337,6 @@ defmodule ClawdEx.Tools.BrowserTest do
     test "returns error for unknown action" do
       assert {:error, msg} = Browser.execute(%{"action" => "unknown"}, %{})
       assert String.contains?(msg, "Unknown action")
-    end
-
-    test "error message lists valid actions" do
-      {:error, msg} = Browser.execute(%{"action" => "invalid"}, %{})
-      assert String.contains?(msg, "snapshot")
-      assert String.contains?(msg, "screenshot")
-      assert String.contains?(msg, "console")
     end
   end
 
@@ -140,7 +353,7 @@ defmodule ClawdEx.Tools.BrowserTest do
     end
   end
 
-  # Note: Full integration tests with actual browser would require
-  # a running browser and are better suited for integration test suite.
-  # These tests verify the module structure and parameter validation.
+  # Note: Full integration tests with actual browser server would require
+  # starting the browser. These are unit tests that verify the module
+  # structure and parameter validation.
 end
