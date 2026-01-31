@@ -10,7 +10,7 @@ defmodule ClawdEx.Sessions.SessionWorker do
   use GenServer, restart: :transient
 
   alias ClawdEx.Repo
-  alias ClawdEx.Sessions.{Session, Message}
+  alias ClawdEx.Sessions.{Session, Message, Reset}
   alias ClawdEx.Agent.Loop, as: AgentLoop
 
   require Logger
@@ -101,9 +101,28 @@ defmodule ClawdEx.Sessions.SessionWorker do
 
   @impl true
   def handle_call({:send_message, content, opts}, _from, state) do
-    # 委托给 Agent Loop
-    result = AgentLoop.run(state.loop_pid, content, opts)
-    {:reply, result, state}
+    # 检查是否是重置触发器
+    if Reset.is_reset_trigger?(content) do
+      handle_reset_trigger(content, opts, state)
+    else
+      # 检查会话是否过期需要重置
+      session = Repo.get!(Session, state.session_id)
+
+      case Reset.should_reset?(session) do
+        {:reset, reason} ->
+          Logger.info("Session #{state.session_key} reset due to #{reason}")
+          new_session = Reset.reset_session!(session)
+          new_state = restart_with_new_session(state, new_session)
+          result = AgentLoop.run(new_state.loop_pid, content, opts)
+          {:reply, result, new_state}
+
+        {:ok, :fresh} ->
+          # 更新最后活动时间
+          update_last_activity(state.session_id)
+          result = AgentLoop.run(state.loop_pid, content, opts)
+          {:reply, result, state}
+      end
+    end
   end
 
   @impl true
@@ -158,6 +177,59 @@ defmodule ClawdEx.Sessions.SessionWorker do
 
   defp via_tuple(session_key) do
     {:via, Registry, {ClawdEx.SessionRegistry, session_key}}
+  end
+
+  defp handle_reset_trigger(content, opts, state) do
+    Logger.info("Manual reset triggered for session #{state.session_key}")
+
+    # 重置会话
+    session = Repo.get!(Session, state.session_id)
+    new_session = Reset.reset_session!(session)
+    new_state = restart_with_new_session(state, new_session)
+
+    # 检查是否有后续内容
+    case Reset.extract_post_reset_content(content) do
+      nil ->
+        # 只是重置，发送确认消息
+        {:reply, {:ok, "Session reset. How can I help you?"}, new_state}
+
+      post_content ->
+        # 有后续内容，继续处理
+        result = AgentLoop.run(new_state.loop_pid, post_content, opts)
+        {:reply, result, new_state}
+    end
+  end
+
+  defp restart_with_new_session(state, new_session) do
+    # 停止旧的 Agent Loop
+    if state.loop_pid && Process.alive?(state.loop_pid) do
+      GenServer.stop(state.loop_pid, :normal, 5000)
+    end
+
+    # 启动新的 Agent Loop
+    config = %{
+      default_model: get_agent_model(new_session.agent_id),
+      workspace: get_agent_workspace(new_session.agent_id)
+    }
+
+    {:ok, new_loop_pid} = AgentLoop.start_link(
+      session_id: new_session.id,
+      agent_id: new_session.agent_id,
+      config: config
+    )
+
+    %{state |
+      session_id: new_session.id,
+      agent_id: new_session.agent_id,
+      loop_pid: new_loop_pid,
+      config: config
+    }
+  end
+
+  defp update_last_activity(session_id) do
+    Repo.get!(Session, session_id)
+    |> Session.changeset(%{last_activity_at: DateTime.utc_now()})
+    |> Repo.update!()
   end
 
   defp load_or_create_session(session_key, agent_id, channel) do

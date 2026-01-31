@@ -35,6 +35,7 @@ defmodule ClawdEx.Agent.Loop do
     :stream_buffer,
     :reply_to,
     :started_at,
+    :timeout_ref,
     :config
   ]
 
@@ -107,25 +108,35 @@ defmodule ClawdEx.Agent.Loop do
   # ============================================================================
 
   def idle(:enter, _old_state, data) do
+    # 取消超时定时器（如果存在）
+    if data.timeout_ref, do: Process.cancel_timer(data.timeout_ref)
+
     # 清理状态
     new_data = %{data |
       run_id: nil,
       pending_tool_calls: [],
       stream_buffer: "",
       reply_to: nil,
-      started_at: nil
+      started_at: nil,
+      timeout_ref: nil
     }
     {:keep_state, new_data}
   end
 
   def idle({:call, from}, {:run, content, opts}, data) do
     run_id = generate_run_id()
-    Logger.info("Starting agent run #{run_id}")
+    timeout_ms = Keyword.get(opts, :timeout, @default_timeout_ms)
+
+    Logger.info("Starting agent run #{run_id} with #{timeout_ms}ms timeout")
+
+    # 设置超时定时器
+    timeout_ref = Process.send_after(self(), {:run_timeout, run_id}, timeout_ms)
 
     new_data = %{data |
       run_id: run_id,
       reply_to: from,
       started_at: DateTime.utc_now(),
+      timeout_ref: timeout_ref,
       model: Keyword.get(opts, :model, data.config[:default_model] || "anthropic/claude-sonnet-4")
     }
 
@@ -179,6 +190,16 @@ defmodule ClawdEx.Agent.Loop do
   def preparing(:cast, :stop, data) do
     reply_error(data.reply_to, :cancelled)
     {:next_state, :idle, data}
+  end
+
+  def preparing(:info, {:run_timeout, run_id}, %{run_id: run_id} = data) do
+    Logger.warning("Run #{run_id} timed out during preparing")
+    reply_error(data.reply_to, :timeout)
+    {:next_state, :idle, data}
+  end
+
+  def preparing(:info, {:run_timeout, _other_run_id}, _data) do
+    :keep_state_and_data
   end
 
   # ============================================================================
@@ -261,6 +282,17 @@ defmodule ClawdEx.Agent.Loop do
     {:keep_state_and_data, [{:reply, from, {:ok, :inferring, data}}]}
   end
 
+  def inferring(:info, {:run_timeout, run_id}, %{run_id: run_id} = data) do
+    Logger.warning("Run #{run_id} timed out during inferring")
+    reply_error(data.reply_to, :timeout)
+    {:next_state, :idle, data}
+  end
+
+  def inferring(:info, {:run_timeout, _other_run_id}, _data) do
+    # 忽略其他 run 的超时消息
+    :keep_state_and_data
+  end
+
   # ============================================================================
   # State: EXECUTING_TOOLS
   # ============================================================================
@@ -331,6 +363,16 @@ defmodule ClawdEx.Agent.Loop do
 
   def executing_tools({:call, from}, :get_state, data) do
     {:keep_state_and_data, [{:reply, from, {:ok, :executing_tools, data}}]}
+  end
+
+  def executing_tools(:info, {:run_timeout, run_id}, %{run_id: run_id} = data) do
+    Logger.warning("Run #{run_id} timed out during tool execution")
+    reply_error(data.reply_to, :timeout)
+    {:next_state, :idle, data}
+  end
+
+  def executing_tools(:info, {:run_timeout, _other_run_id}, _data) do
+    :keep_state_and_data
   end
 
   # ============================================================================
@@ -406,7 +448,7 @@ defmodule ClawdEx.Agent.Loop do
 
   defp execute_tool(tool_call, data) do
     tool_name = tool_call["name"]
-    params = tool_call["input"] || tool_call["arguments"] || %{}
+    params = extract_tool_params(tool_call)
 
     context = %{
       session_id: data.session_id,
@@ -422,11 +464,36 @@ defmodule ClawdEx.Agent.Loop do
     end
   end
 
+  # 提取工具参数，兼容 Anthropic (input) 和 OpenAI (arguments) 格式
+  defp extract_tool_params(tool_call) do
+    cond do
+      # Anthropic 格式: input 是 map
+      is_map(tool_call["input"]) ->
+        tool_call["input"]
+
+      # OpenAI 格式: arguments 可能是 JSON 字符串或 map
+      is_binary(tool_call["arguments"]) ->
+        case Jason.decode(tool_call["arguments"]) do
+          {:ok, parsed} -> parsed
+          {:error, _} -> %{}
+        end
+
+      is_map(tool_call["arguments"]) ->
+        tool_call["arguments"]
+
+      true ->
+        %{}
+    end
+  end
+
   defp format_tool_result({:ok, result}) when is_binary(result), do: result
   defp format_tool_result({:ok, result}), do: Jason.encode!(result)
   defp format_tool_result({:error, reason}), do: "Error: #{inspect(reason)}"
 
   defp finish_run(data, content, response) do
+    # 取消超时定时器
+    if data.timeout_ref, do: Process.cancel_timer(data.timeout_ref)
+
     # 保存助手消息
     save_message(data.session_id, :assistant, content,
       model: data.model,
@@ -438,7 +505,7 @@ defmodule ClawdEx.Agent.Loop do
     GenStateMachine.reply(data.reply_to, {:ok, content})
 
     Logger.info("Run #{data.run_id} completed")
-    {:next_state, :idle, data}
+    {:next_state, :idle, %{data | timeout_ref: nil}}
   end
 
   defp reply_error(from, reason) do

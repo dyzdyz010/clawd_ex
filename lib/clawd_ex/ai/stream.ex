@@ -185,7 +185,14 @@ defmodule ClawdEx.AI.Stream do
   end
 
   defp process_stream(response, acc, stream_to, provider) do
-    receive_loop(response, acc, stream_to, provider, "")
+    case receive_loop(response, acc, stream_to, provider, "") do
+      {:ok, final_acc} ->
+        # 最终处理：解析 OpenAI 累积的 JSON 参数
+        {:ok, finalize_response(final_acc, provider)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   defp receive_loop(response, acc, stream_to, provider, buffer) do
@@ -215,6 +222,28 @@ defmodule ClawdEx.AI.Stream do
         {:error, :timeout}
     end
   end
+
+  # 最终处理：解析 OpenAI 的 JSON arguments
+  defp finalize_response(acc, :openai) do
+    finalized_tool_calls = Enum.map(acc.tool_calls, fn tc ->
+      args_raw = tc["arguments_raw"] || ""
+
+      input = case Jason.decode(args_raw) do
+        {:ok, parsed} -> parsed
+        {:error, _} -> %{}
+      end
+
+      %{
+        "id" => tc["id"],
+        "name" => tc["name"],
+        "input" => input
+      }
+    end)
+
+    %{acc | tool_calls: finalized_tool_calls}
+  end
+
+  defp finalize_response(acc, _provider), do: acc
 
   defp parse_sse_events(data) do
     lines = String.split(data, "\n")
@@ -284,6 +313,7 @@ defmodule ClawdEx.AI.Stream do
   end
 
   # OpenAI event processing
+  # OpenAI 流式 tool_calls 是增量的，需要按 index 累积
   defp process_event(%{"choices" => [%{"delta" => delta} | _]} = event, acc, stream_to, :openai) do
     content = delta["content"] || ""
 
@@ -291,20 +321,40 @@ defmodule ClawdEx.AI.Stream do
       send(stream_to, {:ai_chunk, %{content: content}})
     end
 
-    # 处理工具调用
-    tool_calls = if delta["tool_calls"] do
-      Enum.map(delta["tool_calls"], fn tc ->
-        %{
-          "id" => tc["id"],
-          "name" => tc["function"]["name"],
-          "input" => tc["function"]["arguments"]
-        }
+    # 处理工具调用 - OpenAI 按 index 增量发送
+    new_tool_calls = if delta["tool_calls"] do
+      Enum.reduce(delta["tool_calls"], acc.tool_calls, fn tc, current_calls ->
+        index = tc["index"] || 0
+
+        # 获取或创建该 index 的 tool_call
+        existing = Enum.at(current_calls, index)
+
+        updated_call = if existing do
+          # 累积 arguments (JSON 字符串片段)
+          existing_args = existing["arguments_raw"] || ""
+          new_args = get_in(tc, ["function", "arguments"]) || ""
+
+          existing
+          |> Map.put("arguments_raw", existing_args <> new_args)
+        else
+          # 新的 tool_call
+          %{
+            "id" => tc["id"],
+            "name" => get_in(tc, ["function", "name"]),
+            "arguments_raw" => get_in(tc, ["function", "arguments"]) || ""
+          }
+        end
+
+        # 更新或追加
+        if existing do
+          List.replace_at(current_calls, index, updated_call)
+        else
+          current_calls ++ [updated_call]
+        end
       end)
     else
-      []
+      acc.tool_calls
     end
-
-    new_tool_calls = acc.tool_calls ++ tool_calls
 
     # 处理 usage
     usage = event["usage"] || %{}

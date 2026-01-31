@@ -19,6 +19,7 @@ defmodule ClawdEx.Tools.Registry do
     "write" => ClawdEx.Tools.Write,
     "edit" => ClawdEx.Tools.Edit,
     "exec" => ClawdEx.Tools.Exec,
+    "process" => ClawdEx.Tools.Process,
     "memory_search" => ClawdEx.Tools.MemorySearch,
     "memory_get" => ClawdEx.Tools.MemoryGet,
     "session_status" => ClawdEx.Tools.SessionStatus

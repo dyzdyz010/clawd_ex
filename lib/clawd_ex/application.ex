@@ -16,6 +16,8 @@ defmodule ClawdEx.Application do
       {Registry, keys: :unique, name: ClawdEx.SessionRegistry},
       # Agent Loop Registry
       {Registry, keys: :unique, name: ClawdEx.AgentLoopRegistry},
+      # Background process manager
+      ClawdEx.Tools.Process,
       # Session Manager (DynamicSupervisor)
       ClawdEx.Sessions.SessionManager,
       # Start to serve requests, typically the last entry
