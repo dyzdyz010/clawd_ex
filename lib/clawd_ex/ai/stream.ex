@@ -66,11 +66,14 @@ defmodule ClawdEx.AI.Stream do
         body = if tools != [], do: Map.put(body, :tools, format_tools_for_oauth(tools, is_oauth)), else: body
 
         # OAuth tokens need Claude Code compatible headers
+        # Note: Override accept header for SSE streaming
         headers = if is_oauth do
-          AnthropicOAuth.api_headers(api_key) ++ [
+          AnthropicOAuth.api_headers(api_key)
+          |> Enum.reject(fn {k, _} -> k == "accept" end)
+          |> Kernel.++([
             {"content-type", "application/json"},
             {"accept", "text/event-stream"}
-          ]
+          ])
         else
           [
             {"x-api-key", api_key},
@@ -252,8 +255,11 @@ defmodule ClawdEx.AI.Stream do
   end
 
   defp receive_loop(response, acc, stream_to, provider, buffer) do
+    # Req 0.5.x: async ref is in response.body.ref
+    async_ref = get_async_ref(response)
+    
     receive do
-      {ref, {:data, data}} when ref == response.async.ref ->
+      {ref, {:data, data}} when ref == async_ref ->
         # 合并 buffer 和新数据
         full_data = buffer <> data
 
@@ -268,16 +274,21 @@ defmodule ClawdEx.AI.Stream do
 
         receive_loop(response, new_acc, stream_to, provider, new_buffer)
 
-      {ref, :done} when ref == response.async.ref ->
+      {ref, :done} when ref == async_ref ->
         {:ok, acc}
 
-      {ref, {:error, reason}} when ref == response.async.ref ->
+      {ref, {:error, reason}} when ref == async_ref ->
         {:error, reason}
     after
       120_000 ->
         {:error, :timeout}
     end
   end
+
+  # Get async ref - handles different Req versions
+  defp get_async_ref(%{body: %{ref: ref}}), do: ref
+  defp get_async_ref(%{async: %{ref: ref}}), do: ref
+  defp get_async_ref(response), do: response.body.ref
 
   # 最终处理：解析 OpenAI 的 JSON arguments
   defp finalize_response(acc, :openai) do
