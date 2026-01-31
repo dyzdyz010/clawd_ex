@@ -48,11 +48,11 @@
   - [x] screen_record
   - [x] location_get
 
-### Phase 6: Canvas/A2UI (可选)
-- [ ] **canvas** 工具
-  - [ ] present/hide/navigate
-  - [ ] eval/snapshot
-  - [ ] a2ui_push/a2ui_reset
+### Phase 6: Canvas/A2UI ✅
+- [x] **canvas** 工具
+  - [x] present/hide/navigate
+  - [x] eval/snapshot
+  - [x] a2ui_push/a2ui_reset
 
 ---
 
@@ -67,13 +67,18 @@
 - 渠道 (Telegram/Discord/WebSocket)
 
 **进行中:**
-- Phase 6: Canvas/A2UI
+- Phase 1: apply_patch, image (剩余)
 
 ---
 
 ## 更新日志
 
 ### 2026-01-31
+- Phase 6 完成: Canvas/A2UI 工具
+- 所有主要 Phase (2-6) 已完成
+- 剩余: Phase 1 的 apply_patch 和 image 工具
+
+### 2026-01-30
 - 初始路线图创建
 - Phase 1 基本完成
 - 开始 Phase 2

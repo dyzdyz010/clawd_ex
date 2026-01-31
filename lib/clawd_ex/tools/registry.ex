@@ -35,7 +35,8 @@ defmodule ClawdEx.Tools.Registry do
     "cron" => ClawdEx.Tools.Cron,
     "message" => ClawdEx.Tools.Message,
     "browser" => ClawdEx.Tools.Browser,
-    "nodes" => ClawdEx.Tools.Nodes
+    "nodes" => ClawdEx.Tools.Nodes,
+    "canvas" => ClawdEx.Tools.Canvas
   }
 
   @doc """
