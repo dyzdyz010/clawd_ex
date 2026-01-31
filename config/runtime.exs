@@ -38,6 +38,17 @@ end
 config :clawd_ex, ClawdExWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+if config_env() == :test do
+  # Support DATABASE_URL in CI environment
+  if database_url = System.get_env("DATABASE_URL") do
+    config :clawd_ex, ClawdEx.Repo,
+      url: database_url <> "#{System.get_env("MIX_TEST_PARTITION")}",
+      pool: Ecto.Adapters.SQL.Sandbox,
+      pool_size: System.schedulers_online() * 2,
+      types: ClawdEx.PostgresTypes
+  end
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||
