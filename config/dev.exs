@@ -60,12 +60,12 @@ config :clawd_ex, ClawdExWeb.Endpoint,
     web_console_logger: true,
     patterns: [
       # Static assets, except user uploads
-      ~r"priv/static/(?!uploads/).*\.(js|css|png|jpeg|jpg|gif|svg)$"E,
+      ~r"priv/static/(?!uploads/).*\.(js|css|png|jpeg|jpg|gif|svg)$",
       # Gettext translations
-      ~r"priv/gettext/.*\.po$"E,
+      ~r"priv/gettext/.*\.po$",
       # Router, Controllers, LiveViews and LiveComponents
-      ~r"lib/clawd_ex_web/router\.ex$"E,
-      ~r"lib/clawd_ex_web/(controllers|live|components)/.*\.(ex|heex)$"E
+      ~r"lib/clawd_ex_web/router\.ex$",
+      ~r"lib/clawd_ex_web/(controllers|live|components)/.*\.(ex|heex)$"
     ]
   ]
 

@@ -20,6 +20,8 @@ defmodule ClawdEx.Application do
       {Registry, keys: :unique, name: ClawdEx.AgentLoopRegistry},
       # Background process manager
       ClawdEx.Tools.Process,
+      # Node registry for paired devices
+      ClawdEx.Nodes.Registry,
       # Browser CDP client
       ClawdEx.Browser.CDP,
       # Browser server (manages Chrome process)
