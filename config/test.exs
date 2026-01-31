@@ -15,7 +15,7 @@ if database_url do
     types: ClawdEx.PostgresTypes
 else
   config :clawd_ex, ClawdEx.Repo,
-    username: "root",
+    username: "postgres",
     password: "postgres",
     hostname: "localhost",
     database: "clawd_ex_test#{System.get_env("MIX_TEST_PARTITION")}",
