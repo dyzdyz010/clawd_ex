@@ -100,35 +100,45 @@ defmodule ClawdEx.Tools.Exec do
         end
       end)
 
-    # 先等待 yield_ms
-    case Task.yield(task, yield_ms) do
+    # 使用较小的等待时间：min(timeout, yield_ms)
+    # 如果 timeout 比 yield_ms 小，我们应该遵守 timeout
+    wait_time = min(timeout, yield_ms)
+
+    case Task.yield(task, wait_time) do
       {:ok, {:ok, output, exit_code}} ->
         if exit_code == 0 do
           {:ok, output}
         else
-          {:ok, "Command exited with code #{exit_code}\n\n#{output}"}
+          {:error, "Command exited with code #{exit_code}\n\n#{output}"}
         end
 
       {:ok, {:error, reason}} ->
         {:error, "Failed to execute command: #{reason}"}
 
       nil ->
-        # 超过 yield_ms，转为后台
-        Logger.info("Command running longer than #{yield_ms}ms, backgrounding...")
+        # 检查是否是因为 timeout 还是 yield_ms
+        if wait_time >= timeout do
+          # 超时了，终止任务
+          Task.shutdown(task, :brutal_kill)
+          {:error, "Command timed out after #{div(timeout, 1000)} seconds"}
+        else
+          # 超过 yield_ms 但还没到 timeout，转为后台
+          Logger.info("Command running longer than #{yield_ms}ms, backgrounding...")
 
-        session_id = generate_session_id()
+          session_id = generate_session_id()
 
-        # 启动后台监控
-        spawn(fn ->
-          monitor_background_task(task, agent_id, session_id, command, timeout - yield_ms)
-        end)
+          # 启动后台监控
+          spawn(fn ->
+            monitor_background_task(task, agent_id, session_id, command, timeout - yield_ms)
+          end)
 
-        {:ok,
-         %{
-           status: "running",
-           sessionId: session_id,
-           message: "Command still running. Use process tool to check status."
-         }}
+          {:ok,
+           %{
+             status: "running",
+             sessionId: session_id,
+             message: "Command still running. Use process tool to check status."
+           }}
+        end
     end
   end
 

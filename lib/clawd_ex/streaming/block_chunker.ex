@@ -112,7 +112,8 @@ defmodule ClawdEx.Streaming.BlockChunker do
         chunker.buffer
       end
 
-    final_chunk = String.trim(final_chunk)
+    # 只 trim 末尾空白，保留开头内容
+    final_chunk = String.trim_trailing(final_chunk)
 
     chunks = if final_chunk == "", do: [], else: [final_chunk]
 
@@ -179,12 +180,19 @@ defmodule ClawdEx.Streaming.BlockChunker do
                 fence_marker: fence_marker
             }
 
-            extract_chunks(new_chunker, [String.trim(chunk) | acc])
+            # 只 trim 末尾空白，保留内容完整性
+            extract_chunks(new_chunker, [String.trim_trailing(chunk) | acc])
         end
     end
   end
 
   # 寻找断点（在 min_chars 之后，max_chars 之前）
+  # 注意：当在 code fence 中时，不主动断开，等待达到 max_chars 或 fence 关闭
+  defp find_break_point(%__MODULE__{in_code_fence: true}) do
+    # 在 code fence 中不主动断开，等待 max_chars 强制断开或 fence 关闭
+    nil
+  end
+
   defp find_break_point(%__MODULE__{} = chunker) do
     %{buffer: buffer, min_chars: min_chars, max_chars: max_chars} = chunker
 
@@ -200,11 +208,13 @@ defmodule ClawdEx.Streaming.BlockChunker do
   end
 
   # 根据偏好获取断点模式列表
+  # 注意：不包含 whitespace_break，因为在任意空白处断开太激进
+  # whitespace_break 只在 force_break 时使用
   defp get_break_patterns(:paragraph),
-    do: [@paragraph_break, @newline_break, @sentence_break, @whitespace_break]
+    do: [@paragraph_break, @newline_break, @sentence_break]
 
-  defp get_break_patterns(:newline), do: [@newline_break, @sentence_break, @whitespace_break]
-  defp get_break_patterns(:sentence), do: [@sentence_break, @whitespace_break]
+  defp get_break_patterns(:newline), do: [@newline_break, @sentence_break]
+  defp get_break_patterns(:sentence), do: [@sentence_break]
   defp get_break_patterns(:whitespace), do: [@whitespace_break]
 
   # 在搜索范围内找到最后一个匹配的位置
@@ -232,7 +242,7 @@ defmodule ClawdEx.Streaming.BlockChunker do
       # 不在代码块中，尝试在空白处断开
       break_pos = find_whitespace_break(buffer, max_chars) || max_chars
       {chunk, remaining} = split_at(buffer, break_pos)
-      {String.trim(chunk), remaining, %{in_fence: false, marker: nil}}
+      {String.trim_trailing(chunk), remaining, %{in_fence: false, marker: nil}}
     end
   end
 

@@ -97,8 +97,8 @@ defmodule ClawdEx.Memory.BM25 do
     |> String.downcase()
     |> String.replace(~r/[^\w\s\p{Han}\p{Hiragana}\p{Katakana}]+/u, " ")
     |> String.split(~r/\s+/, trim: true)
-    # 过滤太短的词
-    |> Enum.reject(&(String.length(&1) < 2))
+    # 过滤太短的词（但保留 CJK 单字符）
+    |> Enum.reject(&should_filter_token?/1)
     # 用于 IDF 计算时需要去重
     |> Enum.uniq()
   end
@@ -109,7 +109,33 @@ defmodule ClawdEx.Memory.BM25 do
     |> String.downcase()
     |> String.replace(~r/[^\w\s\p{Han}\p{Hiragana}\p{Katakana}]+/u, " ")
     |> String.split(~r/\s+/, trim: true)
-    |> Enum.reject(&(String.length(&1) < 2))
+    |> Enum.reject(&should_filter_token?/1)
+  end
+
+  # 判断是否应该过滤掉 token
+  # 英文单字符太短，但 CJK 字符保留
+  defp should_filter_token?(token) do
+    len = String.length(token)
+    cond do
+      len >= 2 -> false  # 长度 >= 2 的保留
+      len == 0 -> true   # 空字符串过滤
+      true ->
+        # 单字符：检查是否是 CJK
+        char = String.first(token)
+        not cjk_char?(char)
+    end
+  end
+
+  defp cjk_char?(char) do
+    case char |> String.to_charlist() |> List.first() do
+      nil -> false
+      codepoint ->
+        (codepoint >= 0x4E00 and codepoint <= 0x9FFF) or   # CJK 统一汉字
+        (codepoint >= 0x3400 and codepoint <= 0x4DBF) or   # CJK 扩展 A
+        (codepoint >= 0x3040 and codepoint <= 0x309F) or   # 日文平假名
+        (codepoint >= 0x30A0 and codepoint <= 0x30FF) or   # 日文片假名
+        (codepoint >= 0xAC00 and codepoint <= 0xD7AF)      # 韩文音节
+    end
   end
 
   # 计算 IDF

@@ -32,14 +32,15 @@ defmodule ClawdEx.Memory.Chunker do
   """
   @spec chunk_text(String.t(), keyword()) :: [chunk()]
   def chunk_text(content, opts \\ []) do
-    chunk_size = Keyword.get(opts, :chunk_size, @default_chunk_size)
-    overlap = Keyword.get(opts, :overlap, @default_overlap)
-
-    lines = String.split(content, "\n")
-
-    if Enum.empty?(lines) do
+    # Handle empty content
+    if content == nil or String.trim(content) == "" do
       []
     else
+      chunk_size = Keyword.get(opts, :chunk_size, @default_chunk_size)
+      overlap = Keyword.get(opts, :overlap, @default_overlap)
+
+      lines = String.split(content, "\n")
+
       lines
       |> Enum.with_index(1)
       |> build_chunks(chunk_size, overlap, [])
@@ -59,11 +60,16 @@ defmodule ClawdEx.Memory.Chunker do
     else
       chunk = make_chunk(chunk_lines)
 
-      # 计算重叠：回退 overlap tokens
-      overlap_lines = calculate_overlap_lines(chunk_lines, overlap)
-      next_lines = overlap_lines ++ remaining
+      # 如果没有剩余内容，直接返回（避免因 overlap 导致的无限循环）
+      if Enum.empty?(remaining) do
+        [chunk | acc]
+      else
+        # 计算重叠：回退 overlap tokens
+        overlap_lines = calculate_overlap_lines(chunk_lines, overlap)
+        next_lines = overlap_lines ++ remaining
 
-      build_chunks(next_lines, chunk_size, overlap, [chunk | acc])
+        build_chunks(next_lines, chunk_size, overlap, [chunk | acc])
+      end
     end
   end
 
