@@ -20,6 +20,21 @@ if System.get_env("PHX_SERVER") do
   config :clawd_ex, ClawdExWeb.Endpoint, server: true
 end
 
+# Discord configuration
+if discord_token = System.get_env("DISCORD_BOT_TOKEN") do
+  config :clawd_ex, discord_enabled: true
+
+  config :nostrum,
+    token: discord_token,
+    gateway_intents: [
+      :guilds,
+      :guild_messages,
+      :message_content,
+      :direct_messages
+    ],
+    num_shards: :auto
+end
+
 config :clawd_ex, ClawdExWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 

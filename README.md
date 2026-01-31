@@ -9,7 +9,7 @@
 - 🧠 **语义记忆**: 使用 pgvector 实现向量相似度搜索
 - 🔄 **多会话管理**: 基于 OTP 的并发会话处理
 - 🤖 **多 AI 提供商**: 支持 Anthropic, OpenAI, Google Gemini
-- 📱 **多渠道支持**: Telegram (已实现), Discord, WebSocket 等
+- 📱 **多渠道支持**: Telegram (已实现), Discord (已实现), WebSocket 等
 - ⚡ **实时处理**: Phoenix Channels 实现实时通信
 - 🛠 **工具系统**: 可扩展的工具/函数调用支持
 
@@ -20,8 +20,8 @@
 │                    Phoenix Gateway                          │
 ├─────────────────────────────────────────────────────────────┤
 │  Channels                                                   │
-│  ├── Telegram (Telegex)                                    │
-│  ├── Discord (待实现)                                       │
+│  ├── Telegram (HTTP Long Polling)                          │
+│  ├── Discord (Nostrum - WebSocket Gateway)                 │
 │  └── WebSocket                                             │
 ├─────────────────────────────────────────────────────────────┤
 │  Session Layer                                             │
@@ -67,7 +67,9 @@ lib/
 │   │   └── embeddings.ex # 嵌入向量生成
 │   ├── channels/         # 消息渠道
 │   │   ├── channel.ex    # Behaviour 定义
-│   │   └── telegram.ex   # Telegram 实现
+│   │   ├── telegram.ex   # Telegram 实现
+│   │   ├── discord.ex    # Discord 实现 (Nostrum)
+│   │   └── discord_supervisor.ex  # Discord Supervisor
 │   ├── memory/           # 记忆系统
 │   │   ├── chunk.ex      # 记忆块 Schema
 │   │   └── memory.ex     # 向量搜索服务
@@ -128,6 +130,9 @@ export GEMINI_API_KEY="your-key"
 
 # Telegram Bot Token (可选)
 export TELEGRAM_BOT_TOKEN="your-bot-token"
+
+# Discord Bot Token (可选)
+export DISCORD_BOT_TOKEN="your-discord-bot-token"
 ```
 
 ## 数据库 Schema
@@ -166,6 +171,29 @@ results = ClawdEx.Memory.search(agent_id, "用户偏好设置", limit: 5)
 {:ok, response} = ClawdEx.Sessions.SessionWorker.send_message("telegram:123456", "你好!")
 ```
 
+### Discord 渠道
+
+Discord 渠道使用 [Nostrum](https://hexdocs.pm/nostrum) 库连接 Discord Gateway。
+
+**配置步骤:**
+
+1. 在 [Discord Developer Portal](https://discord.com/developers/applications) 创建应用和 Bot
+2. 获取 Bot Token
+3. 设置环境变量 `DISCORD_BOT_TOKEN`
+4. 在 Bot 设置中启用 **MESSAGE CONTENT INTENT**
+5. 邀请 Bot 到服务器 (需要 `Send Messages`, `Read Message History` 权限)
+
+```elixir
+# 检查 Discord 连接状态
+ClawdEx.Channels.Discord.ready?()
+
+# 注册 slash commands (可选)
+ClawdEx.Channels.DiscordSupervisor.register_commands()
+
+# 发送消息到频道
+ClawdEx.Channels.Discord.send_message("channel_id", "Hello from ClawdEx!")
+```
+
 ### AI 调用
 
 ```elixir
@@ -193,7 +221,7 @@ results = ClawdEx.Memory.search(agent_id, "用户偏好设置", limit: 5)
 
 ### 🚧 进行中
 
-- [ ] Discord 渠道
+- [x] Discord 渠道 (Nostrum)
 - [ ] WebSocket 实时渠道
 
 ### 📋 计划中

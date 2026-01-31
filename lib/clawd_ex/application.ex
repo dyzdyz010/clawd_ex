@@ -20,6 +20,8 @@ defmodule ClawdEx.Application do
       ClawdEx.Tools.Process,
       # Session Manager (DynamicSupervisor)
       ClawdEx.Sessions.SessionManager,
+      # Discord channel (optional, starts if configured)
+      ClawdEx.Channels.DiscordSupervisor,
       # Start to serve requests, typically the last entry
       ClawdExWeb.Endpoint
     ]
