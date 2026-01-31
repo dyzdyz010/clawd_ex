@@ -33,7 +33,8 @@ defmodule ClawdEx.Tools.Registry do
     "agents_list" => ClawdEx.Tools.AgentsList,
     "gateway" => ClawdEx.Tools.Gateway,
     "cron" => ClawdEx.Tools.Cron,
-    "message" => ClawdEx.Tools.Message
+    "message" => ClawdEx.Tools.Message,
+    "browser" => ClawdEx.Tools.Browser
   }
 
   @doc """

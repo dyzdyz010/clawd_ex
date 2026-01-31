@@ -20,6 +20,10 @@ defmodule ClawdEx.Application do
       {Registry, keys: :unique, name: ClawdEx.AgentLoopRegistry},
       # Background process manager
       ClawdEx.Tools.Process,
+      # Browser CDP client
+      ClawdEx.Browser.CDP,
+      # Browser server (manages Chrome process)
+      ClawdEx.Browser.Server,
       # Session Manager (DynamicSupervisor)
       ClawdEx.Sessions.SessionManager,
       # Discord channel (optional, starts if configured)
