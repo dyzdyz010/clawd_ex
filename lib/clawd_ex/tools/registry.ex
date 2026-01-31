@@ -22,7 +22,10 @@ defmodule ClawdEx.Tools.Registry do
     "process" => ClawdEx.Tools.Process,
     "memory_search" => ClawdEx.Tools.MemorySearch,
     "memory_get" => ClawdEx.Tools.MemoryGet,
-    "session_status" => ClawdEx.Tools.SessionStatus
+    "session_status" => ClawdEx.Tools.SessionStatus,
+    "web_search" => ClawdEx.Tools.WebSearch,
+    "web_fetch" => ClawdEx.Tools.WebFetch,
+    "compact" => ClawdEx.Tools.Compact
   }
 
   @doc """
