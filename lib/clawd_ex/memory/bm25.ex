@@ -92,11 +92,11 @@ defmodule ClawdEx.Memory.BM25 do
   def normalize_score(_), do: 0.0
 
   # 分词：支持中英文
+  # 中文逐字分词，英文按空格分词
   defp tokenize(text) do
     text
     |> String.downcase()
-    |> String.replace(~r/[^\w\s\p{Han}\p{Hiragana}\p{Katakana}]+/u, " ")
-    |> String.split(~r/\s+/, trim: true)
+    |> tokenize_mixed()
     # 过滤太短的词（但保留 CJK 单字符）
     |> Enum.reject(&should_filter_token?/1)
     # 用于 IDF 计算时需要去重
@@ -107,9 +107,27 @@ defmodule ClawdEx.Memory.BM25 do
   defp tokenize_with_freq(text) do
     text
     |> String.downcase()
-    |> String.replace(~r/[^\w\s\p{Han}\p{Hiragana}\p{Katakana}]+/u, " ")
-    |> String.split(~r/\s+/, trim: true)
+    |> tokenize_mixed()
     |> Enum.reject(&should_filter_token?/1)
+  end
+
+  # 混合分词：CJK 逐字符，其他按空格
+  defp tokenize_mixed(text) do
+    # 先清理标点
+    cleaned = String.replace(text, ~r/[^\w\s\p{Han}\p{Hiragana}\p{Katakana}]+/u, " ")
+
+    # 把 CJK 字符之间插入空格，实现逐字分词
+    # 例如 "测试文档" -> "测 试 文 档"
+    spaced =
+      cleaned
+      |> String.graphemes()
+      |> Enum.map(fn char ->
+        if cjk_char?(char), do: " #{char} ", else: char
+      end)
+      |> Enum.join("")
+
+    spaced
+    |> String.split(~r/\s+/, trim: true)
   end
 
   # 判断是否应该过滤掉 token
