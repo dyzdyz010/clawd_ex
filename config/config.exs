@@ -62,9 +62,10 @@ config :clawd_ex,
 #   token: System.get_env("DISCORD_BOT_TOKEN"),
 #   gateway_intents: [:guilds, :guild_messages, :message_content, :direct_messages]
 
-# Telegex 配置 (Telegram Bot API)
-config :telegex,
-  caller_adapter: {Finch, [receive_timeout: 60_000]}
+# Telegram Bot API (visciang/telegram) - Tesla adapter
+config :tesla,
+  adapter: {Tesla.Adapter.Hackney, [recv_timeout: 40_000]},
+  disable_deprecated_builder_warning: true
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.

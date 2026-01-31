@@ -2,7 +2,7 @@ defmodule ClawdEx.Channels.Telegram do
   @moduledoc """
   Telegram 渠道实现
 
-  使用 Telegex 库处理 Telegram Bot API 调用
+  使用 visciang/telegram 库处理 Telegram Bot API 调用
   """
   @behaviour ClawdEx.Channels.Channel
 
@@ -11,7 +11,7 @@ defmodule ClawdEx.Channels.Telegram do
 
   alias ClawdEx.Sessions.{SessionManager, SessionWorker}
 
-  defstruct [:bot_info, :offset, :running]
+  defstruct [:token, :bot_info, :offset, :running]
 
   # Client API
 
@@ -29,24 +29,41 @@ defmodule ClawdEx.Channels.Telegram do
     :exit, _ -> false
   end
 
+  @doc """
+  获取当前 bot token
+  """
+  def get_token do
+    GenServer.call(__MODULE__, :get_token)
+  catch
+    :exit, _ -> nil
+  end
+
   @impl ClawdEx.Channels.Channel
   def send_message(chat_id, content, opts \\ []) do
+    token = get_token()
+
+    if token do
+      do_send_message(token, chat_id, content, opts)
+    else
+      {:error, "Telegram bot not configured"}
+    end
+  end
+
+  defp do_send_message(token, chat_id, content, opts) do
     chat_id = ensure_integer(chat_id)
     reply_to = Keyword.get(opts, :reply_to)
 
-    # 构建可选参数
-    optional_params =
-      []
-      |> maybe_add_param(:parse_mode, "Markdown")
+    params =
+      [chat_id: chat_id, text: content, parse_mode: "Markdown"]
       |> maybe_add_reply_params(reply_to)
 
-    case Telegex.send_message(chat_id, content, optional_params) do
+    case Telegram.Api.request(token, "sendMessage", params) do
       {:ok, message} ->
         {:ok, format_message(message)}
 
-      {:error, %Telegex.Error{} = error} ->
-        Logger.error("Telegram send failed: #{error.description}")
-        {:error, error.description}
+      {:error, %{"description" => description}} ->
+        Logger.error("Telegram send failed: #{description}")
+        {:error, description}
 
       {:error, reason} ->
         Logger.error("Telegram send failed: #{inspect(reason)}")
@@ -84,16 +101,13 @@ defmodule ClawdEx.Channels.Telegram do
 
   @impl true
   def init(_opts) do
-    # 配置 Telegex token（运行时）
     case configure_token() do
       {:ok, token} ->
-        Application.put_env(:telegex, :token, token)
-
-        case Telegex.get_me() do
+        case Telegram.Api.request(token, "getMe") do
           {:ok, bot_info} ->
-            Logger.info("Telegram bot started: @#{bot_info.username}")
+            Logger.info("Telegram bot started: @#{bot_info["username"]}")
             send(self(), :poll)
-            {:ok, %__MODULE__{bot_info: bot_info, offset: 0, running: true}}
+            {:ok, %__MODULE__{token: token, bot_info: bot_info, offset: 0, running: true}}
 
           {:error, reason} ->
             Logger.error("Failed to get bot info: #{inspect(reason)}")
@@ -109,6 +123,10 @@ defmodule ClawdEx.Channels.Telegram do
   @impl true
   def handle_call(:ready?, _from, state) do
     {:reply, state.running && state.bot_info != nil, state}
+  end
+
+  def handle_call(:get_token, _from, state) do
+    {:reply, state.token, state}
   end
 
   @impl true
@@ -137,7 +155,9 @@ defmodule ClawdEx.Channels.Telegram do
   end
 
   defp poll_updates(state) do
-    case Telegex.get_updates(offset: state.offset, timeout: 30, allowed_updates: ["message"]) do
+    params = [offset: state.offset, timeout: 30, allowed_updates: ["message"]]
+
+    case Telegram.Api.request(state.token, "getUpdates", params) do
       {:ok, []} ->
         state.offset
 
@@ -146,7 +166,7 @@ defmodule ClawdEx.Channels.Telegram do
 
         updates
         |> List.last()
-        |> Map.get(:update_id)
+        |> Map.get("update_id")
         |> Kernel.+(1)
 
       {:error, reason} ->
@@ -155,8 +175,8 @@ defmodule ClawdEx.Channels.Telegram do
     end
   end
 
-  defp process_update(%Telegex.Type.Update{message: message}) when not is_nil(message) do
-    if message.text do
+  defp process_update(%{"message" => message}) when not is_nil(message) do
+    if message["text"] do
       formatted = format_message(message)
       Task.start(fn -> handle_message(formatted) end)
     end
@@ -164,33 +184,20 @@ defmodule ClawdEx.Channels.Telegram do
 
   defp process_update(_), do: :ok
 
-  defp format_message(%Telegex.Type.Message{} = message) do
-    %{
-      id: to_string(message.message_id),
-      content: message.text || "",
-      author_id: to_string(message.from.id),
-      author_name: message.from.first_name,
-      channel_id: to_string(message.chat.id),
-      timestamp: DateTime.from_unix!(message.date),
-      metadata: %{
-        chat_type: message.chat.type,
-        username: message.from.username
-      }
-    }
-  end
+  defp format_message(message) do
+    from = message["from"] || %{}
+    chat = message["chat"] || %{}
 
-  # 格式化发送后返回的消息
-  defp format_message(%{message_id: message_id} = message) do
     %{
-      id: to_string(message_id),
-      content: Map.get(message, :text, ""),
-      author_id: to_string(message.from.id),
-      author_name: message.from.first_name,
-      channel_id: to_string(message.chat.id),
-      timestamp: DateTime.from_unix!(message.date),
+      id: to_string(message["message_id"]),
+      content: message["text"] || "",
+      author_id: to_string(from["id"]),
+      author_name: from["first_name"] || "",
+      channel_id: to_string(chat["id"]),
+      timestamp: DateTime.from_unix!(message["date"] || 0),
       metadata: %{
-        chat_type: message.chat.type,
-        username: message.from.username
+        chat_type: chat["type"],
+        username: from["username"]
       }
     }
   end
@@ -198,17 +205,10 @@ defmodule ClawdEx.Channels.Telegram do
   defp ensure_integer(value) when is_integer(value), do: value
   defp ensure_integer(value) when is_binary(value), do: String.to_integer(value)
 
-  defp maybe_add_param(params, key, value) do
-    Keyword.put(params, key, value)
-  end
-
   defp maybe_add_reply_params(params, nil), do: params
 
   defp maybe_add_reply_params(params, reply_id) do
-    reply_params = %Telegex.Type.ReplyParameters{
-      message_id: ensure_integer(reply_id)
-    }
-
-    Keyword.put(params, :reply_parameters, reply_params)
+    reply_params = %{message_id: ensure_integer(reply_id)}
+    Keyword.put(params, :reply_parameters, {:json, reply_params})
   end
 end

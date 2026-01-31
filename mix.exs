@@ -50,12 +50,12 @@ defmodule ClawdEx.MixProject do
       {:req, "~> 0.5"},
       # WebSocket 支持
       {:websock_adapter, "~> 0.5"},
-      # Telegram Bot API
-      {:telegex, "~> 1.8"},
-      {:finch, "~> 0.18"},
+      # Telegram Bot API (visciang/telegram)
+      {:telegram, github: "visciang/telegram", tag: "2.1.0"},
+      {:hackney, "~> 1.18"},
       {:multipart, "~> 0.4"},
-      # Discord Bot API (runtime: false in test - no bot token available)
-      {:nostrum, "~> 0.10", runtime: Mix.env() != :test},
+      # Discord Bot API (runtime: false in test/dev - no bot token by default)
+      {:nostrum, "~> 0.10", runtime: Mix.env() == :prod},
       # Required for Nostrum
       {:certifi, "~> 2.12"},
       {:gun, "~> 2.0", override: true},

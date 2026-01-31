@@ -9,7 +9,8 @@ defmodule ClawdEx.Tools.Message do
 
   require Logger
 
-  alias ClawdEx.Channels.{Telegram, Discord}
+  alias ClawdEx.Channels.Telegram, as: TelegramChannel
+  alias ClawdEx.Channels.Discord
 
   @impl true
   def name, do: "message"
@@ -158,9 +159,9 @@ defmodule ClawdEx.Tools.Message do
   # ============================================================================
 
   defp send_text("telegram", target, message, opts) do
-    case check_channel_ready?(Telegram) do
+    case check_channel_ready?(TelegramChannel) do
       :ok ->
-        case Telegram.send_message(target, message, opts) do
+        case TelegramChannel.send_message(target, message, opts) do
           {:ok, result} ->
             {:ok, format_send_result("telegram", result)}
 
@@ -194,7 +195,7 @@ defmodule ClawdEx.Tools.Message do
   # ============================================================================
 
   defp send_media("telegram", target, media_url, caption, opts) do
-    case check_channel_ready?(Telegram) do
+    case check_channel_ready?(TelegramChannel) do
       :ok ->
         send_telegram_media(target, media_url, caption, opts)
 
@@ -228,47 +229,59 @@ defmodule ClawdEx.Tools.Message do
   end
 
   defp send_telegram_media(chat_id, media_url, caption, opts) do
+    token = TelegramChannel.get_token()
+
+    if is_nil(token) do
+      {:error, "Telegram bot not configured"}
+    else
+      do_send_telegram_media(token, chat_id, media_url, caption, opts)
+    end
+  end
+
+  defp do_send_telegram_media(token, chat_id, media_url, caption, opts) do
     chat_id = ensure_integer(chat_id)
     reply_to = Keyword.get(opts, :reply_to)
 
     # 根据 URL 后缀判断媒体类型
     media_type = detect_media_type(media_url)
 
-    optional_params =
-      []
+    # 确定 API 方法
+    method =
+      case media_type do
+        :photo -> "sendPhoto"
+        :video -> "sendVideo"
+        :audio -> "sendAudio"
+        :document -> "sendDocument"
+        :animation -> "sendAnimation"
+      end
+
+    # 确定媒体参数名
+    media_param =
+      case media_type do
+        :photo -> :photo
+        :video -> :video
+        :audio -> :audio
+        :document -> :document
+        :animation -> :animation
+      end
+
+    params =
+      [{:chat_id, chat_id}, {media_param, media_url}]
       |> maybe_add_caption(caption)
       |> maybe_add_reply_params(reply_to)
 
-    result =
-      case media_type do
-        :photo ->
-          Telegex.send_photo(chat_id, media_url, optional_params)
-
-        :video ->
-          Telegex.send_video(chat_id, media_url, optional_params)
-
-        :audio ->
-          Telegex.send_audio(chat_id, media_url, optional_params)
-
-        :document ->
-          Telegex.send_document(chat_id, media_url, optional_params)
-
-        :animation ->
-          Telegex.send_animation(chat_id, media_url, optional_params)
-      end
-
-    case result do
+    case Telegram.Api.request(token, method, params) do
       {:ok, message} ->
         {:ok,
          %{
            channel: "telegram",
-           messageId: to_string(message.message_id),
-           chatId: to_string(message.chat.id),
+           messageId: to_string(message["message_id"]),
+           chatId: to_string(message["chat"]["id"]),
            mediaType: media_type
          }}
 
-      {:error, %Telegex.Error{} = error} ->
-        {:error, "Telegram media send failed: #{error.description}"}
+      {:error, %{"description" => description}} ->
+        {:error, "Telegram media send failed: #{description}"}
 
       {:error, reason} ->
         {:error, "Telegram media send failed: #{inspect(reason)}"}
@@ -280,28 +293,12 @@ defmodule ClawdEx.Tools.Message do
   # ============================================================================
 
   defp add_reaction("telegram", chat_id, message_id, emoji) do
-    chat_id = ensure_integer(chat_id)
-    message_id = ensure_integer(message_id)
+    token = TelegramChannel.get_token()
 
-    # Telegram 使用 setMessageReaction API
-    reaction = [%{type: "emoji", emoji: emoji}]
-
-    case Telegex.set_message_reaction(chat_id, message_id, reaction: reaction) do
-      {:ok, _} ->
-        {:ok,
-         %{
-           channel: "telegram",
-           action: "react",
-           chatId: to_string(chat_id),
-           messageId: to_string(message_id),
-           emoji: emoji
-         }}
-
-      {:error, %Telegex.Error{} = error} ->
-        {:error, "Telegram react failed: #{error.description}"}
-
-      {:error, reason} ->
-        {:error, "Telegram react failed: #{inspect(reason)}"}
+    if is_nil(token) do
+      {:error, "Telegram bot not configured"}
+    else
+      do_add_telegram_reaction(token, chat_id, message_id, emoji)
     end
   end
 
@@ -325,30 +322,49 @@ defmodule ClawdEx.Tools.Message do
     end
   end
 
+  defp do_add_telegram_reaction(token, chat_id, message_id, emoji) do
+    chat_id = ensure_integer(chat_id)
+    message_id = ensure_integer(message_id)
+
+    # Telegram 使用 setMessageReaction API
+    reaction = [%{type: "emoji", emoji: emoji}]
+
+    params = [
+      chat_id: chat_id,
+      message_id: message_id,
+      reaction: {:json, reaction}
+    ]
+
+    case Telegram.Api.request(token, "setMessageReaction", params) do
+      {:ok, _} ->
+        {:ok,
+         %{
+           channel: "telegram",
+           action: "react",
+           chatId: to_string(chat_id),
+           messageId: to_string(message_id),
+           emoji: emoji
+         }}
+
+      {:error, %{"description" => description}} ->
+        {:error, "Telegram react failed: #{description}"}
+
+      {:error, reason} ->
+        {:error, "Telegram react failed: #{inspect(reason)}"}
+    end
+  end
+
   # ============================================================================
   # Channel Routing - Delete
   # ============================================================================
 
   defp delete_message("telegram", chat_id, message_id) do
-    chat_id = ensure_integer(chat_id)
-    message_id = ensure_integer(message_id)
+    token = TelegramChannel.get_token()
 
-    case Telegex.delete_message(chat_id, message_id) do
-      {:ok, true} ->
-        {:ok,
-         %{
-           channel: "telegram",
-           action: "delete",
-           chatId: to_string(chat_id),
-           messageId: to_string(message_id),
-           deleted: true
-         }}
-
-      {:error, %Telegex.Error{} = error} ->
-        {:error, "Telegram delete failed: #{error.description}"}
-
-      {:error, reason} ->
-        {:error, "Telegram delete failed: #{inspect(reason)}"}
+    if is_nil(token) do
+      {:error, "Telegram bot not configured"}
+    else
+      do_delete_telegram_message(token, chat_id, message_id)
     end
   end
 
@@ -369,6 +385,31 @@ defmodule ClawdEx.Tools.Message do
 
       {:error, reason} ->
         {:error, "Discord delete failed: #{inspect(reason)}"}
+    end
+  end
+
+  defp do_delete_telegram_message(token, chat_id, message_id) do
+    chat_id = ensure_integer(chat_id)
+    message_id = ensure_integer(message_id)
+
+    params = [chat_id: chat_id, message_id: message_id]
+
+    case Telegram.Api.request(token, "deleteMessage", params) do
+      {:ok, true} ->
+        {:ok,
+         %{
+           channel: "telegram",
+           action: "delete",
+           chatId: to_string(chat_id),
+           messageId: to_string(message_id),
+           deleted: true
+         }}
+
+      {:error, %{"description" => description}} ->
+        {:error, "Telegram delete failed: #{description}"}
+
+      {:error, reason} ->
+        {:error, "Telegram delete failed: #{inspect(reason)}"}
     end
   end
 
@@ -420,10 +461,7 @@ defmodule ClawdEx.Tools.Message do
   defp maybe_add_reply_params(params, nil), do: params
 
   defp maybe_add_reply_params(params, reply_id) do
-    reply_params = %Telegex.Type.ReplyParameters{
-      message_id: ensure_integer(reply_id)
-    }
-
-    Keyword.put(params, :reply_parameters, reply_params)
+    reply_params = %{message_id: ensure_integer(reply_id)}
+    Keyword.put(params, :reply_parameters, {:json, reply_params})
   end
 end
