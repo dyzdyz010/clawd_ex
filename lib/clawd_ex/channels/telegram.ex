@@ -1,8 +1,8 @@
 defmodule ClawdEx.Channels.Telegram do
   @moduledoc """
-  Telegram 渠道实现 (简化版)
+  Telegram 渠道实现
 
-  TODO: 使用 Telegex 或直接实现 Bot API
+  使用 Telegex 库处理 Telegram Bot API 调用
   """
   @behaviour ClawdEx.Channels.Channel
 
@@ -11,7 +11,7 @@ defmodule ClawdEx.Channels.Telegram do
 
   alias ClawdEx.Sessions.{SessionManager, SessionWorker}
 
-  defstruct [:bot_token, :bot_info, :offset, :running]
+  defstruct [:bot_info, :offset, :running]
 
   # Client API
 
@@ -31,36 +31,26 @@ defmodule ClawdEx.Channels.Telegram do
 
   @impl ClawdEx.Channels.Channel
   def send_message(chat_id, content, opts \\ []) do
-    token = get_token()
+    chat_id = ensure_integer(chat_id)
+    reply_to = Keyword.get(opts, :reply_to)
 
-    if is_nil(token) do
-      {:error, :missing_bot_token}
-    else
-      body = %{
-        chat_id: chat_id,
-        text: content,
-        parse_mode: "Markdown"
-      }
+    # 构建可选参数
+    optional_params =
+      []
+      |> maybe_add_param(:parse_mode, "Markdown")
+      |> maybe_add_reply_params(reply_to)
 
-      body =
-        case Keyword.get(opts, :reply_to) do
-          nil -> body
-          reply_id -> Map.put(body, :reply_parameters, %{message_id: reply_id})
-        end
+    case Telegex.send_message(chat_id, content, optional_params) do
+      {:ok, message} ->
+        {:ok, format_message(message)}
 
-      url = "https://api.telegram.org/bot#{token}/sendMessage"
+      {:error, %Telegex.Error{} = error} ->
+        Logger.error("Telegram send failed: #{error.description}")
+        {:error, error.description}
 
-      case Req.post(url, json: body) do
-        {:ok, %{status: 200, body: %{"ok" => true, "result" => message}}} ->
-          {:ok, format_message(message)}
-
-        {:ok, %{status: _status, body: body}} ->
-          Logger.error("Telegram send failed: #{inspect(body)}")
-          {:error, body}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
+      {:error, reason} ->
+        Logger.error("Telegram send failed: #{inspect(reason)}")
+        {:error, reason}
     end
   end
 
@@ -94,22 +84,25 @@ defmodule ClawdEx.Channels.Telegram do
 
   @impl true
   def init(_opts) do
-    token = get_token()
+    # 配置 Telegex token（运行时）
+    case configure_token() do
+      {:ok, token} ->
+        Application.put_env(:telegex, :token, token)
 
-    if token do
-      case get_me(token) do
-        {:ok, bot_info} ->
-          Logger.info("Telegram bot started: @#{bot_info["username"]}")
-          send(self(), :poll)
-          {:ok, %__MODULE__{bot_token: token, bot_info: bot_info, offset: 0, running: true}}
+        case Telegex.get_me() do
+          {:ok, bot_info} ->
+            Logger.info("Telegram bot started: @#{bot_info.username}")
+            send(self(), :poll)
+            {:ok, %__MODULE__{bot_info: bot_info, offset: 0, running: true}}
 
-        {:error, reason} ->
-          Logger.error("Failed to get bot info: #{inspect(reason)}")
-          {:stop, reason}
-      end
-    else
-      Logger.warning("Telegram bot token not configured")
-      {:ok, %__MODULE__{running: false}}
+          {:error, reason} ->
+            Logger.error("Failed to get bot info: #{inspect(reason)}")
+            {:stop, reason}
+        end
+
+      :no_token ->
+        Logger.warning("Telegram bot token not configured")
+        {:ok, %__MODULE__{running: false}}
     end
   end
 
@@ -131,40 +124,30 @@ defmodule ClawdEx.Channels.Telegram do
 
   # Private Functions
 
-  defp get_me(token) do
-    url = "https://api.telegram.org/bot#{token}/getMe"
+  defp configure_token do
+    token =
+      Application.get_env(:clawd_ex, :telegram_bot_token) ||
+        System.get_env("TELEGRAM_BOT_TOKEN")
 
-    case Req.get(url) do
-      {:ok, %{status: 200, body: %{"ok" => true, "result" => result}}} ->
-        {:ok, result}
-
-      {:ok, %{body: body}} ->
-        {:error, body}
-
-      {:error, reason} ->
-        {:error, reason}
+    if token do
+      {:ok, token}
+    else
+      :no_token
     end
   end
 
   defp poll_updates(state) do
-    url = "https://api.telegram.org/bot#{state.bot_token}/getUpdates"
-    params = [offset: state.offset, timeout: 30, allowed_updates: ["message"]]
-
-    case Req.get(url, params: params) do
-      {:ok, %{status: 200, body: %{"ok" => true, "result" => []}}} ->
+    case Telegex.get_updates(offset: state.offset, timeout: 30, allowed_updates: ["message"]) do
+      {:ok, []} ->
         state.offset
 
-      {:ok, %{status: 200, body: %{"ok" => true, "result" => updates}}} ->
+      {:ok, updates} ->
         Enum.each(updates, &process_update/1)
 
         updates
         |> List.last()
-        |> Map.get("update_id")
+        |> Map.get(:update_id)
         |> Kernel.+(1)
-
-      {:ok, %{body: body}} ->
-        Logger.error("Telegram poll error: #{inspect(body)}")
-        state.offset
 
       {:error, reason} ->
         Logger.error("Telegram poll error: #{inspect(reason)}")
@@ -172,8 +155,8 @@ defmodule ClawdEx.Channels.Telegram do
     end
   end
 
-  defp process_update(%{"message" => message}) when is_map(message) do
-    if message["text"] do
+  defp process_update(%Telegex.Type.Update{message: message}) when not is_nil(message) do
+    if message.text do
       formatted = format_message(message)
       Task.start(fn -> handle_message(formatted) end)
     end
@@ -181,23 +164,51 @@ defmodule ClawdEx.Channels.Telegram do
 
   defp process_update(_), do: :ok
 
-  defp format_message(message) do
+  defp format_message(%Telegex.Type.Message{} = message) do
     %{
-      id: to_string(message["message_id"]),
-      content: message["text"] || "",
-      author_id: to_string(message["from"]["id"]),
-      author_name: message["from"]["first_name"],
-      channel_id: to_string(message["chat"]["id"]),
-      timestamp: DateTime.from_unix!(message["date"]),
+      id: to_string(message.message_id),
+      content: message.text || "",
+      author_id: to_string(message.from.id),
+      author_name: message.from.first_name,
+      channel_id: to_string(message.chat.id),
+      timestamp: DateTime.from_unix!(message.date),
       metadata: %{
-        chat_type: message["chat"]["type"],
-        username: message["from"]["username"]
+        chat_type: message.chat.type,
+        username: message.from.username
       }
     }
   end
 
-  defp get_token do
-    Application.get_env(:clawd_ex, :telegram_bot_token) ||
-      System.get_env("TELEGRAM_BOT_TOKEN")
+  # 格式化发送后返回的消息
+  defp format_message(%{message_id: message_id} = message) do
+    %{
+      id: to_string(message_id),
+      content: Map.get(message, :text, ""),
+      author_id: to_string(message.from.id),
+      author_name: message.from.first_name,
+      channel_id: to_string(message.chat.id),
+      timestamp: DateTime.from_unix!(message.date),
+      metadata: %{
+        chat_type: message.chat.type,
+        username: message.from.username
+      }
+    }
+  end
+
+  defp ensure_integer(value) when is_integer(value), do: value
+  defp ensure_integer(value) when is_binary(value), do: String.to_integer(value)
+
+  defp maybe_add_param(params, key, value) do
+    Keyword.put(params, key, value)
+  end
+
+  defp maybe_add_reply_params(params, nil), do: params
+
+  defp maybe_add_reply_params(params, reply_id) do
+    reply_params = %Telegex.Type.ReplyParameters{
+      message_id: ensure_integer(reply_id)
+    }
+
+    Keyword.put(params, :reply_parameters, reply_params)
   end
 end

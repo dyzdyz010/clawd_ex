@@ -50,7 +50,10 @@ defmodule ClawdEx.MixProject do
       {:req, "~> 0.5"},
       # WebSocket 支持
       {:websock_adapter, "~> 0.5"},
-      # {:telegex, "~> 1.8"},  # Telegram Bot API - TODO: fix compilation issue
+      # Telegram Bot API
+      {:telegex, "~> 1.8"},
+      {:finch, "~> 0.18"},
+      {:multipart, "~> 0.4"},
       # 状态机
       {:gen_state_machine, "~> 3.0"},
       # 测试监控
