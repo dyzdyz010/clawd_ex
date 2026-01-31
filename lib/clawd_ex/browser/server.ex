@@ -775,9 +775,14 @@ defmodule ClawdEx.Browser.Server do
   end
 
   defp enable_domain(session_id, domain) do
-    case send_to_target(session_id, "#{domain}.enable", %{}) do
-      {:ok, _} -> :ok
-      {:error, _} = error -> error
+    # Input 和 Browser 域不需要 enable
+    if domain in ["Input", "Browser"] do
+      :ok
+    else
+      case send_to_target(session_id, "#{domain}.enable", %{}) do
+        {:ok, _} -> :ok
+        {:error, _} = error -> error
+      end
     end
   end
 
