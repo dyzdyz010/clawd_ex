@@ -37,16 +37,16 @@
   - [x] evaluate (JS 执行)
   - [x] upload/dialog
 
-### Phase 5: 节点系统 (可选)
-- [ ] **nodes** 基础
-  - [ ] 节点发现与配对
-  - [ ] status/describe
-- [ ] **nodes** 功能
-  - [ ] notify (通知)
-  - [ ] run (远程执行)
-  - [ ] camera_snap/camera_clip
-  - [ ] screen_record
-  - [ ] location_get
+### Phase 5: 节点系统 ✅
+- [x] **nodes** 基础
+  - [x] 节点发现与配对
+  - [x] status/describe/pending/approve/reject
+- [x] **nodes** 功能
+  - [x] notify (通知)
+  - [x] run (远程执行)
+  - [x] camera_snap/camera_list/camera_clip
+  - [x] screen_record
+  - [x] location_get
 
 ### Phase 6: Canvas/A2UI (可选)
 - [ ] **canvas** 工具
@@ -67,7 +67,7 @@
 - 渠道 (Telegram/Discord/WebSocket)
 
 **进行中:**
-- Phase 5: 节点系统
+- Phase 6: Canvas/A2UI
 
 ---
 
