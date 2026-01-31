@@ -8,10 +8,10 @@ defmodule ClawdEx.Tools.Registry do
   require Logger
 
   @type tool_spec :: %{
-    name: String.t(),
-    description: String.t(),
-    parameters: map()
-  }
+          name: String.t(),
+          description: String.t(),
+          parameters: map()
+        }
 
   # 工具模块映射
   @tools %{
@@ -67,7 +67,9 @@ defmodule ClawdEx.Tools.Registry do
   @spec get_tool_spec(String.t()) :: tool_spec() | nil
   def get_tool_spec(tool_name) do
     case Map.get(@tools, tool_name) do
-      nil -> nil
+      nil ->
+        nil
+
       module ->
         %{
           name: module.name(),

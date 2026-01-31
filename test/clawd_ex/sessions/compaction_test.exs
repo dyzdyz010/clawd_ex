@@ -18,8 +18,10 @@ defmodule ClawdEx.Sessions.CompactionTest do
         %{role: "user", content: String.duplicate("a", 100)},
         %{role: "assistant", content: String.duplicate("b", 200)}
       ]
+
       tokens = Compaction.estimate_tokens(messages)
-      assert tokens == 75  # 25 + 50
+      # 25 + 50
+      assert tokens == 75
     end
 
     test "handles empty content" do
@@ -40,7 +42,8 @@ defmodule ClawdEx.Sessions.CompactionTest do
     end
 
     test "uses custom context window if provided" do
-      assert Compaction.get_context_window("anthropic/claude-sonnet-4", context_window: 50_000) == 50_000
+      assert Compaction.get_context_window("anthropic/claude-sonnet-4", context_window: 50_000) ==
+               50_000
     end
   end
 
@@ -83,7 +86,8 @@ defmodule ClawdEx.Sessions.CompactionTest do
       create_message(session, :user, "Hello")
       create_message(session, :assistant, "Hi!")
 
-      assert {:ok, "No compaction needed - too few messages"} = Compaction.compact(session, keep_recent: 10)
+      assert {:ok, "No compaction needed - too few messages"} =
+               Compaction.compact(session, keep_recent: 10)
     end
 
     # Note: Full compaction test would require mocking the AI.Chat module

@@ -130,10 +130,7 @@ defmodule ClawdEx.Tools.Process do
   def mark_completed(agent_id, session_id, exit_code) do
     case :ets.lookup(@table_name, {agent_id, session_id}) do
       [{{^agent_id, ^session_id}, entry}] ->
-        updated = %{entry |
-          exit_code: exit_code,
-          ended_at: DateTime.utc_now()
-        }
+        updated = %{entry | exit_code: exit_code, ended_at: DateTime.utc_now()}
         :ets.insert(@table_name, {{agent_id, session_id}, updated})
         :ok
 
@@ -172,6 +169,7 @@ defmodule ClawdEx.Tools.Process do
           exitCode: entry.exit_code,
           output: entry.output
         }
+
         {:ok, result}
 
       [] ->
@@ -193,11 +191,12 @@ defmodule ClawdEx.Tools.Process do
           |> Enum.take(limit)
           |> Enum.join("\n")
 
-        {:ok, %{
-          sessionId: session_id,
-          log: selected,
-          totalLines: length(lines)
-        }}
+        {:ok,
+         %{
+           sessionId: session_id,
+           log: selected,
+           totalLines: length(lines)
+         }}
 
       [] ->
         {:error, "Session not found: #{session_id}"}

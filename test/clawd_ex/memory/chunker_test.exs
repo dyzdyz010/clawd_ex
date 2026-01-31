@@ -21,7 +21,8 @@ defmodule ClawdEx.Memory.ChunkerTest do
         assert is_integer(start_line)
         assert is_integer(end_line)
         assert start_line <= end_line
-        assert Tokenizer.estimate_tokens(text) <= 600  # 允许一定超出
+        # 允许一定超出
+        assert Tokenizer.estimate_tokens(text) <= 600
       end
     end
 
@@ -43,7 +44,7 @@ defmodule ClawdEx.Memory.ChunkerTest do
 
       # 检查是否在标题处断开
       chunk_texts = Enum.map(chunks, fn {text, _, _} -> text end)
-      
+
       # 至少应该有一个 chunk 以标题开头
       assert Enum.any?(chunk_texts, &String.starts_with?(String.trim(&1), "#"))
     end
@@ -73,7 +74,7 @@ defmodule ClawdEx.Memory.ChunkerTest do
       """
 
       chunks = Chunker.chunk_text(content, chunk_size: 50, overlap: 10)
-      
+
       # 应该能正常分块
       assert length(chunks) >= 1
     end

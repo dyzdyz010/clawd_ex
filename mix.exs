@@ -44,12 +44,17 @@ defmodule ClawdEx.MixProject do
       {:phoenix_ecto, "~> 4.5"},
       {:ecto_sql, "~> 3.13"},
       {:postgrex, ">= 0.0.0"},
-      {:pgvector, "~> 0.3.0"},  # pgvector 支持
-      {:req, "~> 0.5"},  # HTTP 客户端 (AI API调用)
-      {:websock_adapter, "~> 0.5"},  # WebSocket 支持
+      # pgvector 支持
+      {:pgvector, "~> 0.3.0"},
+      # HTTP 客户端 (AI API调用)
+      {:req, "~> 0.5"},
+      # WebSocket 支持
+      {:websock_adapter, "~> 0.5"},
       # {:telegex, "~> 1.8"},  # Telegram Bot API - TODO: fix compilation issue
-      {:gen_state_machine, "~> 3.0"},  # 状态机
-      {:mix_test_watch, "~> 1.0", only: [:dev, :test], runtime: false},  # 测试监控
+      # 状态机
+      {:gen_state_machine, "~> 3.0"},
+      # 测试监控
+      {:mix_test_watch, "~> 1.0", only: [:dev, :test], runtime: false},
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_reload, "~> 1.2", only: :dev},
       {:phoenix_live_view, "~> 1.1.0"},

@@ -1,35 +1,37 @@
 defmodule ClawdEx.Memory.BM25 do
   @moduledoc """
   BM25 关键词搜索实现
-  
+
   用于 Hybrid 搜索中的文本匹配部分。
   BM25 擅长精确匹配：ID、代码符号、错误字符串等。
   """
 
   # BM25 参数
-  @k1 1.2  # 词频饱和参数
-  @b 0.75  # 文档长度归一化参数
+  # 词频饱和参数
+  @k1 1.2
+  # 文档长度归一化参数
+  @b 0.75
 
   @type document :: %{
-    id: any(),
-    content: String.t(),
-    tokens: [String.t()],
-    length: non_neg_integer()
-  }
+          id: any(),
+          content: String.t(),
+          tokens: [String.t()],
+          length: non_neg_integer()
+        }
 
   @type index :: %{
-    documents: %{any() => document()},
-    idf: %{String.t() => float()},
-    avg_doc_length: float(),
-    doc_count: non_neg_integer()
-  }
+          documents: %{any() => document()},
+          idf: %{String.t() => float()},
+          avg_doc_length: float(),
+          doc_count: non_neg_integer()
+        }
 
   @doc """
   构建 BM25 索引
   """
   @spec build_index([{any(), String.t()}]) :: index()
   def build_index(docs) do
-    documents = 
+    documents =
       docs
       |> Enum.map(fn {id, content} ->
         tokens = tokenize(content)
@@ -38,8 +40,8 @@ defmodule ClawdEx.Memory.BM25 do
       |> Map.new()
 
     doc_count = map_size(documents)
-    
-    avg_doc_length = 
+
+    avg_doc_length =
       if doc_count > 0 do
         total_length = documents |> Map.values() |> Enum.map(& &1.length) |> Enum.sum()
         total_length / doc_count
@@ -95,8 +97,10 @@ defmodule ClawdEx.Memory.BM25 do
     |> String.downcase()
     |> String.replace(~r/[^\w\s\p{Han}\p{Hiragana}\p{Katakana}]+/u, " ")
     |> String.split(~r/\s+/, trim: true)
-    |> Enum.reject(&(String.length(&1) < 2))  # 过滤太短的词
-    |> Enum.uniq()  # 用于 IDF 计算时需要去重
+    # 过滤太短的词
+    |> Enum.reject(&(String.length(&1) < 2))
+    # 用于 IDF 计算时需要去重
+    |> Enum.uniq()
   end
 
   # 分词但保留重复（用于词频计算）
@@ -111,7 +115,7 @@ defmodule ClawdEx.Memory.BM25 do
   # 计算 IDF
   defp calculate_idf(documents, doc_count) do
     # 统计每个词出现在多少文档中
-    doc_freq = 
+    doc_freq =
       documents
       |> Map.values()
       |> Enum.flat_map(fn doc -> doc.tokens |> Enum.uniq() end)
@@ -121,7 +125,8 @@ defmodule ClawdEx.Memory.BM25 do
     doc_freq
     |> Enum.map(fn {term, freq} ->
       idf = :math.log((doc_count - freq + 0.5) / (freq + 0.5) + 1)
-      {term, max(idf, 0)}  # IDF 不应为负
+      # IDF 不应为负
+      {term, max(idf, 0)}
     end)
     |> Map.new()
   end
@@ -135,7 +140,7 @@ defmodule ClawdEx.Memory.BM25 do
     |> Enum.map(fn term ->
       tf = Map.get(term_freq, term, 0)
       idf = Map.get(index.idf, term, 0)
-      
+
       if tf > 0 and idf > 0 do
         # BM25 公式
         numerator = tf * (@k1 + 1)

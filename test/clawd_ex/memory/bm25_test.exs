@@ -40,7 +40,7 @@ defmodule ClawdEx.Memory.BM25Test do
 
       # 应该找到前两个文档
       assert length(results) >= 2
-      
+
       ids = Enum.map(results, fn {id, _score} -> id end)
       assert 1 in ids
       assert 2 in ids
@@ -58,7 +58,7 @@ defmodule ClawdEx.Memory.BM25Test do
 
       # 包含 ABC123 的文档应该排名靠前
       assert length(results) >= 2
-      
+
       [{first_id, _} | _] = results
       assert first_id in [1, 3]
     end
@@ -95,7 +95,7 @@ defmodule ClawdEx.Memory.BM25Test do
     test "normalizes positive scores to 0-1 range" do
       assert BM25.normalize_score(1.0) == 0.5
       assert BM25.normalize_score(0.0) == 0.0
-      
+
       high_score = BM25.normalize_score(10.0)
       assert high_score > 0.9 and high_score < 1.0
     end

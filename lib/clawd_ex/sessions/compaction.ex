@@ -59,7 +59,9 @@ defmodule ClawdEx.Sessions.Compaction do
   返回 `:ok` 如果不需要压缩，或 `{:needs_compaction, token_count}` 如果需要。
   """
   @spec check_needed(Session.t() | integer(), keyword()) :: check_result()
-  def check_needed(%Session{id: session_id} = session, opts \\ []) do
+  def check_needed(session, opts \\ [])
+
+  def check_needed(%Session{id: session_id} = session, opts) do
     model = session.model_override || opts[:model] || @default_compaction_model
     context_window = get_context_window(model, opts)
     threshold = Keyword.get(opts, :compaction_threshold, @default_threshold)
@@ -69,7 +71,10 @@ defmodule ClawdEx.Sessions.Compaction do
     max_tokens = trunc(context_window * threshold)
 
     if estimated_tokens >= max_tokens do
-      Logger.info("Session #{session_id} needs compaction: #{estimated_tokens}/#{max_tokens} tokens")
+      Logger.info(
+        "Session #{session_id} needs compaction: #{estimated_tokens}/#{max_tokens} tokens"
+      )
+
       {:needs_compaction, estimated_tokens}
     else
       :ok
@@ -95,7 +100,9 @@ defmodule ClawdEx.Sessions.Compaction do
   - `:model` - 用于生成摘要的模型
   """
   @spec compact(Session.t() | integer(), keyword()) :: compaction_result()
-  def compact(%Session{id: session_id} = session, opts \\ []) do
+  def compact(session, opts \\ [])
+
+  def compact(%Session{id: session_id} = session, opts) do
     keep_recent = Keyword.get(opts, :keep_recent, @default_keep_recent)
     model = Keyword.get(opts, :model, session.model_override || @default_compaction_model)
     custom_instructions = Keyword.get(opts, :custom_instructions)
@@ -122,7 +129,10 @@ defmodule ClawdEx.Sessions.Compaction do
           # 5. 更新会话元数据
           update_session_compaction_stats(session)
 
-          Logger.info("Compaction complete for session #{session_id}: #{length(to_compact)} messages -> 1 summary")
+          Logger.info(
+            "Compaction complete for session #{session_id}: #{length(to_compact)} messages -> 1 summary"
+          )
+
           {:ok, summary}
 
         {:error, reason} = error ->
@@ -376,10 +386,12 @@ defmodule ClawdEx.Sessions.Compaction do
 
     # 重新计算 token 数
     new_token_count = estimate_session_tokens(session.id)
-    new_message_count = Repo.aggregate(
-      from(m in Message, where: m.session_id == ^session.id),
-      :count
-    )
+
+    new_message_count =
+      Repo.aggregate(
+        from(m in Message, where: m.session_id == ^session.id),
+        :count
+      )
 
     session
     |> Session.changeset(%{

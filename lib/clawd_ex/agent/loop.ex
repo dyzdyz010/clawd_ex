@@ -42,7 +42,8 @@ defmodule ClawdEx.Agent.Loop do
   @type state :: :idle | :preparing | :inferring | :executing_tools | :streaming
   @type data :: %__MODULE__{}
 
-  @default_timeout_ms 600_000  # 10 minutes
+  # 10 minutes
+  @default_timeout_ms 600_000
 
   # ============================================================================
   # Client API
@@ -112,14 +113,16 @@ defmodule ClawdEx.Agent.Loop do
     if data.timeout_ref, do: Process.cancel_timer(data.timeout_ref)
 
     # 清理状态
-    new_data = %{data |
-      run_id: nil,
-      pending_tool_calls: [],
-      stream_buffer: "",
-      reply_to: nil,
-      started_at: nil,
-      timeout_ref: nil
+    new_data = %{
+      data
+      | run_id: nil,
+        pending_tool_calls: [],
+        stream_buffer: "",
+        reply_to: nil,
+        started_at: nil,
+        timeout_ref: nil
     }
+
     {:keep_state, new_data}
   end
 
@@ -132,12 +135,14 @@ defmodule ClawdEx.Agent.Loop do
     # 设置超时定时器
     timeout_ref = Process.send_after(self(), {:run_timeout, run_id}, timeout_ms)
 
-    new_data = %{data |
-      run_id: run_id,
-      reply_to: from,
-      started_at: DateTime.utc_now(),
-      timeout_ref: timeout_ref,
-      model: Keyword.get(opts, :model, data.config[:default_model] || "anthropic/claude-sonnet-4")
+    new_data = %{
+      data
+      | run_id: run_id,
+        reply_to: from,
+        started_at: DateTime.utc_now(),
+        timeout_ref: timeout_ref,
+        model:
+          Keyword.get(opts, :model, data.config[:default_model] || "anthropic/claude-sonnet-4")
     }
 
     {:next_state, :preparing, new_data, [{:next_event, :internal, {:prepare, content}}]}
@@ -178,11 +183,7 @@ defmodule ClawdEx.Agent.Loop do
     # 5. 加载可用工具
     tools = load_tools(data.config)
 
-    new_data = %{data |
-      messages: messages,
-      system_prompt: system_prompt,
-      tools: tools
-    }
+    new_data = %{data | messages: messages, system_prompt: system_prompt, tools: tools}
 
     {:next_state, :inferring, new_data, [{:next_event, :internal, :call_ai}]}
   end
@@ -217,17 +218,19 @@ defmodule ClawdEx.Agent.Loop do
     parent = self()
 
     Task.start(fn ->
-      result = AIStream.complete(
-        data.model,
-        data.messages,
-        system: data.system_prompt,
-        tools: format_tools(data.tools),
-        stream_to: parent
-      )
+      result =
+        AIStream.complete(
+          data.model,
+          data.messages,
+          system: data.system_prompt,
+          tools: format_tools(data.tools),
+          stream_to: parent
+        )
 
       case result do
         {:ok, response} ->
           send(parent, {:ai_done, response})
+
         {:error, reason} ->
           send(parent, {:ai_error, reason})
       end
@@ -253,10 +256,12 @@ defmodule ClawdEx.Agent.Loop do
     cond do
       # 有工具调用
       response[:tool_calls] && length(response[:tool_calls]) > 0 ->
-        new_data = %{data |
-          pending_tool_calls: response[:tool_calls],
-          stream_buffer: response[:content] || ""
+        new_data = %{
+          data
+          | pending_tool_calls: response[:tool_calls],
+            stream_buffer: response[:content] || ""
         }
+
         {:next_state, :executing_tools, new_data, [{:next_event, :internal, :execute_tools}]}
 
       # 纯文本响应
@@ -307,12 +312,13 @@ defmodule ClawdEx.Agent.Loop do
     parent = self()
 
     # 并行执行所有工具
-    tasks = Enum.map(data.pending_tool_calls, fn tool_call ->
-      Task.async(fn ->
-        result = execute_tool(tool_call, data)
-        {tool_call, result}
+    tasks =
+      Enum.map(data.pending_tool_calls, fn tool_call ->
+        Task.async(fn ->
+          result = execute_tool(tool_call, data)
+          {tool_call, result}
+        end)
       end)
-    end)
 
     # 等待所有工具完成
     Task.start(fn ->
@@ -327,29 +333,27 @@ defmodule ClawdEx.Agent.Loop do
     Logger.debug("Tools completed for run #{data.run_id}")
 
     # 构建工具结果消息
-    tool_messages = Enum.map(results, fn {tool_call, result} ->
-      %{
-        role: "tool",
-        tool_call_id: tool_call["id"],
-        content: format_tool_result(result)
-      }
-    end)
+    tool_messages =
+      Enum.map(results, fn {tool_call, result} ->
+        %{
+          role: "tool",
+          tool_call_id: tool_call["id"],
+          content: format_tool_result(result)
+        }
+      end)
 
     # 添加助手消息（如果有内容）
-    assistant_message = if data.stream_buffer != "" do
-      [%{role: "assistant", content: data.stream_buffer, tool_calls: data.pending_tool_calls}]
-    else
-      [%{role: "assistant", tool_calls: data.pending_tool_calls}]
-    end
+    assistant_message =
+      if data.stream_buffer != "" do
+        [%{role: "assistant", content: data.stream_buffer, tool_calls: data.pending_tool_calls}]
+      else
+        [%{role: "assistant", tool_calls: data.pending_tool_calls}]
+      end
 
     # 更新消息历史
     new_messages = data.messages ++ assistant_message ++ tool_messages
 
-    new_data = %{data |
-      messages: new_messages,
-      pending_tool_calls: [],
-      stream_buffer: ""
-    }
+    new_data = %{data | messages: new_messages, pending_tool_calls: [], stream_buffer: ""}
 
     # 继续推理
     {:next_state, :inferring, new_data, [{:next_event, :internal, :call_ai}]}
@@ -399,11 +403,12 @@ defmodule ClawdEx.Agent.Loop do
       base = %{role: to_string(m.role), content: m.content}
 
       # 添加工具调用相关字段
-      base = if m.tool_calls && m.tool_calls != [] do
-        Map.put(base, :tool_calls, m.tool_calls)
-      else
-        base
-      end
+      base =
+        if m.tool_calls && m.tool_calls != [] do
+          Map.put(base, :tool_calls, m.tool_calls)
+        else
+          base
+        end
 
       if m.tool_call_id do
         Map.put(base, :tool_call_id, m.tool_call_id)

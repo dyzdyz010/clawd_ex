@@ -1,7 +1,7 @@
 defmodule ClawdEx.Channels.Telegram do
   @moduledoc """
   Telegram 渠道实现 (简化版)
-  
+
   TODO: 使用 Telegex 或直接实现 Bot API
   """
   @behaviour ClawdEx.Channels.Channel
@@ -42,10 +42,11 @@ defmodule ClawdEx.Channels.Telegram do
         parse_mode: "Markdown"
       }
 
-      body = case Keyword.get(opts, :reply_to) do
-        nil -> body
-        reply_id -> Map.put(body, :reply_parameters, %{message_id: reply_id})
-      end
+      body =
+        case Keyword.get(opts, :reply_to) do
+          nil -> body
+          reply_id -> Map.put(body, :reply_parameters, %{message_id: reply_id})
+        end
 
       url = "https://api.telegram.org/bot#{token}/sendMessage"
 
@@ -69,11 +70,12 @@ defmodule ClawdEx.Channels.Telegram do
     session_key = "telegram:#{chat_id}"
 
     # 启动或获取会话
-    {:ok, _pid} = SessionManager.start_session(
-      session_key: session_key,
-      agent_id: nil,
-      channel: "telegram"
-    )
+    {:ok, _pid} =
+      SessionManager.start_session(
+        session_key: session_key,
+        agent_id: nil,
+        channel: "telegram"
+      )
 
     # 发送消息到会话
     case SessionWorker.send_message(session_key, message.content) do

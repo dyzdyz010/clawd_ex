@@ -4,25 +4,25 @@ defmodule ClawdEx.Channels.Channel do
   """
 
   @type message :: %{
-    id: String.t(),
-    content: String.t(),
-    author_id: String.t(),
-    author_name: String.t() | nil,
-    channel_id: String.t(),
-    timestamp: DateTime.t(),
-    metadata: map()
-  }
+          id: String.t(),
+          content: String.t(),
+          author_id: String.t(),
+          author_name: String.t() | nil,
+          channel_id: String.t(),
+          timestamp: DateTime.t(),
+          metadata: map()
+        }
 
   @type send_opts :: [
-    reply_to: String.t() | nil,
-    buttons: [[map()]] | nil
-  ]
+          reply_to: String.t() | nil,
+          buttons: [[map()]] | nil
+        ]
 
   @doc """
   发送消息到渠道
   """
   @callback send_message(channel_id :: String.t(), content :: String.t(), opts :: send_opts()) ::
-    {:ok, message()} | {:error, term()}
+              {:ok, message()} | {:error, term()}
 
   @doc """
   处理收到的消息

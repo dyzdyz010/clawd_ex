@@ -80,11 +80,12 @@ defmodule ClawdEx.Sessions.SessionWorker do
     }
 
     # 启动 Agent Loop
-    {:ok, loop_pid} = AgentLoop.start_link(
-      session_id: session.id,
-      agent_id: session.agent_id,
-      config: config
-    )
+    {:ok, loop_pid} =
+      AgentLoop.start_link(
+        session_id: session.id,
+        agent_id: session.agent_id,
+        config: config
+      )
 
     state = %__MODULE__{
       session_key: session_key,
@@ -134,10 +135,11 @@ defmodule ClawdEx.Sessions.SessionWorker do
 
   @impl true
   def handle_call(:get_state, _from, state) do
-    loop_state = case AgentLoop.get_state(state.loop_pid) do
-      {:ok, s, _data} -> s
-      _ -> :unknown
-    end
+    loop_state =
+      case AgentLoop.get_state(state.loop_pid) do
+        {:ok, s, _data} -> s
+        _ -> :unknown
+      end
 
     response = %{
       session_key: state.session_key,
@@ -160,11 +162,12 @@ defmodule ClawdEx.Sessions.SessionWorker do
   def handle_info({:DOWN, _ref, :process, pid, reason}, %{loop_pid: pid} = state) do
     Logger.warning("Agent loop died: #{inspect(reason)}, restarting...")
 
-    {:ok, new_loop_pid} = AgentLoop.start_link(
-      session_id: state.session_id,
-      agent_id: state.agent_id,
-      config: state.config
-    )
+    {:ok, new_loop_pid} =
+      AgentLoop.start_link(
+        session_id: state.session_id,
+        agent_id: state.agent_id,
+        config: state.config
+      )
 
     {:noreply, %{state | loop_pid: new_loop_pid}}
   end
@@ -212,17 +215,19 @@ defmodule ClawdEx.Sessions.SessionWorker do
       workspace: get_agent_workspace(new_session.agent_id)
     }
 
-    {:ok, new_loop_pid} = AgentLoop.start_link(
-      session_id: new_session.id,
-      agent_id: new_session.agent_id,
-      config: config
-    )
+    {:ok, new_loop_pid} =
+      AgentLoop.start_link(
+        session_id: new_session.id,
+        agent_id: new_session.agent_id,
+        config: config
+      )
 
-    %{state |
-      session_id: new_session.id,
-      agent_id: new_session.agent_id,
-      loop_pid: new_loop_pid,
-      config: config
+    %{
+      state
+      | session_id: new_session.id,
+        agent_id: new_session.agent_id,
+        loop_pid: new_loop_pid,
+        config: config
     }
   end
 
@@ -269,6 +274,7 @@ defmodule ClawdEx.Sessions.SessionWorker do
   end
 
   defp get_agent_model(nil), do: "anthropic/claude-sonnet-4"
+
   defp get_agent_model(agent_id) do
     case Repo.get(ClawdEx.Agents.Agent, agent_id) do
       nil -> "anthropic/claude-sonnet-4"
@@ -277,6 +283,7 @@ defmodule ClawdEx.Sessions.SessionWorker do
   end
 
   defp get_agent_workspace(nil), do: nil
+
   defp get_agent_workspace(agent_id) do
     case Repo.get(ClawdEx.Agents.Agent, agent_id) do
       nil -> nil

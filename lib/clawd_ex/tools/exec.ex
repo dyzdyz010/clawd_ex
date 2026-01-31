@@ -82,20 +82,23 @@ defmodule ClawdEx.Tools.Exec do
   end
 
   defp run_sync_or_yield(command, workdir, env, timeout, yield_ms, agent_id) do
-    task = Task.async(fn ->
-      try do
-        {output, exit_code} = System.cmd(
-          "sh",
-          ["-c", command],
-          cd: workdir,
-          env: env,
-          stderr_to_stdout: true
-        )
-        {:ok, output, exit_code}
-      rescue
-        e -> {:error, Exception.message(e)}
-      end
-    end)
+    task =
+      Task.async(fn ->
+        try do
+          {output, exit_code} =
+            System.cmd(
+              "sh",
+              ["-c", command],
+              cd: workdir,
+              env: env,
+              stderr_to_stdout: true
+            )
+
+          {:ok, output, exit_code}
+        rescue
+          e -> {:error, Exception.message(e)}
+        end
+      end)
 
     # 先等待 yield_ms
     case Task.yield(task, yield_ms) do
@@ -120,11 +123,12 @@ defmodule ClawdEx.Tools.Exec do
           monitor_background_task(task, agent_id, session_id, command, timeout - yield_ms)
         end)
 
-        {:ok, %{
-          status: "running",
-          sessionId: session_id,
-          message: "Command still running. Use process tool to check status."
-        }}
+        {:ok,
+         %{
+           status: "running",
+           sessionId: session_id,
+           message: "Command still running. Use process tool to check status."
+         }}
     end
   end
 
@@ -132,10 +136,11 @@ defmodule ClawdEx.Tools.Exec do
     session_id = generate_session_id()
 
     # 使用 Port 启动后台进程
-    port = Port.open(
-      {:spawn, "sh -c '#{escape_command(command)}'"},
-      [:binary, :exit_status, :stderr_to_stdout, {:cd, workdir}, {:env, env}]
-    )
+    port =
+      Port.open(
+        {:spawn, "sh -c '#{escape_command(command)}'"},
+        [:binary, :exit_status, :stderr_to_stdout, {:cd, workdir}, {:env, env}]
+      )
 
     # 注册到 ProcessTool
     ProcessTool.register_process(agent_id, session_id, port, command)
@@ -143,11 +148,12 @@ defmodule ClawdEx.Tools.Exec do
     # 启动监控进程
     spawn(fn -> monitor_port(port, agent_id, session_id) end)
 
-    {:ok, %{
-      status: "running",
-      sessionId: session_id,
-      message: "Command started in background. Use process tool to check status."
-    }}
+    {:ok,
+     %{
+       status: "running",
+       sessionId: session_id,
+       message: "Command started in background. Use process tool to check status."
+     }}
   end
 
   defp monitor_background_task(task, agent_id, session_id, command, remaining_timeout) do

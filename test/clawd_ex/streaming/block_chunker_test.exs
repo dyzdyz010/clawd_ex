@@ -15,11 +15,12 @@ defmodule ClawdEx.Streaming.BlockChunkerTest do
     end
 
     test "creates chunker with custom options" do
-      chunker = BlockChunker.new(
-        min_chars: 100,
-        max_chars: 500,
-        break_preference: :sentence
-      )
+      chunker =
+        BlockChunker.new(
+          min_chars: 100,
+          max_chars: 500,
+          break_preference: :sentence
+        )
 
       assert chunker.min_chars == 100
       assert chunker.max_chars == 500
@@ -195,10 +196,11 @@ defmodule ClawdEx.Streaming.BlockChunkerTest do
         "Let me know if you need more details!"
       ]
 
-      {all_chunks, final_chunker} = Enum.reduce(deltas, {[], chunker}, fn delta, {acc, c} ->
-        {chunks, new_c} = BlockChunker.push(c, delta)
-        {acc ++ chunks, new_c}
-      end)
+      {all_chunks, final_chunker} =
+        Enum.reduce(deltas, {[], chunker}, fn delta, {acc, c} ->
+          {chunks, new_c} = BlockChunker.push(c, delta)
+          {acc ++ chunks, new_c}
+        end)
 
       # Flush remaining
       {final_chunks, _} = BlockChunker.flush(final_chunker)
@@ -210,7 +212,7 @@ defmodule ClawdEx.Streaming.BlockChunkerTest do
 
       # 验证内容完整性（去掉可能的空白差异）
       assert String.replace(combined, ~r/\s+/, " ") ==
-             String.replace(String.trim(original), ~r/\s+/, " ")
+               String.replace(String.trim(original), ~r/\s+/, " ")
     end
   end
 end

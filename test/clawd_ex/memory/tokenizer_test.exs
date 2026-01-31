@@ -7,7 +7,7 @@ defmodule ClawdEx.Memory.TokenizerTest do
     test "estimates tokens for English text" do
       text = "Hello world this is a test"
       tokens = Tokenizer.estimate_tokens(text)
-      
+
       # ~26 chars / 4 = ~6-7 tokens
       assert tokens >= 5 and tokens <= 10
     end
@@ -15,7 +15,7 @@ defmodule ClawdEx.Memory.TokenizerTest do
     test "estimates tokens for Chinese text" do
       text = "你好世界这是一个测试"
       tokens = Tokenizer.estimate_tokens(text)
-      
+
       # 10 chars / 1.8 = ~5-6 tokens
       assert tokens >= 4 and tokens <= 8
     end
@@ -23,7 +23,7 @@ defmodule ClawdEx.Memory.TokenizerTest do
     test "handles mixed content" do
       text = "Hello 你好 World 世界"
       tokens = Tokenizer.estimate_tokens(text)
-      
+
       assert tokens > 0
     end
 
@@ -45,9 +45,10 @@ defmodule ClawdEx.Memory.TokenizerTest do
     test "truncates text that exceeds limit" do
       text = String.duplicate("word ", 100)
       truncated = Tokenizer.truncate_to_tokens(text, 10)
-      
+
       assert String.length(truncated) < String.length(text)
-      assert Tokenizer.estimate_tokens(truncated) <= 15  # 允许一点误差
+      # 允许一点误差
+      assert Tokenizer.estimate_tokens(truncated) <= 15
     end
   end
 

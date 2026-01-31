@@ -29,7 +29,8 @@ defmodule ClawdEx.Tools.Compact do
       properties: %{
         instructions: %{
           type: "string",
-          description: "Optional custom instructions for the summary (e.g., 'Focus on technical decisions')"
+          description:
+            "Optional custom instructions for the summary (e.g., 'Focus on technical decisions')"
         }
       },
       required: []

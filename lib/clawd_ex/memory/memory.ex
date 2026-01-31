@@ -25,10 +25,11 @@ defmodule ClawdEx.Memory do
           where: not is_nil(c.embedding),
           select: %{
             chunk: c,
-            similarity: fragment(
-              "1 - (embedding <=> ?::vector)",
-              ^query_embedding_str
-            )
+            similarity:
+              fragment(
+                "1 - (embedding <=> ?::vector)",
+                ^query_embedding_str
+              )
           },
           order_by: [asc: fragment("embedding <=> ?::vector", ^query_embedding_str)],
           limit: ^limit
@@ -47,11 +48,14 @@ defmodule ClawdEx.Memory do
   @doc """
   索引新的记忆内容
   """
-  @spec index_content(integer(), String.t(), String.t(), keyword()) :: {:ok, [Chunk.t()]} | {:error, term()}
+  @spec index_content(integer(), String.t(), String.t(), keyword()) ::
+          {:ok, [Chunk.t()]} | {:error, term()}
   def index_content(agent_id, source_file, content, opts \\ []) do
     source_type = Keyword.get(opts, :source_type, :memory_file)
-    chunk_size = Keyword.get(opts, :chunk_size, 400)  # tokens
-    overlap = Keyword.get(opts, :overlap, 80)  # tokens
+    # tokens
+    chunk_size = Keyword.get(opts, :chunk_size, 400)
+    # tokens
+    overlap = Keyword.get(opts, :overlap, 80)
 
     chunks = chunk_text(content, chunk_size, overlap)
 
@@ -142,7 +146,8 @@ defmodule ClawdEx.Memory do
     # 简单的按行分块，后续可以改进为基于 token 的分块
     lines
     |> Enum.with_index(1)
-    |> Enum.chunk_every(20, 15, :discard)  # 每20行一块，15行重叠
+    # 每20行一块，15行重叠
+    |> Enum.chunk_every(20, 15, :discard)
     |> Enum.map(fn chunk ->
       texts = Enum.map(chunk, fn {line, _idx} -> line end)
       start_line = chunk |> List.first() |> elem(1)

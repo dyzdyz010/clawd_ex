@@ -28,13 +28,13 @@ defmodule ClawdEx.Streaming.BlockChunker do
 
   @type break_preference :: :paragraph | :newline | :sentence | :whitespace
   @type t :: %__MODULE__{
-    min_chars: non_neg_integer(),
-    max_chars: pos_integer(),
-    break_preference: break_preference(),
-    buffer: String.t(),
-    in_code_fence: boolean(),
-    fence_marker: String.t() | nil
-  }
+          min_chars: non_neg_integer(),
+          max_chars: pos_integer(),
+          break_preference: break_preference(),
+          buffer: String.t(),
+          in_code_fence: boolean(),
+          fence_marker: String.t() | nil
+        }
 
   @default_min_chars 200
   @default_max_chars 800
@@ -87,11 +87,7 @@ defmodule ClawdEx.Streaming.BlockChunker do
     new_buffer = chunker.buffer <> text
     {in_fence, fence_marker} = track_code_fences(new_buffer)
 
-    chunker = %{chunker |
-      buffer: new_buffer,
-      in_code_fence: in_fence,
-      fence_marker: fence_marker
-    }
+    chunker = %{chunker | buffer: new_buffer, in_code_fence: in_fence, fence_marker: fence_marker}
 
     # 尝试提取块
     extract_chunks(chunker, [])
@@ -109,21 +105,18 @@ defmodule ClawdEx.Streaming.BlockChunker do
 
   def flush(%__MODULE__{} = chunker) do
     # 刷新时，即使在代码块中也要关闭它
-    final_chunk = if chunker.in_code_fence && chunker.fence_marker do
-      chunker.buffer <> "\n" <> chunker.fence_marker
-    else
-      chunker.buffer
-    end
+    final_chunk =
+      if chunker.in_code_fence && chunker.fence_marker do
+        chunker.buffer <> "\n" <> chunker.fence_marker
+      else
+        chunker.buffer
+      end
 
     final_chunk = String.trim(final_chunk)
 
     chunks = if final_chunk == "", do: [], else: [final_chunk]
 
-    new_chunker = %{chunker |
-      buffer: "",
-      in_code_fence: false,
-      fence_marker: nil
-    }
+    new_chunker = %{chunker | buffer: "", in_code_fence: false, fence_marker: nil}
 
     {chunks, new_chunker}
   end
@@ -158,11 +151,14 @@ defmodule ClawdEx.Streaming.BlockChunker do
       # Buffer 超过 max_chars，必须断开
       buffer_len >= chunker.max_chars ->
         {chunk, remaining, new_fence_state} = force_break(chunker)
-        new_chunker = %{chunker |
-          buffer: remaining,
-          in_code_fence: new_fence_state.in_fence,
-          fence_marker: new_fence_state.marker
+
+        new_chunker = %{
+          chunker
+          | buffer: remaining,
+            in_code_fence: new_fence_state.in_fence,
+            fence_marker: new_fence_state.marker
         }
+
         extract_chunks(new_chunker, [chunk | acc])
 
       # 在 min_chars 和 max_chars 之间，寻找合适断点
@@ -175,11 +171,14 @@ defmodule ClawdEx.Streaming.BlockChunker do
           break_pos ->
             {chunk, remaining} = split_at(buffer, break_pos)
             {in_fence, fence_marker} = track_code_fences(remaining)
-            new_chunker = %{chunker |
-              buffer: remaining,
-              in_code_fence: in_fence,
-              fence_marker: fence_marker
+
+            new_chunker = %{
+              chunker
+              | buffer: remaining,
+                in_code_fence: in_fence,
+                fence_marker: fence_marker
             }
+
             extract_chunks(new_chunker, [String.trim(chunk) | acc])
         end
     end
@@ -201,7 +200,9 @@ defmodule ClawdEx.Streaming.BlockChunker do
   end
 
   # 根据偏好获取断点模式列表
-  defp get_break_patterns(:paragraph), do: [@paragraph_break, @newline_break, @sentence_break, @whitespace_break]
+  defp get_break_patterns(:paragraph),
+    do: [@paragraph_break, @newline_break, @sentence_break, @whitespace_break]
+
   defp get_break_patterns(:newline), do: [@newline_break, @sentence_break, @whitespace_break]
   defp get_break_patterns(:sentence), do: [@sentence_break, @whitespace_break]
   defp get_break_patterns(:whitespace), do: [@whitespace_break]
@@ -221,7 +222,8 @@ defmodule ClawdEx.Streaming.BlockChunker do
 
   # 强制断开（在 max_chars 处或代码块安全位置）
   defp force_break(%__MODULE__{} = chunker) do
-    %{buffer: buffer, max_chars: max_chars, in_code_fence: in_fence, fence_marker: marker} = chunker
+    %{buffer: buffer, max_chars: max_chars, in_code_fence: in_fence, fence_marker: marker} =
+      chunker
 
     if in_fence do
       # 在代码块中，需要关闭并重新打开
@@ -239,12 +241,15 @@ defmodule ClawdEx.Streaming.BlockChunker do
     # 在代码块内尝试在换行处断开
     search_area = String.slice(buffer, 0, max_chars)
 
-    break_pos = case Regex.scan(~r/\n/, search_area, return: :index) do
-      [] -> max_chars
-      matches ->
-        {start, _len} = List.last(matches) |> List.first()
-        start + 1
-    end
+    break_pos =
+      case Regex.scan(~r/\n/, search_area, return: :index) do
+        [] ->
+          max_chars
+
+        matches ->
+          {start, _len} = List.last(matches) |> List.first()
+          start + 1
+      end
 
     {chunk_content, remaining} = split_at(buffer, break_pos)
 
@@ -262,7 +267,9 @@ defmodule ClawdEx.Streaming.BlockChunker do
     search_area = String.slice(buffer, 0, max_chars)
 
     case Regex.scan(@whitespace_break, search_area, return: :index) do
-      [] -> nil
+      [] ->
+        nil
+
       matches ->
         {start, len} = List.last(matches) |> List.first()
         start + len
@@ -277,24 +284,26 @@ defmodule ClawdEx.Streaming.BlockChunker do
   # 跟踪代码块状态
   defp track_code_fences(text) do
     # 找到所有代码块标记
-    fences = Regex.scan(@code_fence_pattern, text, return: :index)
-    |> Enum.map(fn [{start, len} | _] ->
-      String.slice(text, start, len)
-    end)
+    fences =
+      Regex.scan(@code_fence_pattern, text, return: :index)
+      |> Enum.map(fn [{start, len} | _] ->
+        String.slice(text, start, len)
+      end)
 
     # 计算当前是否在代码块中
-    {in_fence, marker} = Enum.reduce(fences, {false, nil}, fn fence, {in_fence, _marker} ->
-      fence_chars = String.trim(fence)
-      # 提取 fence marker (``` 或 ~~~)
-      marker = Regex.run(~r/^(`{3,}|~{3,})/, fence_chars) |> List.first()
+    {in_fence, marker} =
+      Enum.reduce(fences, {false, nil}, fn fence, {in_fence, _marker} ->
+        fence_chars = String.trim(fence)
+        # 提取 fence marker (``` 或 ~~~)
+        marker = Regex.run(~r/^(`{3,}|~{3,})/, fence_chars) |> List.first()
 
-      if in_fence do
-        # 检查是否是关闭标记（与打开标记相同或更长）
-        {false, nil}
-      else
-        {true, marker}
-      end
-    end)
+        if in_fence do
+          # 检查是否是关闭标记（与打开标记相同或更长）
+          {false, nil}
+        else
+          {true, marker}
+        end
+      end)
 
     {in_fence, marker}
   end

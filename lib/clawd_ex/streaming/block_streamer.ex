@@ -49,12 +49,12 @@ defmodule ClawdEx.Streaming.BlockStreamer do
   ]
 
   @type config :: %{
-    enabled: boolean(),
-    break: :text_end | :message_end,
-    chunk: keyword(),
-    coalesce: keyword() | nil,
-    human_delay: keyword()
-  }
+          enabled: boolean(),
+          break: :text_end | :message_end,
+          chunk: keyword(),
+          coalesce: keyword() | nil,
+          human_delay: keyword()
+        }
 
   @default_config %{
     enabled: false,
@@ -153,15 +153,16 @@ defmodule ClawdEx.Streaming.BlockStreamer do
       new_state = %{state | chunker: new_chunker}
 
       # 根据 break 设置决定是否立即发送
-      new_state = case state.config.break do
-        :text_end ->
-          # text_end 模式下，块准备好就可以发送（但等待 text_end 事件）
-          maybe_coalesce(new_state, chunks)
+      new_state =
+        case state.config.break do
+          :text_end ->
+            # text_end 模式下，块准备好就可以发送（但等待 text_end 事件）
+            maybe_coalesce(new_state, chunks)
 
-        :message_end ->
-          # message_end 模式下，只缓存，不发送
-          buffer_chunks(new_state, chunks)
-      end
+          :message_end ->
+            # message_end 模式下，只缓存，不发送
+            buffer_chunks(new_state, chunks)
+        end
 
       {:noreply, new_state}
     else
@@ -188,13 +189,11 @@ defmodule ClawdEx.Streaming.BlockStreamer do
     {chunks, new_chunker} = BlockChunker.flush(state.chunker)
 
     # 合并 coalesce buffer 中的块
-    all_chunks = state.coalesce_buffer ++ chunks
-    |> Enum.filter(&(&1 != ""))
+    all_chunks =
+      (state.coalesce_buffer ++ chunks)
+      |> Enum.filter(&(&1 != ""))
 
-    new_state = %{state |
-      chunker: new_chunker,
-      coalesce_buffer: []
-    }
+    new_state = %{state | chunker: new_chunker, coalesce_buffer: []}
 
     # 发送所有剩余块
     new_state = send_blocks(new_state, all_chunks)
@@ -212,6 +211,7 @@ defmodule ClawdEx.Streaming.BlockStreamer do
       coalesce_buffer_count: length(state.coalesce_buffer),
       enabled: state.config.enabled
     }
+
     {:reply, info, state}
   end
 
@@ -290,7 +290,9 @@ defmodule ClawdEx.Streaming.BlockStreamer do
   # 刷新 coalesce buffer
   defp flush_coalesce_buffer(state) do
     if state.coalesce_buffer != [] do
-      combined = Enum.join(state.coalesce_buffer, get_joiner(state.config.chunk[:break_preference]))
+      combined =
+        Enum.join(state.coalesce_buffer, get_joiner(state.config.chunk[:break_preference]))
+
       state = send_blocks(state, [combined])
       %{state | coalesce_buffer: []}
     else
@@ -350,6 +352,8 @@ defmodule ClawdEx.Streaming.BlockStreamer do
       {:block_chunk, state.run_id, %{content: content, block_index: state.blocks_sent}}
     )
 
-    Logger.debug("Block streamer sent block ##{state.blocks_sent} (#{String.length(content)} chars)")
+    Logger.debug(
+      "Block streamer sent block ##{state.blocks_sent} (#{String.length(content)} chars)"
+    )
   end
 end

@@ -52,18 +52,20 @@ defmodule ClawdEx.Tools.MemorySearch do
       if results == [] do
         {:ok, "No relevant memories found for query: #{query}"}
       else
-        formatted = results
-        |> Enum.map(fn chunk ->
-          score = Map.get(chunk, :similarity, 0) |> Float.round(3)
-          """
-          ---
-          **Source:** #{chunk.source_file} (lines #{chunk.start_line}-#{chunk.end_line})
-          **Score:** #{score}
+        formatted =
+          results
+          |> Enum.map(fn chunk ->
+            score = Map.get(chunk, :similarity, 0) |> Float.round(3)
 
-          #{String.slice(chunk.content, 0, 500)}
-          """
-        end)
-        |> Enum.join("\n")
+            """
+            ---
+            **Source:** #{chunk.source_file} (lines #{chunk.start_line}-#{chunk.end_line})
+            **Score:** #{score}
+
+            #{String.slice(chunk.content, 0, 500)}
+            """
+          end)
+          |> Enum.join("\n")
 
         {:ok, "Found #{length(results)} relevant memories:\n\n#{formatted}"}
       end

@@ -9,7 +9,6 @@ defmodule ClawdEx.Tools.WebSearch do
 
   require Logger
 
-  @default_user_agent "ClawdEx/1.0 (Elixir)"
   @brave_api_url "https://api.search.brave.com/res/v1/web/search"
   @default_timeout 30_000
   @default_max_results 5
