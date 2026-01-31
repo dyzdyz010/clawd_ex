@@ -36,7 +36,8 @@ defmodule ClawdEx.Sessions.SessionWorker do
   """
   @spec send_message(String.t(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def send_message(session_key, content, opts \\ []) do
-    GenServer.call(via_tuple(session_key), {:send_message, content, opts}, 120_000)
+    timeout = Keyword.get(opts, :timeout, 120_000)
+    GenServer.call(via_tuple(session_key), {:send_message, content, opts}, timeout)
   end
 
   @doc """

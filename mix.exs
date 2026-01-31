@@ -54,8 +54,8 @@ defmodule ClawdEx.MixProject do
       {:telegex, "~> 1.8"},
       {:finch, "~> 0.18"},
       {:multipart, "~> 0.4"},
-      # Discord Bot API
-      {:nostrum, "~> 0.10"},
+      # Discord Bot API (runtime: false in test - no bot token available)
+      {:nostrum, "~> 0.10", runtime: Mix.env() != :test},
       # Required for Nostrum
       {:certifi, "~> 2.12"},
       {:gun, "~> 2.0", override: true},
