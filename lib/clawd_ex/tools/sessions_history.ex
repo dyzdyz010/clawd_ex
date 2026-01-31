@@ -55,7 +55,14 @@ defmodule ClawdEx.Tools.SessionsHistory do
   end
 
   defp get_include_tools(params) do
-    case params["includeTools"] || params[:includeTools] do
+    # Can't use || here because false is falsy - use Map.get with fallback
+    raw = 
+      case Map.get(params, "includeTools") do
+        nil -> Map.get(params, :includeTools)
+        val -> val
+      end
+      
+    case raw do
       nil -> true
       val when is_boolean(val) -> val
       "true" -> true
@@ -82,14 +89,14 @@ defmodule ClawdEx.Tools.SessionsHistory do
         order_by: [asc: m.inserted_at, asc: m.id],
         limit: ^limit
 
-    query =
-      if include_tools do
-        query
-      else
-        from m in query, where: m.role not in [:tool]
-      end
-
-    Repo.all(query)
+    if include_tools do
+      Repo.all(query)
+    else
+      # Filter out tool messages - Ecto.Enum uses atoms
+      query
+      |> where([m], m.role != ^:tool)
+      |> Repo.all()
+    end
   end
 
   defp format_response(session, messages) do

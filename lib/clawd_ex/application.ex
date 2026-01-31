@@ -10,8 +10,7 @@ defmodule ClawdEx.Application do
     children = [
       ClawdExWeb.Telemetry,
       ClawdEx.Repo,
-      # Finch HTTP client for Telegex
-      {Finch, name: Telegex.Finch},
+      # Note: Finch for Telegex is started by Telegex.Application, don't duplicate
       {DNSCluster, query: Application.get_env(:clawd_ex, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: ClawdEx.PubSub},
       # Session Registry for process lookup
