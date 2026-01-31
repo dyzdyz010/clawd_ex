@@ -134,9 +134,16 @@ defmodule ClawdEx.Memory.BM25 do
   # 英文单字符太短，但 CJK 字符保留
   defp should_filter_token?(token) do
     len = String.length(token)
+
     cond do
-      len >= 2 -> false  # 长度 >= 2 的保留
-      len == 0 -> true   # 空字符串过滤
+      # 长度 >= 2 的保留
+      len >= 2 ->
+        false
+
+      # 空字符串过滤
+      len == 0 ->
+        true
+
       true ->
         # 单字符：检查是否是 CJK
         char = String.first(token)
@@ -146,13 +153,20 @@ defmodule ClawdEx.Memory.BM25 do
 
   defp cjk_char?(char) do
     case char |> String.to_charlist() |> List.first() do
-      nil -> false
+      nil ->
+        false
+
       codepoint ->
-        (codepoint >= 0x4E00 and codepoint <= 0x9FFF) or   # CJK 统一汉字
-        (codepoint >= 0x3400 and codepoint <= 0x4DBF) or   # CJK 扩展 A
-        (codepoint >= 0x3040 and codepoint <= 0x309F) or   # 日文平假名
-        (codepoint >= 0x30A0 and codepoint <= 0x30FF) or   # 日文片假名
-        (codepoint >= 0xAC00 and codepoint <= 0xD7AF)      # 韩文音节
+        # CJK 统一汉字
+        # CJK 扩展 A
+        # 日文平假名
+        # 日文片假名
+        # 韩文音节
+        (codepoint >= 0x4E00 and codepoint <= 0x9FFF) or
+          (codepoint >= 0x3400 and codepoint <= 0x4DBF) or
+          (codepoint >= 0x3040 and codepoint <= 0x309F) or
+          (codepoint >= 0x30A0 and codepoint <= 0x30FF) or
+          (codepoint >= 0xAC00 and codepoint <= 0xD7AF)
     end
   end
 

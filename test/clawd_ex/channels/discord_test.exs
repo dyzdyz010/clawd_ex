@@ -79,6 +79,7 @@ defmodule ClawdEx.Channels.DiscordTest do
   describe "maybe_add_buttons/2" do
     test "adds components when buttons are provided" do
       opts_map = %{content: "test"}
+
       buttons = [
         [%{label: "Button 1", callback_data: "btn1"}]
       ]
@@ -87,7 +88,8 @@ defmodule ClawdEx.Channels.DiscordTest do
 
       assert length(result.components) == 1
       [action_row] = result.components
-      assert action_row.type == 1  # ACTION_ROW
+      # ACTION_ROW
+      assert action_row.type == 1
       assert length(action_row.components) == 1
     end
 
@@ -140,7 +142,9 @@ defmodule ClawdEx.Channels.DiscordTest do
   rescue
     UndefinedFunctionError ->
       case Keyword.get(opts, :reply_to) do
-        nil -> opts_map
+        nil ->
+          opts_map
+
         reply_id ->
           id = if is_binary(reply_id), do: String.to_integer(reply_id), else: reply_id
           Map.put(opts_map, :message_reference, %{message_id: id})
@@ -152,22 +156,29 @@ defmodule ClawdEx.Channels.DiscordTest do
   rescue
     UndefinedFunctionError ->
       case Keyword.get(opts, :buttons) do
-        nil -> opts_map
-        [] -> opts_map
+        nil ->
+          opts_map
+
+        [] ->
+          opts_map
+
         buttons ->
-          components = Enum.map(buttons, fn row ->
-            %{
-              type: 1,
-              components: Enum.map(row, fn button ->
-                %{
-                  type: 2,
-                  style: Map.get(button, :style, 1),
-                  label: Map.get(button, :label, "Button"),
-                  custom_id: Map.get(button, :callback_data, "button")
-                }
-              end)
-            }
-          end)
+          components =
+            Enum.map(buttons, fn row ->
+              %{
+                type: 1,
+                components:
+                  Enum.map(row, fn button ->
+                    %{
+                      type: 2,
+                      style: Map.get(button, :style, 1),
+                      label: Map.get(button, :label, "Button"),
+                      custom_id: Map.get(button, :callback_data, "button")
+                    }
+                  end)
+              }
+            end)
+
           Map.put(opts_map, :components, components)
       end
   end

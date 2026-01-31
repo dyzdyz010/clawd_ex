@@ -68,7 +68,8 @@ defmodule ClawdEx.Channels.DiscordSupervisor do
           description: "与 AI 聊天",
           options: [
             %{
-              type: 3,  # STRING
+              # STRING
+              type: 3,
               name: "message",
               description: "你想说什么？",
               required: true

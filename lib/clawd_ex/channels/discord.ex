@@ -37,11 +37,8 @@ defmodule ClawdEx.Channels.Discord do
 
   @impl ClawdEx.Channels.Channel
   def ready? do
-    # 检查 Nostrum 是否已连接
-    case Process.whereis(Nostrum.Shard.Supervisor) do
-      nil -> false
-      _pid -> true
-    end
+    # 检查是否启用且 Nostrum 已连接
+    enabled?() and Process.whereis(Nostrum.Shard.Supervisor) != nil
   end
 
   @impl ClawdEx.Channels.Channel
@@ -93,30 +90,15 @@ defmodule ClawdEx.Channels.Discord do
   # Nostrum Consumer Callbacks
   # ============================================================================
 
-  @doc """
-  启动 Discord consumer
-  """
-  def start_link do
-    if enabled?() do
-      Nostrum.Consumer.start_link(__MODULE__)
-    else
-      :ignore
-    end
-  end
-
-  def child_spec(opts) do
-    %{
-      id: __MODULE__,
-      start: {__MODULE__, :start_link, opts},
-      type: :worker,
-      restart: :permanent,
-      shutdown: 5000
-    }
-  end
+  # start_link 和 child_spec 由 `use Nostrum.Consumer` 自动提供
+  # Nostrum 0.10+ 通过 ConsumerSupervisor 管理 consumer 进程
 
   @impl Nostrum.Consumer
   def handle_event({:READY, ready_data, _ws_state}) do
-    Logger.info("Discord bot connected as #{ready_data.user.username}##{ready_data.user.discriminator}")
+    Logger.info(
+      "Discord bot connected as #{ready_data.user.username}##{ready_data.user.discriminator}"
+    )
+
     :ok
   end
 
@@ -167,6 +149,7 @@ defmodule ClawdEx.Channels.Discord do
       "chat" ->
         # 获取用户输入
         content = get_interaction_option(interaction, "message")
+
         if content do
           # 创建临时会话处理消息
           channel_id = interaction.channel_id
@@ -197,7 +180,8 @@ defmodule ClawdEx.Channels.Discord do
 
   defp respond_to_interaction(interaction, content) do
     response = %{
-      type: 4,  # CHANNEL_MESSAGE_WITH_SOURCE
+      # CHANNEL_MESSAGE_WITH_SOURCE
+      type: 4,
       data: %{content: content}
     }
 
@@ -277,19 +261,24 @@ defmodule ClawdEx.Channels.Discord do
 
       buttons ->
         # 转换为 Discord components 格式
-        components = Enum.map(buttons, fn row ->
-          %{
-            type: 1,  # ACTION_ROW
-            components: Enum.map(row, fn button ->
-              %{
-                type: 2,  # BUTTON
-                style: Map.get(button, :style, 1),  # PRIMARY
-                label: Map.get(button, :label, "Button"),
-                custom_id: Map.get(button, :callback_data, "button")
-              }
-            end)
-          }
-        end)
+        components =
+          Enum.map(buttons, fn row ->
+            %{
+              # ACTION_ROW
+              type: 1,
+              components:
+                Enum.map(row, fn button ->
+                  %{
+                    # BUTTON
+                    type: 2,
+                    # PRIMARY
+                    style: Map.get(button, :style, 1),
+                    label: Map.get(button, :label, "Button"),
+                    custom_id: Map.get(button, :callback_data, "button")
+                  }
+                end)
+            }
+          end)
 
         Map.put(opts_map, :components, components)
     end
