@@ -23,9 +23,14 @@ defmodule ClawdEx.Tools.Registry do
     "memory_search" => ClawdEx.Tools.MemorySearch,
     "memory_get" => ClawdEx.Tools.MemoryGet,
     "session_status" => ClawdEx.Tools.SessionStatus,
+    "sessions_history" => ClawdEx.Tools.SessionsHistory,
+    "sessions_list" => ClawdEx.Tools.SessionsList,
+    "sessions_send" => ClawdEx.Tools.SessionsSend,
+    "sessions_spawn" => ClawdEx.Tools.SessionsSpawn,
     "web_search" => ClawdEx.Tools.WebSearch,
     "web_fetch" => ClawdEx.Tools.WebFetch,
-    "compact" => ClawdEx.Tools.Compact
+    "compact" => ClawdEx.Tools.Compact,
+    "agents_list" => ClawdEx.Tools.AgentsList
   }
 
   @doc """
