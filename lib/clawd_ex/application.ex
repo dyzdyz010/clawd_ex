@@ -17,6 +17,8 @@ defmodule ClawdEx.Application do
       {Registry, keys: :unique, name: ClawdEx.SessionRegistry},
       # Agent Loop Registry
       {Registry, keys: :unique, name: ClawdEx.AgentLoopRegistry},
+      # OAuth credential manager (handles token refresh)
+      ClawdEx.AI.OAuth,
       # Background process manager
       ClawdEx.Tools.Process,
       # Node registry for paired devices

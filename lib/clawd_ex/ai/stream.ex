@@ -3,12 +3,15 @@ defmodule ClawdEx.AI.Stream do
   流式 AI 响应处理
 
   支持:
-  - Anthropic Claude (SSE)
+  - Anthropic Claude (SSE) - 包括 OAuth token
   - OpenAI GPT (SSE)
   - Google Gemini (SSE)
   """
 
   require Logger
+
+  alias ClawdEx.AI.OAuth
+  alias ClawdEx.AI.OAuth.Anthropic, as: AnthropicOAuth
 
   @type message :: %{role: String.t(), content: String.t()}
   @type stream_opts :: [
@@ -39,53 +42,81 @@ defmodule ClawdEx.AI.Stream do
   # ============================================================================
 
   defp stream_anthropic(model, messages, opts, stream_to) do
-    api_key = get_api_key(:anthropic)
+    case OAuth.get_api_key(:anthropic) do
+      {:ok, api_key} ->
+        is_oauth = OAuth.oauth_token?(api_key)
+        system_prompt = Keyword.get(opts, :system)
+        tools = Keyword.get(opts, :tools, [])
+        max_tokens = Keyword.get(opts, :max_tokens, 4096)
 
-    if is_nil(api_key) do
-      {:error, :missing_api_key}
-    else
-      system_prompt = Keyword.get(opts, :system)
-      tools = Keyword.get(opts, :tools, [])
-      max_tokens = Keyword.get(opts, :max_tokens, 4096)
+        body = %{
+          model: model,
+          max_tokens: max_tokens,
+          messages: format_messages_anthropic(messages),
+          stream: true
+        }
 
-      body = %{
-        model: model,
-        max_tokens: max_tokens,
-        messages: format_messages_anthropic(messages),
-        stream: true
-      }
+        # OAuth tokens require special system prompt format
+        body = if is_oauth do
+          Map.put(body, :system, AnthropicOAuth.build_system_prompt(system_prompt))
+        else
+          if system_prompt, do: Map.put(body, :system, system_prompt), else: body
+        end
 
-      body = if system_prompt, do: Map.put(body, :system, system_prompt), else: body
-      body = if tools != [], do: Map.put(body, :tools, tools), else: body
+        body = if tools != [], do: Map.put(body, :tools, format_tools_for_oauth(tools, is_oauth)), else: body
 
-      # OAuth tokens (sk-ant-oat*) need Bearer auth, API keys need x-api-key
-      auth_headers = if String.contains?(api_key, "sk-ant-oat") do
-        [
-          {"authorization", "Bearer #{api_key}"},
-          {"anthropic-beta", "oauth-2025-01-01"}
-        ]
-      else
-        [{"x-api-key", api_key}]
-      end
-      
-      headers = auth_headers ++ [
-        {"anthropic-version", "2023-06-01"},
-        {"content-type", "application/json"},
-        {"accept", "text/event-stream"}
-      ]
+        # OAuth tokens need Claude Code compatible headers
+        headers = if is_oauth do
+          AnthropicOAuth.api_headers(api_key) ++ [
+            {"content-type", "application/json"},
+            {"accept", "text/event-stream"}
+          ]
+        else
+          [
+            {"x-api-key", api_key},
+            {"anthropic-version", "2023-06-01"},
+            {"content-type", "application/json"},
+            {"accept", "text/event-stream"}
+          ]
+        end
 
-      # 使用 Req 的流式处理
-      case stream_request(
-             "https://api.anthropic.com/v1/messages",
-             body,
-             headers,
-             stream_to,
-             :anthropic
-           ) do
-        {:ok, accumulated} -> {:ok, accumulated}
-        {:error, reason} -> {:error, reason}
-      end
+        # 使用 Req 的流式处理
+        case stream_request(
+               "https://api.anthropic.com/v1/messages",
+               body,
+               headers,
+               stream_to,
+               :anthropic
+             ) do
+          {:ok, accumulated} -> {:ok, accumulated}
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
+  end
+
+  # Format tools for OAuth (Claude Code naming convention)
+  defp format_tools_for_oauth(tools, true = _is_oauth) do
+    Enum.map(tools, fn tool ->
+      name = tool[:name] || tool["name"]
+      %{
+        tool |
+        name: to_claude_code_name(name)
+      }
+    end)
+  end
+  defp format_tools_for_oauth(tools, false), do: tools
+
+  # Claude Code tool name mapping
+  @claude_code_tools ~w(Read Write Edit Bash Grep Glob AskUserQuestion EnterPlanMode ExitPlanMode KillShell NotebookEdit Skill Task TaskOutput TodoWrite WebFetch WebSearch)
+
+  defp to_claude_code_name(name) do
+    lower_name = String.downcase(to_string(name))
+    Enum.find(@claude_code_tools, name, fn cc_name ->
+      String.downcase(cc_name) == lower_name
+    end)
   end
 
   # ============================================================================
@@ -531,18 +562,17 @@ defmodule ClawdEx.AI.Stream do
     end)
   end
 
-  defp get_api_key(:anthropic) do
-    Application.get_env(:clawd_ex, :anthropic_api_key) ||
-      System.get_env("ANTHROPIC_API_KEY")
-  end
-
   defp get_api_key(:openai) do
-    Application.get_env(:clawd_ex, :openai_api_key) ||
-      System.get_env("OPENAI_API_KEY")
+    case OAuth.get_api_key(:openai) do
+      {:ok, key} -> key
+      _ -> nil
+    end
   end
 
   defp get_api_key(:gemini) do
-    Application.get_env(:clawd_ex, :gemini_api_key) ||
-      System.get_env("GEMINI_API_KEY")
+    case OAuth.get_api_key(:gemini) do
+      {:ok, key} -> key
+      _ -> nil
+    end
   end
 end

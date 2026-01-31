@@ -2,7 +2,15 @@ defmodule ClawdEx.AI.Chat do
   @moduledoc """
   AI 聊天补全服务
   支持 Anthropic, OpenAI, Google 等提供商
+  
+  OAuth 支持:
+  - 自动检测 OAuth token (sk-ant-oat*)
+  - 自动刷新过期 token
+  - 使用 Claude Code 兼容的 headers 和 system prompt
   """
+
+  alias ClawdEx.AI.OAuth
+  alias ClawdEx.AI.OAuth.Anthropic, as: AnthropicOAuth
 
   @type message :: %{role: String.t(), content: String.t()}
   @type tool :: %{name: String.t(), description: String.t(), parameters: map()}
@@ -39,62 +47,46 @@ defmodule ClawdEx.AI.Chat do
 
   # Anthropic Claude API
   defp complete_anthropic(model, messages, opts) do
-    api_key = get_api_key(:anthropic)
     system_prompt = Keyword.get(opts, :system)
     tools = Keyword.get(opts, :tools, [])
     max_tokens = Keyword.get(opts, :max_tokens, 4096)
 
-    if is_nil(api_key) do
-      {:error, :missing_api_key}
-    else
-      is_oauth = String.contains?(api_key, "sk-ant-oat")
+    # Get API key through OAuth module (handles token refresh)
+    case OAuth.get_api_key(:anthropic) do
+      {:ok, api_key} ->
+        is_oauth = OAuth.oauth_token?(api_key)
 
-      body = %{
-        model: model,
-        max_tokens: max_tokens,
-        messages: format_messages_anthropic(messages)
-      }
+        body = %{
+          model: model,
+          max_tokens: max_tokens,
+          messages: format_messages_anthropic(messages)
+        }
 
-      # OAuth tokens require special system prompt format (Claude Code identity)
-      body = if is_oauth do
-        system_blocks = [
-          %{
-            type: "text",
-            text: "You are Claude Code, Anthropic's official CLI for Claude.",
-            cache_control: %{type: "ephemeral"}
-          }
-        ]
-
-        system_blocks = if system_prompt do
-          system_blocks ++ [%{
-            type: "text",
-            text: system_prompt,
-            cache_control: %{type: "ephemeral"}
-          }]
+        # OAuth tokens require special system prompt format (Claude Code identity)
+        body = if is_oauth do
+          Map.put(body, :system, AnthropicOAuth.build_system_prompt(system_prompt))
         else
-          system_blocks
+          if system_prompt, do: Map.put(body, :system, system_prompt), else: body
         end
 
-        Map.put(body, :system, system_blocks)
-      else
-        if system_prompt, do: Map.put(body, :system, system_prompt), else: body
-      end
+        body = if tools != [], do: Map.put(body, :tools, format_tools_anthropic(tools, is_oauth)), else: body
 
-      body = if tools != [], do: Map.put(body, :tools, format_tools_anthropic(tools, is_oauth)), else: body
+        case Req.post("https://api.anthropic.com/v1/messages",
+               json: body,
+               headers: anthropic_auth_headers(api_key)
+             ) do
+          {:ok, %{status: 200, body: body}} ->
+            {:ok, parse_anthropic_response(body)}
 
-      case Req.post("https://api.anthropic.com/v1/messages",
-             json: body,
-             headers: anthropic_auth_headers(api_key)
-           ) do
-        {:ok, %{status: 200, body: body}} ->
-          {:ok, parse_anthropic_response(body)}
+          {:ok, %{status: status, body: body}} ->
+            {:error, {:api_error, status, body}}
 
-        {:ok, %{status: status, body: body}} ->
-          {:error, {:api_error, status, body}}
+          {:error, reason} ->
+            {:error, reason}
+        end
 
-        {:error, reason} ->
-          {:error, reason}
-      end
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -276,17 +268,9 @@ defmodule ClawdEx.AI.Chat do
 
   # OAuth tokens (sk-ant-oat*) need special headers to mimic Claude Code
   defp anthropic_auth_headers(api_key) do
-    if String.contains?(api_key, "sk-ant-oat") do
-      # OAuth token - mimic Claude Code headers exactly
-      [
-        {"authorization", "Bearer #{api_key}"},
-        {"anthropic-version", "2023-06-01"},
-        {"anthropic-dangerous-direct-browser-access", "true"},
-        {"anthropic-beta", "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14,interleaved-thinking-2025-05-14"},
-        {"user-agent", "claude-cli/2.1.2 (external, cli)"},
-        {"x-app", "cli"},
-        {"accept", "application/json"}
-      ]
+    if OAuth.oauth_token?(api_key) do
+      # OAuth token - use Claude Code compatible headers
+      AnthropicOAuth.api_headers(api_key)
     else
       # Regular API key - use x-api-key header
       [
@@ -296,18 +280,17 @@ defmodule ClawdEx.AI.Chat do
     end
   end
 
-  defp get_api_key(:anthropic) do
-    Application.get_env(:clawd_ex, :anthropic_api_key) ||
-      System.get_env("ANTHROPIC_API_KEY")
-  end
-
   defp get_api_key(:openai) do
-    Application.get_env(:clawd_ex, :openai_api_key) ||
-      System.get_env("OPENAI_API_KEY")
+    case OAuth.get_api_key(:openai) do
+      {:ok, key} -> key
+      _ -> nil
+    end
   end
 
   defp get_api_key(:gemini) do
-    Application.get_env(:clawd_ex, :gemini_api_key) ||
-      System.get_env("GEMINI_API_KEY")
+    case OAuth.get_api_key(:gemini) do
+      {:ok, key} -> key
+      _ -> nil
+    end
   end
 end
