@@ -31,7 +31,9 @@ defmodule ClawdEx.Tools.Registry do
     "web_fetch" => ClawdEx.Tools.WebFetch,
     "compact" => ClawdEx.Tools.Compact,
     "agents_list" => ClawdEx.Tools.AgentsList,
-    "gateway" => ClawdEx.Tools.Gateway
+    "gateway" => ClawdEx.Tools.Gateway,
+    "cron" => ClawdEx.Tools.Cron,
+    "message" => ClawdEx.Tools.Message
   }
 
   @doc """
