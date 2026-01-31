@@ -23,19 +23,19 @@
 - [x] **gateway** - 自管理 (restart/config)
 - [x] **message** - 多渠道消息工具
 
-### Phase 4: 浏览器控制 (复杂)
-- [ ] **browser** 基础架构
-  - [ ] Playwright/Chrome DevTools 集成
-  - [ ] start/stop/status
-  - [ ] tabs 管理
-- [ ] **browser** 页面操作
-  - [ ] snapshot (aria/ai)
-  - [ ] screenshot
-  - [ ] navigate
-- [ ] **browser** 自动化
-  - [ ] act (click/type/press/hover)
-  - [ ] evaluate (JS 执行)
-  - [ ] upload/dialog
+### Phase 4: 浏览器控制 ✅
+- [x] **browser** 基础架构
+  - [x] Chrome DevTools Protocol 集成
+  - [x] start/stop/status
+  - [x] tabs 管理 (open/close)
+- [x] **browser** 页面操作
+  - [x] snapshot (aria/ai)
+  - [x] screenshot
+  - [x] navigate/console
+- [x] **browser** 自动化
+  - [x] act (click/type/press/hover/select/fill/drag/wait)
+  - [x] evaluate (JS 执行)
+  - [x] upload/dialog
 
 ### Phase 5: 节点系统 (可选)
 - [ ] **nodes** 基础
@@ -67,7 +67,7 @@
 - 渠道 (Telegram/Discord/WebSocket)
 
 **进行中:**
-- Phase 4: 浏览器控制
+- Phase 5: 节点系统
 
 ---
 
