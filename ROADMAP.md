@@ -18,10 +18,10 @@
 - [x] **sessions_spawn** - 子代理生成
 - [x] **agents_list** - 代理列表
 
-### Phase 3: 自动化系统
-- [ ] **cron** - 定时任务管理
-- [ ] **gateway** - 自管理 (重启/配置)
-- [ ] **message** - 多渠道消息工具
+### Phase 3: 自动化系统 ✅
+- [x] **cron** - 定时任务管理 (Job schema + migration)
+- [x] **gateway** - 自管理 (restart/config)
+- [x] **message** - 多渠道消息工具
 
 ### Phase 4: 浏览器控制 (复杂)
 - [ ] **browser** 基础架构
@@ -67,7 +67,7 @@
 - 渠道 (Telegram/Discord/WebSocket)
 
 **进行中:**
-- Phase 3: 自动化系统
+- Phase 4: 浏览器控制
 
 ---
 
