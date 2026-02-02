@@ -69,14 +69,18 @@ defmodule ClawdEx.Tools.Registry do
   """
   @spec execute(String.t(), map(), map()) :: {:ok, any()} | {:error, term()}
   def execute(tool_name, params, context) do
-    case Map.get(@tools, tool_name) do
+    # Try exact match first, then case-insensitive
+    module = Map.get(@tools, tool_name) || 
+             Map.get(@tools, String.downcase(tool_name))
+    
+    case module do
       nil ->
         Logger.warning("Tool not found: #{tool_name}")
         {:error, :tool_not_found}
 
-      module ->
+      mod ->
         try do
-          module.execute(params, context)
+          mod.execute(params, context)
         rescue
           e ->
             Logger.error("Tool execution error: #{inspect(e)}")
@@ -90,15 +94,18 @@ defmodule ClawdEx.Tools.Registry do
   """
   @spec get_tool_spec(String.t()) :: tool_spec() | nil
   def get_tool_spec(tool_name) do
-    case Map.get(@tools, tool_name) do
+    module = Map.get(@tools, tool_name) || 
+             Map.get(@tools, String.downcase(tool_name))
+    
+    case module do
       nil ->
         nil
 
-      module ->
+      mod ->
         %{
-          name: module.name(),
-          description: module.description(),
-          parameters: module.parameters()
+          name: mod.name(),
+          description: mod.description(),
+          parameters: mod.parameters()
         }
     end
   end
