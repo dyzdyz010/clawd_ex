@@ -186,9 +186,15 @@ defmodule ClawdExWeb.ChatLive do
   end
 
   # 处理流式响应
+  # 只在 sending 状态时处理 chunks，避免与同步响应竞态
   def handle_info({:agent_chunk, _run_id, %{content: content}}, socket) do
-    current = socket.assigns.streaming_content || ""
-    {:noreply, assign(socket, :streaming_content, current <> content)}
+    if socket.assigns.sending do
+      current = socket.assigns.streaming_content || ""
+      {:noreply, assign(socket, :streaming_content, current <> content)}
+    else
+      # 忽略在 send_message 完成后到达的 chunks
+      {:noreply, socket}
+    end
   end
 
   def handle_info(_msg, socket) do
