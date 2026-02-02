@@ -171,22 +171,25 @@ defmodule ClawdEx.Tools.WebFetch do
   end
 
   defp extract_content(body, content_type, extract_mode) when is_binary(body) do
+    # Ensure content_type is a string
+    ct = to_string(content_type || "text/html")
+    
     cond do
-      String.contains?(content_type, "text/html") or
-          String.contains?(content_type, "application/xhtml") ->
+      String.contains?(ct, "text/html") or
+          String.contains?(ct, "application/xhtml") ->
         html_to_readable(body, extract_mode)
 
-      String.contains?(content_type, "text/plain") ->
+      String.contains?(ct, "text/plain") ->
         body
 
-      String.contains?(content_type, "application/json") ->
+      String.contains?(ct, "application/json") ->
         body
 
-      String.contains?(content_type, "text/") ->
+      String.contains?(ct, "text/") ->
         body
 
       true ->
-        "[Binary content: #{content_type}]"
+        "[Binary content: #{ct}]"
     end
   end
 
