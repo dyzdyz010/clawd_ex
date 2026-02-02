@@ -33,6 +33,7 @@ defmodule ClawdEx.AI.Stream do
       :anthropic -> stream_anthropic(model_name, messages, opts, stream_to)
       :openai -> stream_openai(model_name, messages, opts, stream_to)
       :google -> stream_google(model_name, messages, opts, stream_to)
+      :openrouter -> stream_openrouter(model_name, messages, opts)
       _ -> {:error, :unsupported_provider}
     end
   end
@@ -491,9 +492,18 @@ defmodule ClawdEx.AI.Stream do
       ["anthropic", name] -> {:anthropic, name}
       ["openai", name] -> {:openai, name}
       ["google", name] -> {:google, name}
+      ["openrouter", name] -> {:openrouter, "openrouter/" <> name}
       [name] -> {:anthropic, name}
       _ -> {:unknown, model}
     end
+  end
+
+  # ============================================================================
+  # OpenRouter Streaming (via dedicated provider module)
+  # ============================================================================
+
+  defp stream_openrouter(model, messages, opts) do
+    ClawdEx.AI.Providers.OpenRouter.stream(model, messages, opts)
   end
 
   defp format_messages_anthropic(messages) do

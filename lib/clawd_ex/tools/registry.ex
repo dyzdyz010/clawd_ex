@@ -15,28 +15,38 @@ defmodule ClawdEx.Tools.Registry do
 
   # 工具模块映射
   @tools %{
+    # 文件系统
     "read" => ClawdEx.Tools.Read,
     "write" => ClawdEx.Tools.Write,
     "edit" => ClawdEx.Tools.Edit,
+    # 运行时
     "exec" => ClawdEx.Tools.Exec,
     "process" => ClawdEx.Tools.Process,
+    # 记忆
     "memory_search" => ClawdEx.Tools.MemorySearch,
     "memory_get" => ClawdEx.Tools.MemoryGet,
+    # 会话
     "session_status" => ClawdEx.Tools.SessionStatus,
     "sessions_history" => ClawdEx.Tools.SessionsHistory,
     "sessions_list" => ClawdEx.Tools.SessionsList,
     "sessions_send" => ClawdEx.Tools.SessionsSend,
     "sessions_spawn" => ClawdEx.Tools.SessionsSpawn,
+    "agents_list" => ClawdEx.Tools.AgentsList,
+    # Web
     "web_search" => ClawdEx.Tools.WebSearch,
     "web_fetch" => ClawdEx.Tools.WebFetch,
+    # 自动化
     "compact" => ClawdEx.Tools.Compact,
-    "agents_list" => ClawdEx.Tools.AgentsList,
     "gateway" => ClawdEx.Tools.Gateway,
     "cron" => ClawdEx.Tools.Cron,
     "message" => ClawdEx.Tools.Message,
+    # 浏览器 & 节点
     "browser" => ClawdEx.Tools.Browser,
     "nodes" => ClawdEx.Tools.Nodes,
-    "canvas" => ClawdEx.Tools.Canvas
+    "canvas" => ClawdEx.Tools.Canvas,
+    # 媒体 (新增)
+    "image" => ClawdEx.Tools.Image,
+    "tts" => ClawdEx.Tools.Tts
   }
 
   @doc """

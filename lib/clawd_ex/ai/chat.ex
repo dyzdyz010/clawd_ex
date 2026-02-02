@@ -27,6 +27,7 @@ defmodule ClawdEx.AI.Chat do
       :anthropic -> complete_anthropic(model_name, messages, opts)
       :openai -> complete_openai(model_name, messages, opts)
       :google -> complete_google(model_name, messages, opts)
+      :openrouter -> complete_openrouter(model_name, messages, opts)
       _ -> {:error, :unsupported_provider}
     end
   end
@@ -41,6 +42,7 @@ defmodule ClawdEx.AI.Chat do
     case provider do
       :anthropic -> stream_anthropic(model_name, messages, opts)
       :openai -> stream_openai(model_name, messages, opts)
+      :openrouter -> stream_openrouter(model_name, messages, opts)
       _ -> {:error, :unsupported_provider}
     end
   end
@@ -152,9 +154,17 @@ defmodule ClawdEx.AI.Chat do
     end
   end
 
+  # OpenRouter API (via dedicated provider module)
+  defp complete_openrouter(model, messages, opts) do
+    ClawdEx.AI.Providers.OpenRouter.chat(model, messages, opts)
+  end
+
   # Streaming implementations (placeholder)
   defp stream_anthropic(_model, _messages, _opts), do: Stream.cycle([:not_implemented])
   defp stream_openai(_model, _messages, _opts), do: Stream.cycle([:not_implemented])
+  defp stream_openrouter(model, messages, opts) do
+    ClawdEx.AI.Providers.OpenRouter.stream(model, messages, opts)
+  end
 
   # Helper functions
   defp parse_model(model) do
@@ -162,6 +172,7 @@ defmodule ClawdEx.AI.Chat do
       ["anthropic", name] -> {:anthropic, name}
       ["openai", name] -> {:openai, name}
       ["google", name] -> {:google, name}
+      ["openrouter", name] -> {:openrouter, "openrouter/" <> name}
       # 默认 Anthropic
       [name] -> {:anthropic, name}
       _ -> {:unknown, model}
