@@ -10,7 +10,7 @@ defmodule ClawdEx.Agents.Agent do
   schema "agents" do
     field :name, :string
     field :workspace_path, :string
-    field :default_model, :string, default: "anthropic/claude-sonnet-4"
+    field :default_model, :string, default: "anthropic/claude-sonnet-4-20250514"
     field :system_prompt, :string
     field :config, :map, default: %{}
     field :active, :boolean, default: true
