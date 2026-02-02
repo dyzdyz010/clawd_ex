@@ -237,7 +237,23 @@ defmodule ClawdEx.AI.Stream do
 
     case Req.request(request) do
       {:ok, response} ->
-        process_stream(response, acc, stream_to, provider)
+        # 检查 HTTP 状态码
+        status = response.status
+
+        if status >= 200 and status < 300 do
+          process_stream(response, acc, stream_to, provider)
+        else
+          # API 错误，尝试读取错误信息
+          error_body =
+            case response.body do
+              %{ref: _} -> "HTTP #{status} (streaming response)"
+              body when is_binary(body) -> body
+              body -> inspect(body)
+            end
+
+          Logger.error("AI API error: HTTP #{status} - #{error_body}")
+          {:error, {:api_error, status, error_body}}
+        end
 
       {:error, reason} ->
         {:error, reason}

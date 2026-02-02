@@ -266,7 +266,14 @@ defmodule ClawdEx.Agent.Loop do
 
       # 纯文本响应
       true ->
-        content = response[:content] || data.stream_buffer
+        # 优先使用 response content，但如果为空则使用 stream_buffer
+        content =
+          case response[:content] do
+            nil -> data.stream_buffer
+            "" -> data.stream_buffer
+            c -> c
+          end
+
         finish_run(data, content, response)
     end
   end
@@ -509,15 +516,23 @@ defmodule ClawdEx.Agent.Loop do
     # 取消超时定时器
     if data.timeout_ref, do: Process.cancel_timer(data.timeout_ref)
 
+    # 处理空响应情况
+    final_content =
+      case content do
+        nil -> "[No response from AI]"
+        "" -> "[Empty response from AI]"
+        c -> c
+      end
+
     # 保存助手消息
-    save_message(data.session_id, :assistant, content,
+    save_message(data.session_id, :assistant, final_content,
       model: data.model,
       tokens_in: response[:tokens_in],
       tokens_out: response[:tokens_out]
     )
 
     # 回复调用者
-    GenStateMachine.reply(data.reply_to, {:ok, content})
+    GenStateMachine.reply(data.reply_to, {:ok, final_content})
 
     Logger.info("Run #{data.run_id} completed")
     {:next_state, :idle, %{data | timeout_ref: nil}}
