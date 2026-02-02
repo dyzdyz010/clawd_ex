@@ -246,7 +246,9 @@ defmodule ClawdEx.AI.Stream do
           # API 错误，尝试读取错误信息
           error_body =
             case response.body do
-              %{ref: _} -> "HTTP #{status} (streaming response)"
+              %{ref: ref} = async_body -> 
+                # 尝试从流式响应中读取错误
+                read_error_from_stream(async_body, ref, "")
               body when is_binary(body) -> body
               body -> inspect(body)
             end
@@ -299,6 +301,30 @@ defmodule ClawdEx.AI.Stream do
     after
       120_000 ->
         {:error, :timeout}
+    end
+  end
+
+  # Read error message from streaming response
+  defp read_error_from_stream(_body, ref, acc) do
+    receive do
+      {^ref, {:data, data}} ->
+        read_error_from_stream(nil, ref, acc <> data)
+      {^ref, :done} ->
+        parse_error_response(acc)
+      {^ref, {:error, _reason}} ->
+        parse_error_response(acc)
+    after
+      5000 ->
+        if acc == "", do: "HTTP error (no body)", else: parse_error_response(acc)
+    end
+  end
+  
+  defp parse_error_response(body) do
+    case Jason.decode(body) do
+      {:ok, %{"error" => %{"message" => msg}}} -> msg
+      {:ok, %{"error" => error}} when is_binary(error) -> error
+      {:ok, parsed} -> inspect(parsed)
+      {:error, _} -> body
     end
   end
 
