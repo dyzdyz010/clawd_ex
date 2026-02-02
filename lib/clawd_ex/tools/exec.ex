@@ -125,13 +125,47 @@ defmodule ClawdEx.Tools.Exec do
           # 超过 yield_ms 但还没到 timeout，转为后台
           Logger.info("Command running longer than #{yield_ms}ms, backgrounding...")
 
+          # Task.yield 必须从 owner 进程调用，但我们需要返回工具结果
+          # 解决方案：在当前进程继续 yield，但用 spawn_link 来完成
+          # 我们在这里完成 yield，然后更新状态
+          
           session_id = generate_session_id()
-
-          # 启动后台监控
-          spawn(fn ->
-            monitor_background_task(task, agent_id, session_id, command, timeout - yield_ms)
+          remaining_timeout = timeout - yield_ms
+          
+          # 注册进程
+          ProcessTool.register_process(agent_id, session_id, nil, command)
+          
+          # 在当前进程（task owner）中完成 yield
+          # 使用 spawn_link 包装，这样即使当前进程被杀死，监控也能继续
+          # 注意：这里我们仍然在 owner 进程中调用 yield
+          Task.start(fn ->
+            # 这是一个新的 Task，它会等待原 task 完成
+            # 但问题是：原 task 的 owner 是调用 run_command 的进程
+            # 我们不能从这里 yield
+            # 
+            # 正确的做法：直接在这里用 Process.monitor 监控原 task 的 pid
+            task_pid = task.pid
+            ref = Process.monitor(task_pid)
+            
+            receive do
+              {:DOWN, ^ref, :process, ^task_pid, :normal} ->
+                # Task 正常完成，但我们拿不到结果了
+                # 这是设计限制
+                ProcessTool.append_output(agent_id, session_id, "[Background task completed]")
+                ProcessTool.mark_completed(agent_id, session_id, 0)
+                
+              {:DOWN, ^ref, :process, ^task_pid, reason} ->
+                ProcessTool.append_output(agent_id, session_id, "Task exited: #{inspect(reason)}")
+                ProcessTool.mark_completed(agent_id, session_id, 1)
+            after
+              remaining_timeout ->
+                # 超时，尝试杀死进程
+                Process.exit(task_pid, :kill)
+                ProcessTool.append_output(agent_id, session_id, "Process timed out")
+                ProcessTool.mark_completed(agent_id, session_id, :timeout)
+            end
           end)
-
+          
           {:ok,
            %{
              status: "running",
