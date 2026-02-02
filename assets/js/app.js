@@ -43,6 +43,30 @@ Hooks.AutoResize = {
   }
 }
 
+// Chat input: Enter sends, Shift/Alt+Enter for newline
+Hooks.ChatInput = {
+  mounted() {
+    this.el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey && !e.altKey) {
+        e.preventDefault()
+        // Auto-resize after preventing default
+        this.resize()
+        // Push the keydown event to LiveView
+        this.pushEvent("keydown", {key: "Enter", shiftKey: false})
+      }
+    })
+    this.el.addEventListener("input", () => this.resize())
+    this.resize()
+  },
+  updated() {
+    this.resize()
+  },
+  resize() {
+    this.el.style.height = "auto"
+    this.el.style.height = Math.min(this.el.scrollHeight, 120) + "px"
+  }
+}
+
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
