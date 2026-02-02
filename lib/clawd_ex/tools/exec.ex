@@ -82,97 +82,118 @@ defmodule ClawdEx.Tools.Exec do
   end
 
   defp run_sync_or_yield(command, workdir, env, timeout, yield_ms, agent_id) do
-    task =
-      Task.async(fn ->
-        try do
-          {output, exit_code} =
-            System.cmd(
-              "sh",
-              ["-c", command],
-              cd: workdir,
-              env: env,
-              stderr_to_stdout: true
-            )
+    # 使用 Port 运行命令，这样可以实时获取输出
+    port =
+      Port.open(
+        {:spawn, "sh -c '#{escape_command(command)}'"},
+        [:binary, :exit_status, :stderr_to_stdout, {:cd, workdir}, {:env, env}]
+      )
 
-          {:ok, output, exit_code}
-        rescue
-          e -> {:error, Exception.message(e)}
-        end
-      end)
-
-    # 使用较小的等待时间：min(timeout, yield_ms)
-    # 如果 timeout 比 yield_ms 小，我们应该遵守 timeout
+    # 收集输出，最多等待 yield_ms
     wait_time = min(timeout, yield_ms)
-
-    case Task.yield(task, wait_time) do
-      {:ok, {:ok, output, exit_code}} ->
-        if exit_code == 0 do
-          {:ok, output}
-        else
-          {:error, "Command exited with code #{exit_code}\n\n#{output}"}
-        end
-
-      {:ok, {:error, reason}} ->
-        {:error, "Failed to execute command: #{reason}"}
-
-      nil ->
-        # 检查是否是因为 timeout 还是 yield_ms
-        if wait_time >= timeout do
-          # 超时了，终止任务
-          Task.shutdown(task, :brutal_kill)
-          {:error, "Command timed out after #{div(timeout, 1000)} seconds"}
-        else
-          # 超过 yield_ms 但还没到 timeout，转为后台
-          Logger.info("Command running longer than #{yield_ms}ms, backgrounding...")
-
-          # Task.yield 必须从 owner 进程调用，但我们需要返回工具结果
-          # 解决方案：在当前进程继续 yield，但用 spawn_link 来完成
-          # 我们在这里完成 yield，然后更新状态
+    deadline = System.monotonic_time(:millisecond) + wait_time
+    
+    collect_port_output(port, "", deadline, timeout, yield_ms, agent_id, command)
+  end
+  
+  defp collect_port_output(port, output, deadline, timeout, yield_ms, agent_id, command) do
+    remaining = deadline - System.monotonic_time(:millisecond)
+    
+    if remaining <= 0 do
+      # 超过 yield_ms，检查是否应该后台化或超时
+      if yield_ms >= timeout do
+        # 总 timeout 已到，杀死进程
+        Port.close(port)
+        {:error, "Command timed out after #{div(timeout, 1000)} seconds\n\n#{output}"}
+      else
+        # 转为后台模式
+        Logger.info("Command running longer than #{yield_ms}ms, backgrounding...")
+        
+        session_id = generate_session_id()
+        remaining_timeout = timeout - yield_ms
+        
+        # 注册进程并保存已有输出
+        ProcessTool.register_process(agent_id, session_id, port, command)
+        if output != "", do: ProcessTool.append_output(agent_id, session_id, output)
+        
+        # 启动后台监控，并转移 Port 控制权
+        monitor_pid = spawn(fn -> 
+          receive do
+            :start -> monitor_port_with_timeout(port, agent_id, session_id, remaining_timeout)
+          end
+        end)
+        
+        # 转移 Port 控制权给监控进程
+        Port.connect(port, monitor_pid)
+        send(monitor_pid, :start)
+        
+        {:ok,
+         %{
+           status: "running",
+           sessionId: session_id,
+           message: "Command still running. Use process tool to check status."
+         }}
+      end
+    else
+      receive do
+        {^port, {:data, data}} ->
+          collect_port_output(port, output <> data, deadline, timeout, yield_ms, agent_id, command)
           
-          session_id = generate_session_id()
-          remaining_timeout = timeout - yield_ms
+        {^port, {:exit_status, exit_code}} ->
+          if exit_code == 0 do
+            {:ok, output}
+          else
+            {:error, "Command exited with code #{exit_code}\n\n#{output}"}
+          end
+      after
+        remaining ->
+          # 超时，重新检查
+          collect_port_output(port, output, deadline, timeout, yield_ms, agent_id, command)
+      end
+    end
+  end
+  
+  defp monitor_port_with_timeout(port, agent_id, session_id, timeout) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+    do_monitor_port(port, agent_id, session_id, deadline)
+  end
+  
+  defp do_monitor_port(port, agent_id, session_id, :infinity) do
+    receive do
+      {^port, {:data, data}} ->
+        ProcessTool.append_output(agent_id, session_id, data)
+        do_monitor_port(port, agent_id, session_id, :infinity)
+        
+      {^port, {:exit_status, status}} ->
+        ProcessTool.mark_completed(agent_id, session_id, status)
+        
+      {:EXIT, ^port, reason} ->
+        ProcessTool.mark_completed(agent_id, session_id, {:exit, reason})
+    end
+  end
+  
+  defp do_monitor_port(port, agent_id, session_id, deadline) do
+    remaining = deadline - System.monotonic_time(:millisecond)
+    
+    if remaining <= 0 do
+      Port.close(port)
+      ProcessTool.append_output(agent_id, session_id, "\n[Process timed out]")
+      ProcessTool.mark_completed(agent_id, session_id, :timeout)
+    else
+      receive do
+        {^port, {:data, data}} ->
+          ProcessTool.append_output(agent_id, session_id, data)
+          do_monitor_port(port, agent_id, session_id, deadline)
           
-          # 注册进程
-          ProcessTool.register_process(agent_id, session_id, nil, command)
+        {^port, {:exit_status, status}} ->
+          ProcessTool.mark_completed(agent_id, session_id, status)
           
-          # 在当前进程（task owner）中完成 yield
-          # 使用 spawn_link 包装，这样即使当前进程被杀死，监控也能继续
-          # 注意：这里我们仍然在 owner 进程中调用 yield
-          Task.start(fn ->
-            # 这是一个新的 Task，它会等待原 task 完成
-            # 但问题是：原 task 的 owner 是调用 run_command 的进程
-            # 我们不能从这里 yield
-            # 
-            # 正确的做法：直接在这里用 Process.monitor 监控原 task 的 pid
-            task_pid = task.pid
-            ref = Process.monitor(task_pid)
-            
-            receive do
-              {:DOWN, ^ref, :process, ^task_pid, :normal} ->
-                # Task 正常完成，但我们拿不到结果了
-                # 这是设计限制
-                ProcessTool.append_output(agent_id, session_id, "[Background task completed]")
-                ProcessTool.mark_completed(agent_id, session_id, 0)
-                
-              {:DOWN, ^ref, :process, ^task_pid, reason} ->
-                ProcessTool.append_output(agent_id, session_id, "Task exited: #{inspect(reason)}")
-                ProcessTool.mark_completed(agent_id, session_id, 1)
-            after
-              remaining_timeout ->
-                # 超时，尝试杀死进程
-                Process.exit(task_pid, :kill)
-                ProcessTool.append_output(agent_id, session_id, "Process timed out")
-                ProcessTool.mark_completed(agent_id, session_id, :timeout)
-            end
-          end)
-          
-          {:ok,
-           %{
-             status: "running",
-             sessionId: session_id,
-             message: "Command still running. Use process tool to check status."
-           }}
-        end
+        {:EXIT, ^port, reason} ->
+          ProcessTool.mark_completed(agent_id, session_id, {:exit, reason})
+      after
+        min(remaining, 1000) ->
+          do_monitor_port(port, agent_id, session_id, deadline)
+      end
     end
   end
 
@@ -189,8 +210,15 @@ defmodule ClawdEx.Tools.Exec do
     # 注册到 ProcessTool
     ProcessTool.register_process(agent_id, session_id, port, command)
 
-    # 启动监控进程
-    spawn(fn -> monitor_port(port, agent_id, session_id) end)
+    # 启动监控进程（无限超时），并转移 Port 控制权
+    monitor_pid = spawn(fn -> 
+      receive do
+        :start -> do_monitor_port(port, agent_id, session_id, :infinity) 
+      end
+    end)
+    
+    Port.connect(port, monitor_pid)
+    send(monitor_pid, :start)
 
     {:ok,
      %{
@@ -198,39 +226,6 @@ defmodule ClawdEx.Tools.Exec do
        sessionId: session_id,
        message: "Command started in background. Use process tool to check status."
      }}
-  end
-
-  defp monitor_background_task(task, agent_id, session_id, command, remaining_timeout) do
-    # 注册（没有 port，因为用的是 Task）
-    ProcessTool.register_process(agent_id, session_id, nil, command)
-
-    case Task.yield(task, remaining_timeout) || Task.shutdown(task) do
-      {:ok, {:ok, output, exit_code}} ->
-        ProcessTool.append_output(agent_id, session_id, output)
-        ProcessTool.mark_completed(agent_id, session_id, exit_code)
-
-      {:ok, {:error, reason}} ->
-        ProcessTool.append_output(agent_id, session_id, "Error: #{reason}")
-        ProcessTool.mark_completed(agent_id, session_id, 1)
-
-      nil ->
-        ProcessTool.append_output(agent_id, session_id, "Process timed out")
-        ProcessTool.mark_completed(agent_id, session_id, :timeout)
-    end
-  end
-
-  defp monitor_port(port, agent_id, session_id) do
-    receive do
-      {^port, {:data, data}} ->
-        ProcessTool.append_output(agent_id, session_id, data)
-        monitor_port(port, agent_id, session_id)
-
-      {^port, {:exit_status, status}} ->
-        ProcessTool.mark_completed(agent_id, session_id, status)
-
-      {:EXIT, ^port, reason} ->
-        ProcessTool.mark_completed(agent_id, session_id, {:exit, reason})
-    end
   end
 
   defp generate_session_id do
