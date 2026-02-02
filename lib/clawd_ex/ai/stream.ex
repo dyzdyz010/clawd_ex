@@ -329,6 +329,32 @@ defmodule ClawdEx.AI.Stream do
     %{acc | tool_calls: finalized_tool_calls}
   end
 
+  defp finalize_response(acc, :anthropic) do
+    # Parse accumulated JSON for tool inputs
+    finalized_tool_calls =
+      Enum.map(acc.tool_calls, fn tc ->
+        input_raw = tc["input_raw"] || ""
+
+        input =
+          if input_raw != "" do
+            case Jason.decode(input_raw) do
+              {:ok, parsed} -> parsed
+              {:error, _} -> %{}
+            end
+          else
+            tc["input"] || %{}
+          end
+
+        %{
+          "id" => tc["id"],
+          "name" => tc["name"],
+          "input" => input
+        }
+      end)
+
+    %{acc | tool_calls: finalized_tool_calls}
+  end
+
   defp finalize_response(acc, _provider), do: acc
 
   defp parse_sse_events(data) do
@@ -369,9 +395,9 @@ defmodule ClawdEx.AI.Stream do
     end
   end
 
-  # Anthropic event processing
+  # Anthropic event processing - text delta
   defp process_event(
-         %{"type" => "content_block_delta", "delta" => delta},
+         %{"type" => "content_block_delta", "delta" => %{"type" => "text_delta"} = delta},
          acc,
          stream_to,
          :anthropic
@@ -383,6 +409,37 @@ defmodule ClawdEx.AI.Stream do
     end
 
     %{acc | content: acc.content <> text}
+  end
+
+  # Anthropic event processing - tool input JSON delta
+  defp process_event(
+         %{"type" => "content_block_delta", "index" => index, "delta" => %{"type" => "input_json_delta", "partial_json" => json_fragment}},
+         acc,
+         _stream_to,
+         :anthropic
+       ) do
+    # Find the tool_call with matching block_index and accumulate JSON
+    updated_tool_calls =
+      Enum.map(acc.tool_calls, fn tc ->
+        if tc["block_index"] == index do
+          existing_raw = tc["input_raw"] || ""
+          Map.put(tc, "input_raw", existing_raw <> json_fragment)
+        else
+          tc
+        end
+      end)
+
+    %{acc | tool_calls: updated_tool_calls}
+  end
+
+  # Fallback for other content_block_delta types
+  defp process_event(
+         %{"type" => "content_block_delta"},
+         acc,
+         _stream_to,
+         :anthropic
+       ) do
+    acc
   end
 
   defp process_event(
@@ -404,7 +461,7 @@ defmodule ClawdEx.AI.Stream do
   end
 
   defp process_event(
-         %{"type" => "content_block_start", "content_block" => %{"type" => "tool_use"} = block},
+         %{"type" => "content_block_start", "index" => index, "content_block" => %{"type" => "tool_use"} = block},
          acc,
          _stream_to,
          :anthropic
@@ -412,7 +469,9 @@ defmodule ClawdEx.AI.Stream do
     tool_call = %{
       "id" => block["id"],
       "name" => block["name"],
-      "input" => %{}
+      "input" => %{},
+      "input_raw" => "",
+      "block_index" => index
     }
 
     %{acc | tool_calls: acc.tool_calls ++ [tool_call]}

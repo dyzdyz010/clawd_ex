@@ -23,6 +23,9 @@ defmodule ClawdEx.Agent.Loop do
   alias ClawdEx.Sessions.Message
   alias ClawdEx.Repo
 
+  # Maximum tool iterations before forcing completion (prevent infinite loops)
+  @max_tool_iterations 20
+
   # State data structure
   defstruct [
     :run_id,
@@ -37,7 +40,8 @@ defmodule ClawdEx.Agent.Loop do
     :reply_to,
     :started_at,
     :timeout_ref,
-    :config
+    :config,
+    tool_iterations: 0
   ]
 
   @type state :: :idle | :preparing | :inferring | :executing_tools | :streaming
@@ -344,6 +348,8 @@ defmodule ClawdEx.Agent.Loop do
 
   def executing_tools(:info, {:tools_done, results}, data) do
     Logger.debug("Tools completed for run #{data.run_id}")
+    
+    new_iterations = data.tool_iterations + 1
 
     # 构建工具结果消息
     tool_messages =
@@ -366,10 +372,21 @@ defmodule ClawdEx.Agent.Loop do
     # 更新消息历史
     new_messages = data.messages ++ assistant_message ++ tool_messages
 
-    new_data = %{data | messages: new_messages, pending_tool_calls: [], stream_buffer: ""}
+    new_data = %{data | 
+      messages: new_messages, 
+      pending_tool_calls: [], 
+      stream_buffer: "",
+      tool_iterations: new_iterations
+    }
 
-    # 继续推理
-    {:next_state, :inferring, new_data, [{:next_event, :internal, :call_ai}]}
+    # Check max iterations to prevent infinite loops
+    if new_iterations >= @max_tool_iterations do
+      Logger.warning("Run #{data.run_id} hit max tool iterations (#{@max_tool_iterations}), forcing completion")
+      finish_run(new_data, "[Stopped: too many tool calls]", %{})
+    else
+      # 继续推理
+      {:next_state, :inferring, new_data, [{:next_event, :internal, :call_ai}]}
+    end
   end
 
   def executing_tools(:cast, :stop, data) do
