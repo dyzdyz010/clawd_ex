@@ -27,6 +27,7 @@ defmodule ClawdExWeb.ChatLive do
       |> assign(:sending, false)
       |> assign(:streaming_content, nil)
       |> assign(:session_started, false)
+      |> assign(:run_status, nil)  # 当前运行状态 {status, details}
 
     # 在连接后再启动会话（避免测试时的问题）
     if connected?(socket) do
@@ -162,6 +163,7 @@ defmodule ClawdExWeb.ChatLive do
           |> update(:messages, &(&1 ++ [assistant_message]))
           |> assign(:sending, false)
           |> assign(:streaming_content, nil)
+          |> assign(:run_status, nil)
 
         {:noreply, socket}
 
@@ -180,6 +182,7 @@ defmodule ClawdExWeb.ChatLive do
           |> update(:messages, &(&1 ++ [error_message]))
           |> assign(:sending, false)
           |> assign(:streaming_content, nil)
+          |> assign(:run_status, nil)
 
         {:noreply, socket}
     end
@@ -193,6 +196,15 @@ defmodule ClawdExWeb.ChatLive do
       {:noreply, assign(socket, :streaming_content, current <> content)}
     else
       # 忽略在 send_message 完成后到达的 chunks
+      {:noreply, socket}
+    end
+  end
+
+  # 处理运行状态更新
+  def handle_info({:agent_status, _run_id, status, details}, socket) do
+    if socket.assigns.sending do
+      {:noreply, assign(socket, :run_status, {status, details})}
+    else
       {:noreply, socket}
     end
   end
@@ -274,4 +286,17 @@ defmodule ClawdExWeb.ChatLive do
   defp format_error({:noproc, _}), do: "会话服务不可用"
   defp format_error(:noproc), do: "会话服务不可用"
   defp format_error(reason), do: inspect(reason)
+  
+  # 格式化运行状态显示
+  defp format_status({:started, _details}), do: "正在准备..."
+  defp format_status({:inferring, %{iteration: 0}}), do: "正在思考..."
+  defp format_status({:inferring, %{iteration: n}}), do: "正在思考... (第 #{n + 1} 轮)"
+  defp format_status({:tools_start, %{tools: tools}}), do: "准备执行: #{Enum.join(tools, ", ")}"
+  defp format_status({:tool_start, %{tool: tool}}), do: "正在执行: #{tool}"
+  defp format_status({:tool_done, %{tool: tool, success: true}}), do: "#{tool} 完成 ✓"
+  defp format_status({:tool_done, %{tool: tool, success: false}}), do: "#{tool} 失败 ✗"
+  defp format_status({:done, _}), do: "完成"
+  defp format_status({:error, %{reason: reason}}), do: "错误: #{reason}"
+  defp format_status({status, _}), do: "#{status}"
+  defp format_status(nil), do: ""
 end
