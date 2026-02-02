@@ -22,7 +22,7 @@ defmodule ClawdEx.Sessions.Compaction do
   require Logger
 
   alias ClawdEx.Sessions.{Session, Message}
-  alias ClawdEx.AI.Chat
+  alias ClawdEx.AI.{Chat, Models}
   alias ClawdEx.Repo
 
   import Ecto.Query
@@ -34,20 +34,6 @@ defmodule ClawdEx.Sessions.Compaction do
   @default_context_window 200_000
   @default_threshold 0.8
   @default_keep_recent 10
-  @default_compaction_model "anthropic/claude-sonnet-4"
-
-  # 模型上下文窗口大小（可扩展）
-  @model_context_windows %{
-    "anthropic/claude-sonnet-4" => 200_000,
-    "anthropic/claude-opus-4" => 200_000,
-    "anthropic/claude-3-5-sonnet-20241022" => 200_000,
-    "anthropic/claude-3-opus-20240229" => 200_000,
-    "openai/gpt-4o" => 128_000,
-    "openai/gpt-4-turbo" => 128_000,
-    "openai/gpt-4" => 8_192,
-    "google/gemini-pro" => 32_000,
-    "google/gemini-1.5-pro" => 1_000_000
-  }
 
   # ============================================================================
   # Public API
@@ -62,7 +48,7 @@ defmodule ClawdEx.Sessions.Compaction do
   def check_needed(session, opts \\ [])
 
   def check_needed(%Session{id: session_id} = session, opts) do
-    model = session.model_override || opts[:model] || @default_compaction_model
+    model = Models.resolve(session.model_override || opts[:model])
     context_window = get_context_window(model, opts)
     threshold = Keyword.get(opts, :compaction_threshold, @default_threshold)
 
@@ -104,7 +90,7 @@ defmodule ClawdEx.Sessions.Compaction do
 
   def compact(%Session{id: session_id} = session, opts) do
     keep_recent = Keyword.get(opts, :keep_recent, @default_keep_recent)
-    model = Keyword.get(opts, :model, session.model_override || @default_compaction_model)
+    model = Models.resolve(Keyword.get(opts, :model, session.model_override))
     custom_instructions = Keyword.get(opts, :custom_instructions)
 
     Logger.info("Starting compaction for session #{session_id}")
@@ -162,8 +148,10 @@ defmodule ClawdEx.Sessions.Compaction do
   """
   @spec get_context_window(String.t(), keyword()) :: integer()
   def get_context_window(model, opts \\ []) do
+    resolved = Models.resolve(model)
+
     Keyword.get(opts, :context_window) ||
-      Map.get(@model_context_windows, model) ||
+      get_in(Models.get(resolved) || %{}, [:context_window]) ||
       @default_context_window
   end
 

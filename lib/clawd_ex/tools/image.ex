@@ -10,18 +10,11 @@ defmodule ClawdEx.Tools.Image do
 
   require Logger
 
-  alias ClawdEx.AI.OAuth
+  alias ClawdEx.AI.{Models, OAuth}
 
   @default_timeout 60_000
   @default_max_bytes_mb 20
   @default_prompt "What's in this image? Describe it in detail."
-
-  # 默认模型优先级
-  @default_models [
-    "anthropic/claude-sonnet-4-20250514",
-    "openai/gpt-4o",
-    "google/gemini-2.0-flash"
-  ]
 
   @impl true
   def name, do: "image"
@@ -177,9 +170,11 @@ defmodule ClawdEx.Tools.Image do
   # ============================================================================
 
   defp resolve_model(nil) do
-    # Try models in order until we find one with a valid API key
-    Enum.reduce_while(@default_models, {:error, "No vision model available"}, fn model, acc ->
-      {provider, _} = parse_model(model)
+    # Try vision models in order until we find one with a valid API key
+    vision_models = Models.vision_models()
+
+    Enum.reduce_while(vision_models, {:error, "No vision model available"}, fn model, acc ->
+      provider = Models.provider(model)
 
       case check_api_key(provider) do
         :ok -> {:halt, {:ok, model}}
@@ -189,22 +184,17 @@ defmodule ClawdEx.Tools.Image do
   end
 
   defp resolve_model(model) when is_binary(model) do
-    {provider, _} = parse_model(model)
+    resolved = Models.resolve(model)
+    provider = Models.provider(resolved)
 
     case check_api_key(provider) do
-      :ok -> {:ok, model}
+      :ok -> {:ok, resolved}
       :error -> {:error, "API key not configured for provider: #{provider}"}
     end
   end
 
   defp parse_model(model) do
-    case String.split(model, "/", parts: 2) do
-      ["anthropic", name] -> {:anthropic, name}
-      ["openai", name] -> {:openai, name}
-      ["google", name] -> {:google, name}
-      [name] -> {:anthropic, name}
-      _ -> {:unknown, model}
-    end
+    Models.parse(model)
   end
 
   defp check_api_key(provider) do

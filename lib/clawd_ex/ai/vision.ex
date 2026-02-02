@@ -10,6 +10,8 @@ defmodule ClawdEx.AI.Vision do
 
   require Logger
 
+  alias ClawdEx.AI.Models
+
   @type image_source :: {:url, String.t()} | {:base64, String.t(), String.t()}
   @type analysis_result :: {:ok, String.t()} | {:error, term()}
 
@@ -112,23 +114,20 @@ defmodule ClawdEx.AI.Vision do
   # ============================================================================
 
   defp resolve_vision_model(nil) do
-    # 默认使用 Claude
-    {:ok, :anthropic, "claude-sonnet-4-20250514"}
+    # 使用默认视觉模型
+    model = Models.default_vision()
+    {provider, model_name} = Models.parse(model)
+    {:ok, provider, model_name}
   end
 
   defp resolve_vision_model(model) when is_binary(model) do
-    case String.split(model, "/", parts: 2) do
-      ["anthropic", name] -> {:ok, :anthropic, name}
-      ["openai", name] -> {:ok, :openai, name}
-      ["google", name] -> {:ok, :google, name}
-      [name] when name in ~w(claude-3-opus claude-3-sonnet claude-3-haiku claude-sonnet-4-20250514) ->
-        {:ok, :anthropic, name}
-      [name] when name in ~w(gpt-4-vision-preview gpt-4o gpt-4o-mini) ->
-        {:ok, :openai, name}
-      [name] when name in ~w(gemini-pro-vision gemini-1.5-pro) ->
-        {:ok, :google, name}
-      _ ->
-        {:error, "Unknown vision model: #{model}"}
+    resolved = Models.resolve(model)
+
+    if Models.has_capability?(resolved, :vision) do
+      {provider, model_name} = Models.parse(resolved)
+      {:ok, provider, model_name}
+    else
+      {:error, "Model #{model} does not support vision"}
     end
   end
 

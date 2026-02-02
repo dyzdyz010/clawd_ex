@@ -18,6 +18,7 @@ defmodule ClawdEx.Agent.Loop do
   require Logger
 
   alias ClawdEx.Agent.Prompt
+  alias ClawdEx.AI.Models
   alias ClawdEx.AI.Stream, as: AIStream
   alias ClawdEx.Sessions.Message
   alias ClawdEx.Repo
@@ -142,7 +143,7 @@ defmodule ClawdEx.Agent.Loop do
         started_at: DateTime.utc_now(),
         timeout_ref: timeout_ref,
         model:
-          Keyword.get(opts, :model, data.config[:default_model] || "anthropic/claude-sonnet-4")
+          Keyword.get(opts, :model, data.config[:default_model]) |> Models.resolve()
     }
 
     {:next_state, :preparing, new_data, [{:next_event, :internal, {:prepare, content}}]}

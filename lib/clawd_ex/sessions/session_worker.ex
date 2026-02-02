@@ -10,6 +10,7 @@ defmodule ClawdEx.Sessions.SessionWorker do
   use GenServer, restart: :transient
 
   alias ClawdEx.Repo
+  alias ClawdEx.AI.Models
   alias ClawdEx.Sessions.{Session, Message, Reset}
   alias ClawdEx.Agent.Loop, as: AgentLoop
 
@@ -274,12 +275,12 @@ defmodule ClawdEx.Sessions.SessionWorker do
     end)
   end
 
-  defp get_agent_model(nil), do: "anthropic/claude-sonnet-4"
+  defp get_agent_model(nil), do: Models.default()
 
   defp get_agent_model(agent_id) do
     case Repo.get(ClawdEx.Agents.Agent, agent_id) do
-      nil -> "anthropic/claude-sonnet-4"
-      agent -> agent.default_model || "anthropic/claude-sonnet-4"
+      nil -> Models.default()
+      agent -> Models.resolve(agent.default_model)
     end
   end
 

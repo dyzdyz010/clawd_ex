@@ -10,7 +10,7 @@ defmodule ClawdEx.AI.Stream do
 
   require Logger
 
-  alias ClawdEx.AI.OAuth
+  alias ClawdEx.AI.{Models, OAuth}
   alias ClawdEx.AI.OAuth.Anthropic, as: AnthropicOAuth
 
   @type message :: %{role: String.t(), content: String.t()}
@@ -504,14 +504,8 @@ defmodule ClawdEx.AI.Stream do
   # ============================================================================
 
   defp parse_model(model) do
-    case String.split(model, "/", parts: 2) do
-      ["anthropic", name] -> {:anthropic, name}
-      ["openai", name] -> {:openai, name}
-      ["google", name] -> {:google, name}
-      ["openrouter", name] -> {:openrouter, "openrouter/" <> name}
-      [name] -> {:anthropic, name}
-      _ -> {:unknown, model}
-    end
+    # 使用中心化的 Models 模块解析
+    Models.parse(model)
   end
 
   # ============================================================================
