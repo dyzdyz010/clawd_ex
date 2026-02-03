@@ -1,6 +1,6 @@
 # ClawdEx 🤖
 
-基于 Elixir/Phoenix 的智能 AI 代理框架，实现与 [Clawdbot](https://github.com/clawdbot/clawdbot) 功能对等。
+基于 Elixir/Phoenix 的智能 AI 代理框架，实现与 [OpenClaw](https://github.com/openclaw/openclaw) 功能对等。
 
 ## ✨ 特性
 
@@ -8,15 +8,21 @@
 - 🧠 **语义记忆** - pgvector 向量搜索 + BM25 混合检索，支持中文
 - 🔄 **会话管理** - OTP GenServer 并发处理，自动压缩
 - ⚡ **流式响应** - 智能分块、代码块保护、人性化延迟
-- 🤖 **多 AI 提供商** - Anthropic Claude, OpenAI GPT, Google Gemini
+- 🤖 **多 AI 提供商** - Anthropic Claude, OpenAI GPT, Google Gemini, OpenRouter
 - 🔐 **OAuth 支持** - Claude Code OAuth token 自动刷新
 
 ### 渠道支持
 - 📱 **Telegram** - Telegex 库集成
 - 💬 **Discord** - Nostrum 库，支持 slash commands
-- 🌐 **WebSocket** - Phoenix Channels 实时通信
+- 🌐 **WebChat** - Phoenix LiveView 实时聊天界面
 
-### 工具系统 (21 个工具)
+### 管理界面 (Phoenix LiveView)
+- 📊 **Dashboard** - 系统概览、统计、最近活动
+- 💬 **Chat** - 实时聊天界面，流式响应，工具调用显示
+- 📋 **Sessions** - 会话列表、筛选、归档、删除
+- 🤖 **Agents** - Agent CRUD 管理
+
+### 工具系统 (21+ 个工具)
 
 | 分类 | 工具 | 功能 |
 |------|------|------|
@@ -30,6 +36,8 @@
 | **浏览器** | `browser` | CDP 控制 (navigate/snapshot/screenshot/act/evaluate) |
 | **节点** | `nodes` | 远程设备控制 (notify/run/camera/screen/location) |
 | **画布** | `canvas` | A2UI 显示控制 |
+| **语音** | `tts` | 文本转语音 |
+| **图像** | `image` | 图像分析 |
 | **其他** | `compact` | 会话压缩 |
 
 ## 🏗 架构
@@ -38,21 +46,25 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                    Phoenix Gateway                          │
 ├─────────────────────────────────────────────────────────────┤
-│  Channels: Telegram │ Discord │ WebSocket                   │
+│  Channels: Telegram │ Discord │ WebChat (LiveView)          │
+├─────────────────────────────────────────────────────────────┤
+│  LiveView Pages: Dashboard │ Chat │ Sessions │ Agents       │
 ├─────────────────────────────────────────────────────────────┤
 │  Session Layer                                              │
 │  ├── SessionManager (DynamicSupervisor)                    │
-│  ├── SessionWorker (GenServer)                             │
+│  ├── SessionWorker (GenServer) - 完全异步消息处理           │
 │  └── Compaction (AI 摘要压缩)                               │
 ├─────────────────────────────────────────────────────────────┤
 │  Agent Loop (GenStateMachine)                               │
 │  └── idle → preparing → inferring → executing_tools         │
+│  └── 工具调用上限: 50 次/run                                │
 ├─────────────────────────────────────────────────────────────┤
-│  Tools System (21 tools)                                    │
+│  Tools System (21+ tools)                                   │
 │  └── Registry → Execute → Response                          │
 ├─────────────────────────────────────────────────────────────┤
-│  AI Providers: Anthropic │ OpenAI │ Gemini                  │
+│  AI Providers: Anthropic │ OpenAI │ Gemini │ OpenRouter     │
 │  └── OAuth Token Management (auto-refresh)                  │
+│  └── 自动重试机制 (3次，指数退避)                            │
 ├─────────────────────────────────────────────────────────────┤
 │  Memory: pgvector (HNSW) + BM25 Hybrid Search               │
 ├─────────────────────────────────────────────────────────────┤
@@ -61,6 +73,24 @@
 │  Nodes: Remote Device Control via Gateway API               │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+## 🖥 WebChat 界面
+
+ClawdEx 内置 Phoenix LiveView 管理界面：
+
+```
+http://localhost:4000/          # Dashboard
+http://localhost:4000/chat      # 聊天界面
+http://localhost:4000/sessions  # 会话管理
+http://localhost:4000/agents    # Agent 管理
+```
+
+**特性：**
+- 深色主题 UI
+- 实时流式响应显示
+- 工具调用历史展示
+- 会话切换与历史加载
+- Agent CRUD 操作
 
 ## 🔐 OAuth 认证
 
@@ -81,12 +111,6 @@ ClawdEx.AI.OAuth.store_credentials(:anthropic, %{
 # API 调用时自动处理 token 刷新
 {:ok, api_key} = ClawdEx.AI.OAuth.get_api_key(:anthropic)
 ```
-
-**OAuth 特性：**
-- 自动检测 OAuth token (`sk-ant-oat*`)
-- Token 过期前 5 分钟自动刷新
-- Claude Code 兼容的 headers 和 system prompt
-- 凭证持久化到 `~/.clawd_ex/oauth_credentials.json`
 
 ## 🚀 快速开始
 
@@ -111,7 +135,7 @@ mix ecto.create
 mix ecto.migrate
 
 # 启动
-mix phx.server
+iex -S mix phx.server
 ```
 
 ### 配置
@@ -130,48 +154,57 @@ export DISCORD_BOT_TOKEN="..."
 ## 📁 项目结构
 
 ```
-lib/clawd_ex/
-├── agent/           # Agent Loop (GenStateMachine)
-├── ai/              # AI 提供商 (chat/stream/embeddings/oauth)
-│   ├── chat.ex      # 非流式 API
-│   ├── stream.ex    # 流式 API
-│   ├── oauth.ex     # OAuth 凭证管理
-│   └── oauth/       # 提供商特定 OAuth
-├── browser/         # Browser 控制 (CDP)
-│   ├── server.ex    # Browser GenServer
-│   └── cdp.ex       # Chrome DevTools Protocol
-├── channels/        # 消息渠道 (Telegram/Discord)
-├── cron/            # 定时任务
-├── memory/          # 记忆系统 (BM25/Chunker/Tokenizer)
-├── nodes/           # 节点管理
-├── sessions/        # 会话管理 (Compaction)
-├── streaming/       # 流式响应 (BlockChunker/BlockStreamer)
-└── tools/           # 21 个工具实现
+lib/
+├── clawd_ex/                 # 核心业务逻辑
+│   ├── agent/                # Agent Loop (GenStateMachine)
+│   ├── ai/                   # AI 提供商 (chat/stream/embeddings/oauth)
+│   ├── browser/              # Browser 控制 (CDP)
+│   ├── channels/             # 消息渠道 (Telegram/Discord)
+│   ├── cron/                 # 定时任务
+│   ├── memory/               # 记忆系统 (BM25/Chunker/Tokenizer)
+│   ├── nodes/                # 节点管理
+│   ├── sessions/             # 会话管理 (Compaction)
+│   ├── streaming/            # 流式响应 (BlockChunker/BlockStreamer)
+│   └── tools/                # 21+ 个工具实现
+│
+└── clawd_ex_web/             # Phoenix Web 层
+    ├── components/           # 可复用组件
+    │   ├── layouts/          # 布局模板
+    │   ├── dashboard_components.ex
+    │   ├── session_components.ex
+    │   └── ...
+    ├── live/                 # LiveView 页面
+    │   ├── dashboard_live.ex
+    │   ├── chat_live.ex
+    │   ├── sessions_live.ex
+    │   ├── agents_live.ex
+    │   └── ...
+    └── helpers/              # 辅助模块
+        └── content_renderer.ex
 ```
 
 ## 📊 开发进度
 
 | 阶段 | 状态 | 内容 |
 |------|------|------|
-| Phase 1 | ✅ | 核心工具 (web_search, web_fetch, compact) |
+| Phase 1 | ✅ | 核心工具 (read/write/edit/exec/process) |
 | Phase 2 | ✅ | 会话系统 (sessions_*, agents_list) |
 | Phase 3 | ✅ | 自动化 (cron, gateway, message) |
 | Phase 4 | ✅ | 浏览器控制 (browser + CDP) |
 | Phase 5 | ✅ | 节点系统 (nodes) |
 | Phase 6 | ✅ | Canvas/A2UI (canvas) |
 | OAuth | ✅ | Anthropic OAuth token 支持 |
-
-**剩余:** `apply_patch`, `image` 工具 (低优先级)
+| WebChat | ✅ | Phoenix LiveView 管理界面 |
 
 详见 [ROADMAP.md](ROADMAP.md)
 
 ## 📈 代码统计
 
-- **工具模块:** 21 个
-- **测试用例:** 318 个 ✅
-- **AI 提供商:** 3 个
+- **工具模块:** 21+ 个
+- **测试用例:** 377 个 ✅
+- **AI 提供商:** 4 个 (Anthropic/OpenAI/Gemini/OpenRouter)
 - **消息渠道:** 3 个
-- **总代码量:** ~18,000 行
+- **LiveView 页面:** 5 个
 
 ## 🧪 测试
 
@@ -189,8 +222,8 @@ mix test --trace
 
 ## 🔗 相关链接
 
-- [Clawdbot](https://github.com/clawdbot/clawdbot) - 原版 Node.js 实现
-- [Clawdbot Docs](https://docs.clawd.bot) - 官方文档
+- [OpenClaw](https://github.com/openclaw/openclaw) - 原版 Node.js 实现
+- [OpenClaw Docs](https://docs.openclaw.ai) - 官方文档
 - [Telegex](https://hexdocs.pm/telegex) - Telegram Bot API
 - [Nostrum](https://hexdocs.pm/nostrum) - Discord API
 

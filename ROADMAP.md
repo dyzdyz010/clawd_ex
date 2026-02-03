@@ -1,15 +1,15 @@
 # ClawdEx 开发路线图
 
 ## 目标
-实现与 Clawdbot 功能对等的 Elixir 版本。
+实现与 OpenClaw 功能对等的 Elixir 版本。
 
 ## 阶段规划
 
-### Phase 1: 核心工具补全 ✅
+### Phase 1: 核心工具 ✅
+- [x] read, write, edit
+- [x] exec, process
 - [x] web_search, web_fetch
 - [x] compact
-- [ ] **apply_patch** - 多文件补丁 (低优先级)
-- [ ] **image** - 图像分析工具 (低优先级)
 
 ### Phase 2: 会话与代理系统 ✅
 - [x] **sessions_list** - 列出会话
@@ -17,6 +17,7 @@
 - [x] **sessions_send** - 跨会话消息
 - [x] **sessions_spawn** - 子代理生成
 - [x] **agents_list** - 代理列表
+- [x] **session_status** - 会话状态
 
 ### Phase 3: 自动化系统 ✅
 - [x] **cron** - 定时任务管理 (Job schema + migration)
@@ -64,42 +65,99 @@
   - [x] PKCE 登录流程支持
   - [x] Claude Code 兼容 headers
   - [x] System prompt 前缀
-- [x] **集成**
-  - [x] Chat API 支持 OAuth
-  - [x] Stream API 支持 OAuth
-  - [x] 工具名称映射 (Claude Code convention)
+
+### Phase 8: WebChat 管理界面 ✅
+- [x] **Phoenix LiveView 界面**
+  - [x] 侧边栏导航布局
+  - [x] 深色主题 UI
+- [x] **Dashboard 页面**
+  - [x] 系统统计 (Agents/Sessions/Messages)
+  - [x] 最近会话列表
+  - [x] 最近消息列表
+  - [x] 快捷操作
+- [x] **Chat 页面**
+  - [x] 实时聊天界面
+  - [x] 流式响应显示
+  - [x] 工具调用历史展示
+  - [x] 会话切换与历史加载
+  - [x] 完全异步消息发送 (PubSub)
+- [x] **Sessions 管理**
+  - [x] 会话列表 (分页/筛选/搜索)
+  - [x] 会话详情 (消息历史)
+  - [x] Archive/Delete 操作
+  - [x] 消息数实时计算
+- [x] **Agents 管理**
+  - [x] Agent 列表
+  - [x] Agent 创建/编辑/删除
+  - [x] Model 选择
+  - [x] System Prompt 配置
+- [x] **组件化架构**
+  - [x] 独立 .html.heex 模板
+  - [x] 可复用组件 (stat_card, message_card, role_badge 等)
+
+### Phase 9: 稳定性增强 ✅
+- [x] **AI API 重试机制** (3次，指数退避)
+- [x] **工具调用上限** (50次/run，防止无限循环)
+- [x] **超时防崩溃** (safe_run_agent 包装)
+- [x] **UTF-8 输出清理** (sanitize_output)
+- [x] **LiveView 心跳超时修复** (完全异步 PubSub)
 
 ---
 
 ## 当前状态
 
-### ✅ 已完成 (Phase 1-7)
+### ✅ 已完成 (Phase 1-9)
 - **核心框架**: Agent Loop, Sessions, Memory
 - **基础工具**: read/write/edit/exec/process
 - **记忆系统**: BM25 + Vector hybrid, 中文支持
 - **流式响应**: Block Streaming, 代码块保护
 - **会话压缩**: AI 摘要自动压缩
-- **渠道**: Telegram (Telegex), Discord (Nostrum), WebSocket
+- **渠道**: Telegram (Telegex), Discord (Nostrum), WebChat (LiveView)
 - **会话管理**: sessions_list/history/send/spawn, agents_list
 - **自动化**: cron, gateway, message
 - **浏览器**: CDP 完整控制
 - **节点**: 远程设备控制
 - **画布**: Canvas/A2UI
 - **OAuth**: Anthropic Claude OAuth token 自动刷新
+- **WebChat**: 完整的 LiveView 管理界面
+- **稳定性**: 重试/超时/异步处理
 
-### 📋 剩余工作 (低优先级)
-- `apply_patch` - 多文件补丁
-- `image` - 图像分析工具
+### 📋 可选工作
+- `apply_patch` - 多文件补丁 (按需)
+- 更多 AI 提供商 (Ollama 本地模型等)
+- 性能优化
+- 更多渠道支持
 
 ### 📊 统计
-- **工具数量**: 21 个
-- **测试用例**: 318 个
-- **渠道数量**: 3 个 (Telegram/Discord/WebSocket)
-- **AI 提供商**: 3 个 (Anthropic/OpenAI/Gemini)
+- **工具数量**: 21+ 个
+- **测试用例**: 377 个
+- **渠道数量**: 3 个 (Telegram/Discord/WebChat)
+- **AI 提供商**: 4 个 (Anthropic/OpenAI/Gemini/OpenRouter)
+- **LiveView 页面**: 5 个
 
 ---
 
 ## 更新日志
+
+### 2026-02-03 (v0.3.0) - WebChat UI
+- ✨ **完整的 LiveView 管理界面**
+  - Dashboard 系统概览
+  - Chat 实时聊天
+  - Sessions 会话管理
+  - Agents CRUD
+- 🔧 **异步架构重构**
+  - 完全异步消息发送 (GenServer.cast + PubSub)
+  - 解决 LiveView 心跳超时问题
+- 🛡 **稳定性增强**
+  - AI API 重试机制 (3次，指数退避)
+  - 工具调用上限 50 次/run
+  - UTF-8 输出清理
+  - 超时防崩溃
+- 🎨 **UI/UX**
+  - 深色主题
+  - 侧边栏导航
+  - 组件化模板 (.html.heex)
+- ✅ **测试**: 377 tests, 0 failures
 
 ### 2026-01-31 (v0.2.1) - OAuth 支持
 - ✨ **OAuth Token 支持**
@@ -132,22 +190,26 @@
 
 ## 技术亮点
 
-### OAuth 实现
-```elixir
-# 自动从 Claude CLI 加载
-ClawdEx.AI.OAuth.load_from_claude_cli()
-
-# Token 刷新
-ClawdEx.AI.OAuth.Anthropic.refresh_token(refresh_token)
-
-# Claude Code 兼容 headers
-ClawdEx.AI.OAuth.Anthropic.api_headers(access_token)
+### 完全异步消息处理
+```
+User Message → ChatLive → SessionWorker.send_message_async (cast)
+                                ↓
+                         Task.start (background)
+                                ↓
+                         AgentLoop.run
+                                ↓
+                         PubSub.broadcast("session:#{key}")
+                                ↓
+ChatLive ← handle_info({:agent_result, result})
 ```
 
-### Agent Loop 闭环
+### Agent Loop 状态机
 ```
-用户请求 → LLM 决策 → 工具调用 → 工具结果 → LLM 总结 → 用户响应
-    ↑_______________________________________________|
+:idle → :preparing → :inferring → :executing_tools → :inferring → ...
+                                        ↓
+                              tool_iterations++ (max 50)
+                                        ↓
+                              回到 :idle 时重置为 0
 ```
 
 ### 浏览器自动化
