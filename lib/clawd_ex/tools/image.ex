@@ -157,13 +157,21 @@ defmodule ClawdEx.Tools.Image do
     end
   end
 
-  defp normalize_mime_type(content_type) do
+  defp normalize_mime_type(content_type) when is_list(content_type) do
+    content_type
+    |> List.first()
+    |> normalize_mime_type()
+  end
+
+  defp normalize_mime_type(content_type) when is_binary(content_type) do
     content_type
     |> String.split(";")
     |> List.first()
     |> String.trim()
     |> String.downcase()
   end
+
+  defp normalize_mime_type(_), do: "application/octet-stream"
 
   # ============================================================================
   # Model Resolution
