@@ -43,6 +43,14 @@ defmodule ClawdEx.Sessions.SessionWorker do
   end
 
   @doc """
+  异步发送消息（fire-and-forget，结果通过 PubSub 返回）
+  """
+  @spec send_message_async(String.t(), String.t(), keyword()) :: :ok
+  def send_message_async(session_key, content, opts \\ []) do
+    GenServer.cast(via_tuple(session_key), {:send_message_async, content, opts})
+  end
+
+  @doc """
   获取会话历史
   """
   @spec get_history(String.t(), keyword()) :: [Message.t()]
@@ -177,6 +185,30 @@ defmodule ClawdEx.Sessions.SessionWorker do
   @impl true
   def handle_cast(:stop_run, state) do
     AgentLoop.stop_run(state.loop_pid)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:send_message_async, content, opts}, state) do
+    # 异步处理：启动 Task 来运行 agent，结果通过 PubSub 发送
+    session_key = state.session_key
+    loop_pid = state.loop_pid
+    
+    # 更新最后活动时间
+    update_last_activity(state.session_id)
+    
+    # 在后台 Task 中运行 agent
+    Task.start(fn ->
+      result = safe_run_agent(loop_pid, content, opts)
+      
+      # 通过 PubSub 广播结果
+      Phoenix.PubSub.broadcast(
+        ClawdEx.PubSub,
+        "session:#{session_key}",
+        {:agent_result, result}
+      )
+    end)
+    
     {:noreply, state}
   end
 

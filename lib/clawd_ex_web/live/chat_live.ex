@@ -117,10 +117,12 @@ defmodule ClawdExWeb.ChatLive do
 
     case start_session_safe(session_key) do
       :ok ->
-        # 订阅会话事件
+        # 订阅会话事件（两个 topic：agent events 和 session results）
         if session_id = get_session_id(session_key) do
           Phoenix.PubSub.subscribe(ClawdEx.PubSub, "agent:#{session_id}")
         end
+        # 订阅异步结果
+        Phoenix.PubSub.subscribe(ClawdEx.PubSub, "session:#{session_key}")
 
         # 加载历史消息
         messages = load_messages(session_key)
@@ -140,26 +142,16 @@ defmodule ClawdExWeb.ChatLive do
 
   def handle_info({:send_message, content}, socket) do
     session_key = socket.assigns.session_key
-    lv_pid = self()
 
-    # 异步执行，避免阻塞 LiveView 进程（否则心跳超时会断开连接）
-    Task.start(fn ->
-      result =
-        try do
-          SessionWorker.send_message(session_key, content)
-        rescue
-          e -> {:error, Exception.message(e)}
-        catch
-          :exit, reason -> {:error, reason}
-        end
-
-      send(lv_pid, {:message_result, result})
-    end)
+    # 完全异步：使用 cast 发送消息，结果通过 PubSub 返回
+    # 这样不会有任何超时问题
+    SessionWorker.send_message_async(session_key, content)
 
     {:noreply, socket}
   end
 
-  def handle_info({:message_result, result}, socket) do
+  # 接收异步结果（通过 PubSub）
+  def handle_info({:agent_result, result}, socket) do
     case result do
       {:ok, response} ->
         # 优先使用 streaming_content（如果有的话），否则用最终 response
