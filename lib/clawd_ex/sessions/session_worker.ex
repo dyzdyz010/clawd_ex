@@ -106,7 +106,8 @@ defmodule ClawdEx.Sessions.SessionWorker do
   @impl true
   def handle_call({:send_message, content, opts}, _from, state) do
     # 确保 agent loop 超时与调用者超时一致（留 5 秒余量）
-    caller_timeout = Keyword.get(opts, :timeout, 120_000)
+    # 默认 5 分钟，复杂任务需要更多时间
+    caller_timeout = Keyword.get(opts, :timeout, 300_000)
     opts = Keyword.put(opts, :timeout, max(caller_timeout - 5000, 30_000))
     
     # 检查是否是重置触发器
@@ -121,15 +122,29 @@ defmodule ClawdEx.Sessions.SessionWorker do
           Logger.info("Session #{state.session_key} reset due to #{reason}")
           new_session = Reset.reset_session!(session)
           new_state = restart_with_new_session(state, new_session)
-          result = AgentLoop.run(new_state.loop_pid, content, opts)
+          result = safe_run_agent(new_state.loop_pid, content, opts)
           {:reply, result, new_state}
 
         {:ok, :fresh} ->
           # 更新最后活动时间
           update_last_activity(state.session_id)
-          result = AgentLoop.run(state.loop_pid, content, opts)
+          result = safe_run_agent(state.loop_pid, content, opts)
           {:reply, result, state}
       end
+    end
+  end
+
+  # Wrapper to catch timeout and other errors, preventing SessionWorker crash
+  defp safe_run_agent(loop_pid, content, opts) do
+    try do
+      AgentLoop.run(loop_pid, content, opts)
+    catch
+      :exit, {:timeout, _} ->
+        Logger.warning("Agent run timed out for message: #{String.slice(content, 0, 50)}...")
+        {:error, "Request timed out. The task may be too complex or the AI is taking too long."}
+      :exit, reason ->
+        Logger.error("Agent run failed: #{inspect(reason)}")
+        {:error, "Agent error: #{inspect(reason)}"}
     end
   end
 
