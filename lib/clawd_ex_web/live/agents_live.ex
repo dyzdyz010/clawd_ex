@@ -1,0 +1,162 @@
+defmodule ClawdExWeb.AgentsLive do
+  @moduledoc """
+  Agents 列表和管理页面
+  """
+  use ClawdExWeb, :live_view
+
+  import Ecto.Query
+  alias ClawdEx.Repo
+  alias ClawdEx.Agents.Agent
+
+  @impl true
+  def mount(_params, _session, socket) do
+    socket =
+      socket
+      |> assign(:page_title, "Agents")
+      |> load_agents()
+
+    {:ok, socket}
+  end
+
+  @impl true
+  def handle_event("toggle_active", %{"id" => id}, socket) do
+    agent = Repo.get!(Agent, id)
+    {:ok, _} = agent |> Agent.changeset(%{active: !agent.active}) |> Repo.update()
+
+    socket =
+      socket
+      |> put_flash(:info, "Agent #{if agent.active, do: "deactivated", else: "activated"}")
+      |> load_agents()
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("delete", %{"id" => id}, socket) do
+    agent = Repo.get!(Agent, id)
+
+    case Repo.delete(agent) do
+      {:ok, _} ->
+        socket =
+          socket
+          |> put_flash(:info, "Agent deleted")
+          |> load_agents()
+
+        {:noreply, socket}
+
+      {:error, _changeset} ->
+        {:noreply, put_flash(socket, :error, "Cannot delete agent with active sessions")}
+    end
+  end
+
+  defp load_agents(socket) do
+    agents =
+      from(a in Agent,
+        left_join: s in assoc(a, :sessions),
+        group_by: a.id,
+        select: %{agent: a, session_count: count(s.id)},
+        order_by: [desc: a.updated_at]
+      )
+      |> Repo.all()
+
+    assign(socket, :agents, agents)
+  end
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <div class="max-w-7xl mx-auto px-4 py-8">
+        <div class="flex justify-between items-center mb-8">
+          <h1 class="text-3xl font-bold">Agents</h1>
+          <.link navigate={~p"/agents/new"} class="btn-primary">
+            + New Agent
+          </.link>
+        </div>
+
+        <!-- Agents Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <%= for %{agent: agent, session_count: session_count} <- @agents do %>
+            <div class={"bg-gray-800 rounded-lg p-6 border-2 transition-all " <>
+              if(agent.active, do: "border-green-500/30 hover:border-green-500/50", else: "border-gray-700 opacity-60")}>
+              <div class="flex items-start justify-between mb-4">
+                <div>
+                  <h3 class="text-xl font-semibold"><%= agent.name %></h3>
+                  <div class="text-sm text-gray-400 mt-1">
+                    <%= if agent.active do %>
+                      <span class="text-green-400">● Active</span>
+                    <% else %>
+                      <span class="text-gray-500">○ Inactive</span>
+                    <% end %>
+                  </div>
+                </div>
+                <div class="text-3xl">🤖</div>
+              </div>
+
+              <div class="space-y-2 text-sm">
+                <div class="flex justify-between">
+                  <span class="text-gray-400">Model</span>
+                  <span class="font-mono text-xs"><%= truncate(agent.default_model, 25) %></span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-gray-400">Sessions</span>
+                  <span><%= session_count %></span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-gray-400">Workspace</span>
+                  <span class="font-mono text-xs truncate max-w-32" title={agent.workspace_path}>
+                    <%= truncate(agent.workspace_path || "-", 20) %>
+                  </span>
+                </div>
+              </div>
+
+              <%= if agent.system_prompt do %>
+                <div class="mt-4 p-3 bg-gray-900 rounded text-xs text-gray-400 max-h-20 overflow-hidden">
+                  <%= truncate(agent.system_prompt, 150) %>
+                </div>
+              <% end %>
+
+              <div class="mt-4 pt-4 border-t border-gray-700 flex gap-2">
+                <.link navigate={~p"/agents/#{agent.id}/edit"} class="btn-secondary text-sm flex-1 text-center">
+                  Edit
+                </.link>
+                <button
+                  phx-click="toggle_active"
+                  phx-value-id={agent.id}
+                  class={"text-sm px-3 py-1.5 rounded-lg " <>
+                    if(agent.active, do: "bg-yellow-600 hover:bg-yellow-700", else: "bg-green-600 hover:bg-green-700")}
+                >
+                  <%= if agent.active, do: "Disable", else: "Enable" %>
+                </button>
+                <button
+                  phx-click="delete"
+                  phx-value-id={agent.id}
+                  data-confirm="Delete this agent? All associated sessions will also be deleted."
+                  class="text-sm px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          <% end %>
+        </div>
+
+        <%= if Enum.empty?(@agents) do %>
+          <div class="text-center py-16">
+            <div class="text-6xl mb-4">🤖</div>
+            <h2 class="text-xl font-semibold mb-2">No Agents Yet</h2>
+            <p class="text-gray-400 mb-4">Create your first agent to get started</p>
+            <.link navigate={~p"/agents/new"} class="btn-primary">
+              Create Agent
+            </.link>
+          </div>
+        <% end %>
+      </div>
+    """
+  end
+
+  defp truncate(nil, _), do: "-"
+  defp truncate(string, max) when byte_size(string) > max do
+    String.slice(string, 0, max) <> "..."
+  end
+  defp truncate(string, _), do: string
+end

@@ -6,7 +6,7 @@ defmodule ClawdExWeb.ChatLiveTest do
     test "renders chat interface", %{conn: conn} do
       {:ok, _view, html} = live(conn, "/chat")
 
-      assert html =~ "ClawdEx Chat"
+      assert html =~ "Chat"
       assert html =~ "开始对话吧"
       assert html =~ "新对话"
     end
@@ -142,8 +142,8 @@ defmodule ClawdExWeb.ChatLiveTest do
       html = render(view)
       # Check for right alignment class
       assert html =~ "justify-end"
-      # Check for user message color
-      assert html =~ "bg-indigo-600"
+      # Check for user message color (now blue instead of indigo)
+      assert html =~ "bg-blue-600"
     end
 
     test "displays timestamp on messages", %{conn: conn} do

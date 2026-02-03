@@ -17,8 +17,20 @@ defmodule ClawdExWeb.Router do
   scope "/", ClawdExWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
+    # Dashboard
+    live "/", DashboardLive, :index
+
+    # Chat
     live "/chat", ChatLive, :index
+
+    # Sessions
+    live "/sessions", SessionsLive, :index
+    live "/sessions/:id", SessionDetailLive, :show
+
+    # Agents
+    live "/agents", AgentsLive, :index
+    live "/agents/new", AgentFormLive, :new
+    live "/agents/:id/edit", AgentFormLive, :edit
   end
 
   # Other scopes may use custom stacks.
