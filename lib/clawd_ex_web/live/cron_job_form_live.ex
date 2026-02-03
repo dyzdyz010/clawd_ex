@@ -10,8 +10,23 @@ defmodule ClawdExWeb.CronJobFormLive do
   @impl true
   def mount(_params, _session, socket) do
     agents = Repo.all(from(a in Agent, order_by: a.name))
+    sessions = load_active_sessions()
 
-    {:ok, assign(socket, agents: agents)}
+    {:ok, assign(socket, agents: agents, sessions: sessions)}
+  end
+
+  defp load_active_sessions do
+    from(s in ClawdEx.Sessions.Session,
+      where: s.state == :active,
+      order_by: [desc: s.last_activity_at],
+      limit: 50,
+      select: %{
+        session_key: s.session_key,
+        channel: s.channel,
+        last_activity: s.last_activity_at
+      }
+    )
+    |> Repo.all()
   end
 
   @impl true
@@ -203,13 +218,16 @@ defmodule ClawdExWeb.CronJobFormLive do
 
           <!-- Session Key (for system_event) -->
           <div>
-            <label class="block text-sm font-medium text-gray-300 mb-2">Session Key (for System Event)</label>
+            <label class="block text-sm font-medium text-gray-300 mb-2">Target Session (for System Event)</label>
             <.input
               field={@form[:session_key]}
-              type="text"
-              placeholder="Leave empty to use most recent active session"
-              class="w-full bg-gray-700 border-gray-600 text-white rounded-lg px-4 py-2 focus:ring-blue-500 focus:border-blue-500 font-mono"
+              type="select"
+              options={session_options(@sessions)}
+              class="w-full bg-gray-700 border-gray-600 text-white rounded-lg px-4 py-2 focus:ring-blue-500 focus:border-blue-500"
             />
+            <p class="text-xs text-gray-500 mt-1">
+              Select a session to inject the message into. "Auto" will use the most recent active session.
+            </p>
           </div>
 
           <!-- Target Channel -->
@@ -311,5 +329,39 @@ defmodule ClawdExWeb.CronJobFormLive do
       {"Asia/Singapore", "Asia/Singapore"},
       {"Australia/Sydney", "Australia/Sydney"}
     ]
+  end
+
+  defp session_options(sessions) do
+    auto_option = [{"Auto (most recent active session)", ""}]
+
+    session_opts =
+      Enum.map(sessions, fn s ->
+        # Format: "telegram:12345 (2m ago)"
+        time_ago = format_time_ago(s.last_activity)
+        label = "#{s.channel}:#{short_key(s.session_key)} (#{time_ago})"
+        {label, s.session_key}
+      end)
+
+    auto_option ++ session_opts
+  end
+
+  defp short_key(session_key) do
+    case String.split(session_key, ":", parts: 2) do
+      [_channel, rest] -> String.slice(rest, 0, 12) <> "..."
+      _ -> String.slice(session_key, 0, 15) <> "..."
+    end
+  end
+
+  defp format_time_ago(nil), do: "never"
+
+  defp format_time_ago(datetime) do
+    diff = DateTime.diff(DateTime.utc_now(), datetime, :second)
+
+    cond do
+      diff < 60 -> "#{diff}s ago"
+      diff < 3600 -> "#{div(diff, 60)}m ago"
+      diff < 86400 -> "#{div(diff, 3600)}h ago"
+      true -> "#{div(diff, 86400)}d ago"
+    end
   end
 end
