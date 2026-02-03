@@ -102,11 +102,44 @@
 - [x] **UTF-8 输出清理** (sanitize_output)
 - [x] **LiveView 心跳超时修复** (完全异步 PubSub)
 
+### Phase 10: P0 核心体验 ✅
+- [x] **CLI 基础命令**
+  - [x] status - 应用状态概览
+  - [x] health - 综合健康检查 (7 项)
+  - [x] configure - 交互式配置向导
+  - [x] escript 支持
+- [x] **健康检查系统**
+  - [x] Database (连接/延迟/大小)
+  - [x] Memory (总量/进程/系统)
+  - [x] Processes (数量/限制)
+  - [x] AI Providers (配置状态)
+  - [x] Browser (Chrome 可用性)
+  - [x] Filesystem (工作区可写)
+  - [x] Network (DNS 连通性)
+- [x] **Cron 管理界面**
+  - [x] 任务列表 (筛选/统计)
+  - [x] 创建/编辑任务
+  - [x] 任务详情 + 运行历史
+  - [x] 手动运行/启用禁用
+- [x] **日志查看器**
+  - [x] 日志文件选择
+  - [x] 级别过滤 (error/warn/info/debug)
+  - [x] 文本搜索
+  - [x] 自动刷新
+- [x] **配置编辑器**
+  - [x] 通用配置
+  - [x] AI 提供商状态
+  - [x] 环境变量管理
+  - [x] 系统信息展示
+- [x] **Dashboard 健康面板**
+  - [x] 实时健康状态显示
+  - [x] 7 项子系统检查
+
 ---
 
 ## 当前状态
 
-### ✅ 已完成 (Phase 1-9)
+### ✅ 已完成 (Phase 1-10)
 - **核心框架**: Agent Loop, Sessions, Memory
 - **基础工具**: read/write/edit/exec/process
 - **记忆系统**: BM25 + Vector hybrid, 中文支持
@@ -119,17 +152,14 @@
 - **节点**: 远程设备控制
 - **画布**: Canvas/A2UI
 - **OAuth**: Anthropic Claude OAuth token 自动刷新
-- **WebChat**: 完整的 LiveView 管理界面
+- **WebChat**: 完整的 LiveView 管理界面 (8 页面)
 - **稳定性**: 重试/超时/异步处理
+- **CLI**: status/health/configure 命令
+- **健康检查**: 7 项子系统监控
 
 ### 📋 待开发 (按优先级)
 
-**P0 - 核心体验:**
-- [ ] CLI 基础命令 (status/health/configure)
-- [ ] Gateway 状态面板 + 健康检查
-- [ ] 日志查看器 (Web UI)
-- [ ] Cron 管理界面
-- [ ] 配置编辑器 (Web UI)
+**P0 - 核心体验:** ✅ 已完成
 
 **P1 - 重要功能:**
 - [ ] TUI 终端界面
@@ -146,17 +176,38 @@
 详细功能对比见 [docs/FEATURES.md](docs/FEATURES.md)
 
 ### 📊 统计
-- **整体完成度**: ~39% (71/181 功能)
+- **整体完成度**: ~42% (76/181 功能)
 - **工具数量**: 22/24 个
 - **测试用例**: 377 个
 - **渠道数量**: 3/11 个
 - **AI 提供商**: 5/10 个
-- **LiveView 页面**: 5/17 个
-- **CLI 命令**: 0/24 个
+- **LiveView 页面**: 8/17 个 (+3: Cron/Logs/Settings)
+- **CLI 命令**: 3/24 个 (status/health/configure)
 
 ---
 
 ## 更新日志
+
+### 2026-02-03 (v0.3.1) - P0 Core Experience
+- ✨ **CLI 命令**
+  - `status` - 应用状态概览
+  - `health --verbose` - 7 项综合健康检查
+  - `configure` - 交互式配置向导
+  - escript 独立可执行文件支持
+- 🏥 **健康检查系统** (`ClawdEx.Health`)
+  - Database / Memory / Processes / AI Providers
+  - Browser / Filesystem / Network
+  - Dashboard 实时健康面板
+- ⏰ **Cron 管理界面** (`/cron`)
+  - 任务列表、创建/编辑、详情
+  - 运行历史、手动触发、启用/禁用
+- 📜 **日志查看器** (`/logs`)
+  - 文件选择、级别过滤、文本搜索
+  - 自动刷新、清空日志
+- ⚙️ **配置编辑器** (`/settings`)
+  - 通用配置、AI 提供商状态
+  - 环境变量、系统信息
+- ✅ **测试**: 377 tests, 0 failures
 
 ### 2026-02-03 (v0.3.0) - WebChat UI
 - ✨ **完整的 LiveView 管理界面**

@@ -17,10 +17,18 @@
 - 🌐 **WebChat** - Phoenix LiveView 实时聊天界面
 
 ### 管理界面 (Phoenix LiveView)
-- 📊 **Dashboard** - 系统概览、统计、最近活动
+- 📊 **Dashboard** - 系统概览、统计、健康检查
 - 💬 **Chat** - 实时聊天界面，流式响应，工具调用显示
 - 📋 **Sessions** - 会话列表、筛选、归档、删除
 - 🤖 **Agents** - Agent CRUD 管理
+- ⏰ **Cron Jobs** - 定时任务管理、运行历史
+- 📜 **Logs** - 日志查看器、级别过滤
+- ⚙️ **Settings** - 配置管理、系统信息
+
+### CLI 命令
+- `status` - 应用状态概览
+- `health` - 7 项综合健康检查
+- `configure` - 交互式配置向导
 
 ### 工具系统 (21+ 个工具)
 
@@ -79,10 +87,13 @@
 ClawdEx 内置 Phoenix LiveView 管理界面：
 
 ```
-http://localhost:4000/          # Dashboard
+http://localhost:4000/          # Dashboard (+ 健康检查)
 http://localhost:4000/chat      # 聊天界面
 http://localhost:4000/sessions  # 会话管理
 http://localhost:4000/agents    # Agent 管理
+http://localhost:4000/cron      # Cron 任务管理
+http://localhost:4000/logs      # 日志查看器
+http://localhost:4000/settings  # 配置管理
 ```
 
 **特性：**
@@ -91,6 +102,32 @@ http://localhost:4000/agents    # Agent 管理
 - 工具调用历史展示
 - 会话切换与历史加载
 - Agent CRUD 操作
+- 健康检查面板 (7 项子系统)
+- Cron 任务管理与运行历史
+- 日志查看/过滤/搜索
+
+## 🔧 CLI 命令
+
+```bash
+# 通过 mix 运行
+mix run -e 'ClawdEx.CLI.main(["status"])'
+mix run -e 'ClawdEx.CLI.main(["health", "--verbose"])'
+mix run -e 'ClawdEx.CLI.main(["configure"])'
+
+# 或编译为独立 escript
+mix escript.build
+./clawd_ex status
+./clawd_ex health -v
+```
+
+**健康检查项目：**
+- Database (连接/延迟/大小)
+- Memory (总量/进程/系统)
+- Processes (数量/限制)
+- AI Providers (配置状态)
+- Browser (Chrome 可用性)
+- Filesystem (工作区可写)
+- Network (DNS 连通性)
 
 ## 🔐 OAuth 认证
 
