@@ -4,14 +4,22 @@ defmodule ClawdEx.MixProject do
   def project do
     [
       app: :clawd_ex,
-      version: "0.1.0",
+      version: "0.3.0",
       elixir: "~> 1.19",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
-      listeners: [Phoenix.CodeReloader]
+      listeners: [Phoenix.CodeReloader],
+      escript: escript()
+    ]
+  end
+
+  defp escript do
+    [
+      main_module: ClawdEx.CLI,
+      name: "clawd_ex"
     ]
   end
 

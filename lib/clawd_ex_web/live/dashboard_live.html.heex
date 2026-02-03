@@ -71,6 +71,33 @@
       </div>
     </div>
 
+    <%!-- System Health --%>
+    <div class="mt-8 bg-gray-800 rounded-lg p-6">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-xl font-semibold">System Health</h2>
+        <span class={"px-3 py-1 rounded-full text-sm font-medium #{if @health.healthy, do: "bg-green-500/20 text-green-400", else: "bg-red-500/20 text-red-400"}"}>
+          <%= if @health.healthy, do: "✓ Healthy", else: "✗ Issues Detected" %>
+        </span>
+      </div>
+      <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+        <%= for {name, check} <- @health.checks do %>
+          <div class={"p-3 rounded-lg #{health_check_bg(check.status)}"}>
+            <div class="flex items-center gap-2 mb-1">
+              <span class={"text-sm #{health_check_color(check.status)}"}>
+                <%= health_check_icon(check.status) %>
+              </span>
+              <span class="text-sm font-medium text-white capitalize">
+                <%= name %>
+              </span>
+            </div>
+            <div class="text-xs text-gray-400 truncate" title={check.message}>
+              <%= String.slice(check.message || "", 0, 30) %>
+            </div>
+          </div>
+        <% end %>
+      </div>
+    </div>
+
     <%!-- Quick Actions --%>
     <div class="mt-8 bg-gray-800 rounded-lg p-6">
       <h2 class="text-xl font-semibold mb-4">Quick Actions</h2>
@@ -86,6 +113,12 @@
         </.link>
         <.link navigate={~p"/agents"} class="btn-secondary">
           ⚙️ Manage Agents
+        </.link>
+        <.link navigate={~p"/cron/new"} class="btn-secondary">
+          ⏰ New Cron Job
+        </.link>
+        <.link navigate={~p"/settings"} class="btn-secondary">
+          ⚙️ Settings
         </.link>
       </div>
     </div>

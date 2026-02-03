@@ -31,6 +31,18 @@ defmodule ClawdExWeb.Router do
     live "/agents", AgentsLive, :index
     live "/agents/new", AgentFormLive, :new
     live "/agents/:id/edit", AgentFormLive, :edit
+
+    # Cron Jobs
+    live "/cron", CronJobsLive, :index
+    live "/cron/new", CronJobFormLive, :new
+    live "/cron/:id", CronJobDetailLive, :show
+    live "/cron/:id/edit", CronJobFormLive, :edit
+
+    # Logs
+    live "/logs", LogsLive, :index
+
+    # Settings
+    live "/settings", SettingsLive, :index
   end
 
   # Other scopes may use custom stacks.

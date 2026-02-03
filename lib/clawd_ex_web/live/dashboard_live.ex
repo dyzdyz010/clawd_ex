@@ -11,6 +11,7 @@ defmodule ClawdExWeb.DashboardLive do
   alias ClawdEx.Repo
   alias ClawdEx.Agents.Agent
   alias ClawdEx.Sessions.{Session, Message}
+  alias ClawdEx.Health
 
   @impl true
   def mount(_params, _session, socket) do
@@ -24,6 +25,7 @@ defmodule ClawdExWeb.DashboardLive do
       |> assign(:page_title, "Dashboard")
       |> load_stats()
       |> load_recent_activity()
+      |> load_health()
 
     {:ok, socket}
   end
@@ -34,8 +36,14 @@ defmodule ClawdExWeb.DashboardLive do
       socket
       |> load_stats()
       |> load_recent_activity()
+      |> load_health()
 
     {:noreply, socket}
+  end
+
+  defp load_health(socket) do
+    health = Health.full_check()
+    assign(socket, health: health)
   end
 
   defp load_stats(socket) do
@@ -111,4 +119,19 @@ defmodule ClawdExWeb.DashboardLive do
       content
     end
   end
+
+  defp health_check_icon(:ok), do: "✓"
+  defp health_check_icon(:warning), do: "⚠"
+  defp health_check_icon(:error), do: "✗"
+  defp health_check_icon(_), do: "?"
+
+  defp health_check_color(:ok), do: "text-green-400"
+  defp health_check_color(:warning), do: "text-yellow-400"
+  defp health_check_color(:error), do: "text-red-400"
+  defp health_check_color(_), do: "text-gray-400"
+
+  defp health_check_bg(:ok), do: "bg-green-500/10"
+  defp health_check_bg(:warning), do: "bg-yellow-500/10"
+  defp health_check_bg(:error), do: "bg-red-500/10"
+  defp health_check_bg(_), do: "bg-gray-500/10"
 end
