@@ -121,6 +121,12 @@
   - [x] 创建/编辑任务
   - [x] 任务详情 + 运行历史
   - [x] 手动运行/启用禁用
+- [x] **Cron 执行系统** (CronExecutor)
+  - [x] system_event 模式 - 注入消息到已有 session
+  - [x] agent_turn 模式 - 隔离 session 执行
+  - [x] 目标渠道投递 (telegram/discord/webchat)
+  - [x] Session 自动清理 (cleanup: delete/keep)
+  - [x] Session 选择器 (自动填充活跃 sessions)
 - [x] **日志查看器**
   - [x] 日志文件选择
   - [x] 级别过滤 (error/warn/info/debug)
@@ -147,15 +153,16 @@
 - **会话压缩**: AI 摘要自动压缩
 - **渠道**: Telegram (Telegex), Discord (Nostrum), WebChat (LiveView)
 - **会话管理**: sessions_list/history/send/spawn, agents_list
-- **自动化**: cron, gateway, message
+- **自动化**: cron (完整执行系统), gateway, message
 - **浏览器**: CDP 完整控制
 - **节点**: 远程设备控制
 - **画布**: Canvas/A2UI
 - **OAuth**: Anthropic Claude OAuth token 自动刷新
 - **WebChat**: 完整的 LiveView 管理界面 (8 页面)
-- **稳定性**: 重试/超时/异步处理
+- **稳定性**: 重试/超时/异步处理/空 session 复用
 - **CLI**: status/health/configure 命令
 - **健康检查**: 7 项子系统监控
+- **Cron 执行**: system_event + agent_turn 双模式
 
 ### 📋 待开发 (按优先级)
 
@@ -187,6 +194,17 @@
 ---
 
 ## 更新日志
+
+### 2026-02-03 (v0.3.2) - Cron Execution System
+- ⏰ **完整 Cron 执行系统** (`CronExecutor`)
+  - system_event 模式: 注入消息到已有 session
+  - agent_turn 模式: 隔离 session + AI 执行 + 自动清理
+  - 目标渠道投递 (telegram/discord/webchat)
+  - Session 选择器下拉框 (活跃 sessions)
+- 🔧 **WebChat 优化**
+  - 空 session 复用 (防止刷新爆炸)
+  - Run Now 刷新修复
+- ✅ **测试**: Cron agent_turn 端到端通过 (AI 响应 "4")
 
 ### 2026-02-03 (v0.3.1) - P0 Core Experience
 - ✨ **CLI 命令**
