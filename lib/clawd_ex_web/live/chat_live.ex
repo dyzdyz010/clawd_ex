@@ -16,8 +16,9 @@ defmodule ClawdExWeb.ChatLive do
 
   @impl true
   def mount(params, session, socket) do
-    # 优先使用 URL 参数中的 session key，否则从 session 中恢复，最后生成新的
-    session_key = params["session"] || session["session_key"] || generate_session_key()
+    # 优先使用 URL 参数中的 session key，否则从 session 中恢复
+    # 最后尝试复用空的 web session，或生成新的
+    session_key = params["session"] || session["session_key"] || find_or_create_session_key()
 
     socket =
       socket
@@ -341,6 +342,29 @@ defmodule ClawdExWeb.ChatLive do
 
   defp generate_session_key do
     "web:" <> (:crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower))
+  end
+
+  # 查找可复用的空 web session（消息数为 0），或创建新的
+  defp find_or_create_session_key do
+    import Ecto.Query
+
+    # 查找消息数为 0 的活跃 web session
+    case ClawdEx.Repo.one(
+           from(s in ClawdEx.Sessions.Session,
+             where: s.channel == "web" and s.state == :active and s.message_count == 0,
+             order_by: [desc: s.updated_at],
+             limit: 1,
+             select: s.session_key
+           )
+         ) do
+      nil ->
+        # 没有空 session，创建新的
+        generate_session_key()
+
+      existing_key ->
+        # 复用空 session
+        existing_key
+    end
   end
 
   defp start_session_safe(session_key) do
