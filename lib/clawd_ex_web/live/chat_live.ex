@@ -139,16 +139,26 @@ defmodule ClawdExWeb.ChatLive do
 
   def handle_info({:send_message, content}, socket) do
     session_key = socket.assigns.session_key
+    lv_pid = self()
 
-    result =
-      try do
-        SessionWorker.send_message(session_key, content)
-      rescue
-        e -> {:error, Exception.message(e)}
-      catch
-        :exit, reason -> {:error, reason}
-      end
+    # 异步执行，避免阻塞 LiveView 进程（否则心跳超时会断开连接）
+    Task.start(fn ->
+      result =
+        try do
+          SessionWorker.send_message(session_key, content)
+        rescue
+          e -> {:error, Exception.message(e)}
+        catch
+          :exit, reason -> {:error, reason}
+        end
 
+      send(lv_pid, {:message_result, result})
+    end)
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:message_result, result}, socket) do
     case result do
       {:ok, response} ->
         assistant_message = %{
