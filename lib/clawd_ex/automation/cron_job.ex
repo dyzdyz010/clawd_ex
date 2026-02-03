@@ -24,6 +24,17 @@ defmodule ClawdEx.Automation.CronJob do
     field :run_count, :integer, default: 0
     field :metadata, :map, default: %{}
 
+    # Payload type: "system_event" or "agent_turn"
+    field :payload_type, :string, default: "system_event"
+    # Target channel for results (telegram/discord/webchat)
+    field :target_channel, :string
+    # Target session key for system_event mode
+    field :session_key, :string
+    # Cleanup strategy for agent_turn: "delete" or "keep"
+    field :cleanup, :string, default: "delete"
+    # Timeout in seconds
+    field :timeout_seconds, :integer, default: 300
+
     has_many :runs, ClawdEx.Automation.CronJobRun, foreign_key: :job_id
 
     timestamps(type: :utc_datetime_usec)
@@ -52,9 +63,16 @@ defmodule ClawdEx.Automation.CronJob do
       :last_run_at,
       :next_run_at,
       :run_count,
-      :metadata
+      :metadata,
+      :payload_type,
+      :target_channel,
+      :session_key,
+      :cleanup,
+      :timeout_seconds
     ])
     |> validate_required([:name, :schedule, :command])
+    |> validate_inclusion(:payload_type, ["system_event", "agent_turn"])
+    |> validate_inclusion(:cleanup, ["delete", "keep"])
     |> maybe_set_next_run()
   end
 

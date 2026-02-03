@@ -180,6 +180,81 @@ defmodule ClawdExWeb.CronJobFormLive do
           </div>
         </div>
 
+        <!-- Execution Settings -->
+        <div class="bg-gray-800 rounded-lg p-6 space-y-6">
+          <h3 class="text-lg font-medium text-white">Execution Settings</h3>
+
+          <!-- Payload Type -->
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-2">Execution Mode</label>
+            <.input
+              field={@form[:payload_type]}
+              type="select"
+              options={[
+                {"System Event - Inject into existing session", "system_event"},
+                {"Agent Turn - Run in isolated session", "agent_turn"}
+              ]}
+              class="w-full bg-gray-700 border-gray-600 text-white rounded-lg px-4 py-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+            <p class="text-xs text-gray-500 mt-1">
+              System Event: Sends message to an existing session. Agent Turn: Creates a temporary session.
+            </p>
+          </div>
+
+          <!-- Session Key (for system_event) -->
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-2">Session Key (for System Event)</label>
+            <.input
+              field={@form[:session_key]}
+              type="text"
+              placeholder="Leave empty to use most recent active session"
+              class="w-full bg-gray-700 border-gray-600 text-white rounded-lg px-4 py-2 focus:ring-blue-500 focus:border-blue-500 font-mono"
+            />
+          </div>
+
+          <!-- Target Channel -->
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-2">Deliver Results To</label>
+            <.input
+              field={@form[:target_channel]}
+              type="select"
+              options={[
+                {"Don't deliver (store only)", ""},
+                {"Telegram", "telegram"},
+                {"Discord", "discord"},
+                {"WebChat (PubSub)", "webchat"}
+              ]}
+              class="w-full bg-gray-700 border-gray-600 text-white rounded-lg px-4 py-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+
+          <!-- Cleanup (for agent_turn) -->
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-2">Session Cleanup (for Agent Turn)</label>
+            <.input
+              field={@form[:cleanup]}
+              type="select"
+              options={[
+                {"Delete session after completion", "delete"},
+                {"Keep session history", "keep"}
+              ]}
+              class="w-full bg-gray-700 border-gray-600 text-white rounded-lg px-4 py-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+
+          <!-- Timeout -->
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-2">Timeout (seconds)</label>
+            <.input
+              field={@form[:timeout_seconds]}
+              type="number"
+              min="10"
+              max="3600"
+              class="w-full bg-gray-700 border-gray-600 text-white rounded-lg px-4 py-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+        </div>
+
         <!-- Actions -->
         <div class="flex justify-end gap-3">
           <.link navigate={~p"/cron"} class="btn-secondary">

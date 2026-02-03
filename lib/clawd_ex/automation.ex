@@ -168,30 +168,8 @@ defmodule ClawdEx.Automation do
   end
 
   defp execute_job(job, run) do
-    try do
-      # For now, just simulate execution
-      # In real implementation, this would trigger the agent
-      Process.sleep(100)
-
-      complete_run(run, %{
-        status: "completed",
-        exit_code: 0,
-        output: "Job executed successfully"
-      })
-
-      # Update job stats
-      update_job(job, %{
-        last_run_at: DateTime.utc_now(),
-        run_count: job.run_count + 1
-      })
-    rescue
-      e ->
-        complete_run(run, %{
-          status: "failed",
-          exit_code: 1,
-          error: Exception.message(e)
-        })
-    end
+    # Use CronExecutor for real execution
+    ClawdEx.Automation.CronExecutor.execute(job, run)
   end
 
   # =============================================================================

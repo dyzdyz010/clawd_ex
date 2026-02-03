@@ -1,20 +1,20 @@
 {
   "app": {
-    "name": "test_app",
+    "name": "patch_test",
     "version": "1.0.0"
   },
   "features": {
-    "discord": false,
+    "discord": true,
     "telegram": true,
     "web_api": true
   },
   "limits": {
-    "max_message_length": 2048,
-    "max_sessions": 50,
-    "session_timeout_minutes": 30
+    "max_message_length": 4096,
+    "max_sessions": 100,
+    "session_timeout_minutes": 60
   },
   "logging": {
-    "format": "text",
-    "level": "debug"
+    "format": "json",
+    "level": "info"
   }
 }
