@@ -61,6 +61,7 @@ defmodule ClawdExWeb.ChatLive do
       |> assign(:input, "")
       |> assign(:sending, true)
       |> assign(:streaming_content, "")
+      |> assign(:tool_executions, [])  # 新消息开始，清空工具历史
 
     # 异步发送消息
     send(self(), {:send_message, message})
@@ -231,8 +232,9 @@ defmodule ClawdExWeb.ChatLive do
   end
 
   defp handle_status_update(socket, :tools_start, %{tools: _tools, count: _count}) do
-    # 多工具批量开始，清空之前的历史
-    assign(socket, :tool_executions, [])
+    # 多工具批量开始 - 不清空历史，让工具调用累积显示
+    # 只有在新消息发送时或 run 结束时才清空
+    socket
   end
 
   defp handle_status_update(socket, :tool_start, %{tool: tool_name} = details) do
