@@ -230,11 +230,13 @@ defmodule ClawdEx.Automation.CronExecutor do
 
   defp cleanup_session(session_key) do
     # Archive the session
-    case SessionManager.get_session(session_key) do
+    case SessionManager.find_session(session_key) do
       {:ok, pid} ->
         GenServer.cast(pid, :archive)
+        # Stop the session worker
+        SessionManager.stop_session(session_key)
 
-      _ ->
+      :not_found ->
         :ok
     end
 

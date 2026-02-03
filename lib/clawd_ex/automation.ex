@@ -150,20 +150,33 @@ defmodule ClawdEx.Automation do
 
   @doc """
   Run a job manually (creates a run record and executes).
+  Options:
+    - async: true (default) - run in background Task
+    - async: false - run synchronously and wait for completion
   """
-  def run_job_now(%CronJob{} = job) do
+  def run_job_now(%CronJob{} = job, opts \\ []) do
+    async = Keyword.get(opts, :async, true)
+
     with {:ok, run} <-
            create_run(%{
              job_id: job.id,
              started_at: DateTime.utc_now(),
              status: "running"
            }) do
-      # Execute the job asynchronously
-      Task.start(fn ->
-        execute_job(job, run)
-      end)
+      if async do
+        # Execute in background (for web UI, real cron scheduler)
+        Task.start(fn ->
+          execute_job(job, run)
+        end)
 
-      {:ok, run}
+        {:ok, run}
+      else
+        # Execute synchronously (for testing, CLI)
+        case execute_job(job, run) do
+          {:ok, output} -> {:ok, %{run | status: "completed", output: output}}
+          {:error, reason} -> {:ok, %{run | status: "failed", error: inspect(reason)}}
+        end
+      end
     end
   end
 
