@@ -2,9 +2,10 @@ import Config
 
 # Configure your database
 config :clawd_ex, ClawdEx.Repo,
-  username: "root",
+  username: "postgres",
   password: "postgres",
   hostname: "localhost",
+  port: 15432,
   database: "clawd_ex_dev",
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
