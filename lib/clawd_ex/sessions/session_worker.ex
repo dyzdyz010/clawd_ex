@@ -37,7 +37,8 @@ defmodule ClawdEx.Sessions.SessionWorker do
   """
   @spec send_message(String.t(), String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def send_message(session_key, content, opts \\ []) do
-    timeout = Keyword.get(opts, :timeout, 120_000)
+    # 默认 5 分钟超时，适合复杂的多工具任务
+    timeout = Keyword.get(opts, :timeout, 300_000)
     GenServer.call(via_tuple(session_key), {:send_message, content, opts}, timeout)
   end
 
@@ -104,6 +105,10 @@ defmodule ClawdEx.Sessions.SessionWorker do
 
   @impl true
   def handle_call({:send_message, content, opts}, _from, state) do
+    # 确保 agent loop 超时与调用者超时一致（留 5 秒余量）
+    caller_timeout = Keyword.get(opts, :timeout, 120_000)
+    opts = Keyword.put(opts, :timeout, max(caller_timeout - 5000, 30_000))
+    
     # 检查是否是重置触发器
     if Reset.is_reset_trigger?(content) do
       handle_reset_trigger(content, opts, state)

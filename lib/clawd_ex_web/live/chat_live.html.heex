@@ -77,8 +77,23 @@
       </div>
     <% end %>
     
+<!-- Run Status -->
+    <%= if @run_status do %>
+      <div class="flex justify-start">
+        <div class="max-w-[80%] rounded-2xl px-4 py-2 shadow-sm bg-indigo-50 text-indigo-800 border border-indigo-200">
+          <div class="flex items-center gap-2">
+            <svg class="animate-spin h-4 w-4 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+            <span class="text-sm font-medium"><%= format_status(@run_status) %></span>
+          </div>
+        </div>
+      </div>
+    <% end %>
+    
 <!-- Typing indicator -->
-    <%= if @sending && (@streaming_content == nil || @streaming_content == "") do %>
+    <%= if @sending && @run_status == nil && (@streaming_content == nil || @streaming_content == "") do %>
       <div class="flex justify-start">
         <div class="bg-white rounded-2xl px-4 py-3 shadow-sm">
           <div class="flex items-center gap-1">
