@@ -120,7 +120,7 @@ defmodule ClawdEx.Agent.Loop do
     # 取消超时定时器（如果存在）
     if data.timeout_ref, do: Process.cancel_timer(data.timeout_ref)
 
-    # 清理状态
+    # 清理状态，重置 tool_iterations（每次 run 重新计数）
     new_data = %{
       data
       | run_id: nil,
@@ -128,7 +128,8 @@ defmodule ClawdEx.Agent.Loop do
         stream_buffer: "",
         reply_to: nil,
         started_at: nil,
-        timeout_ref: nil
+        timeout_ref: nil,
+        tool_iterations: 0
     }
 
     {:keep_state, new_data}
