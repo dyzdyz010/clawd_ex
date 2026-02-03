@@ -96,12 +96,13 @@ defmodule ClawdEx.Nodes.NodeTest do
 
   describe "describe/1" do
     test "returns a map representation" do
-      node = Node.new(%{
-        id: "test-123",
-        name: "Test Node",
-        type: "mobile",
-        capabilities: ["camera"]
-      })
+      node =
+        Node.new(%{
+          id: "test-123",
+          name: "Test Node",
+          type: "mobile",
+          capabilities: ["camera"]
+        })
 
       desc = Node.describe(node)
 

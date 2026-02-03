@@ -83,7 +83,10 @@ defmodule ClawdEx.Tools.SessionsSend do
         timeout_ms = timeout_seconds * 1000
 
         try do
-          case SessionWorker.send_message(session_key, formatted_message, from_session: sender_session_key, timeout: timeout_ms) do
+          case SessionWorker.send_message(session_key, formatted_message,
+                 from_session: sender_session_key,
+                 timeout: timeout_ms
+               ) do
             {:ok, response} ->
               {:ok, format_response(response, session_key)}
 
@@ -96,7 +99,8 @@ defmodule ClawdEx.Tools.SessionsSend do
           end
         catch
           :exit, {:timeout, _} ->
-            {:error, "Timeout waiting for response from session #{session_key} after #{timeout_seconds}s"}
+            {:error,
+             "Timeout waiting for response from session #{session_key} after #{timeout_seconds}s"}
 
           :exit, reason ->
             Logger.error("Session communication failed: #{inspect(reason)}")

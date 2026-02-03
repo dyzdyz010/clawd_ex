@@ -25,7 +25,7 @@ defmodule ClawdEx.AI.OAuthTest do
       assert is_binary(challenge)
       assert byte_size(verifier) > 30
       assert byte_size(challenge) > 30
-      
+
       # Verify challenge is SHA256 hash of verifier
       expected_challenge = :crypto.hash(:sha256, verifier) |> Base.url_encode64(padding: false)
       assert challenge == expected_challenge
@@ -50,7 +50,7 @@ defmodule ClawdEx.AI.OAuthTest do
       headers = AnthropicOAuth.api_headers("sk-ant-oat-test123")
 
       header_map = Map.new(headers)
-      
+
       assert header_map["authorization"] == "Bearer sk-ant-oat-test123"
       assert header_map["anthropic-version"] == "2023-06-01"
       assert header_map["anthropic-dangerous-direct-browser-access"] == "true"
@@ -66,12 +66,12 @@ defmodule ClawdEx.AI.OAuthTest do
       blocks = AnthropicOAuth.build_system_prompt("Custom instructions")
 
       assert length(blocks) == 2
-      
+
       [prefix_block, user_block] = blocks
-      
+
       assert prefix_block["text"] == "You are Claude Code, Anthropic's official CLI for Claude."
       assert prefix_block["cache_control"]["type"] == "ephemeral"
-      
+
       assert user_block["text"] == "Custom instructions"
       assert user_block["cache_control"]["type"] == "ephemeral"
     end
@@ -80,7 +80,7 @@ defmodule ClawdEx.AI.OAuthTest do
       blocks = AnthropicOAuth.build_system_prompt(nil)
 
       assert length(blocks) == 1
-      
+
       [prefix_block] = blocks
       assert prefix_block["text"] == "You are Claude Code, Anthropic's official CLI for Claude."
     end

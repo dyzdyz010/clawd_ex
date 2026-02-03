@@ -498,21 +498,39 @@ defmodule ClawdEx.Browser.Server do
   end
 
   defp find_chrome do
-    paths = [
-      # Google Chrome (优先 - chromium-browser 在 Ubuntu 22.04 上可能是 snap wrapper)
-      "/usr/bin/google-chrome-stable",
-      "/usr/bin/google-chrome",
-      # Linux Chromium
-      "/usr/bin/chromium",
-      "/usr/bin/chromium-browser",
-      # macOS
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-      "/Applications/Chromium.app/Contents/MacOS/Chromium",
-      # snap
-      "/snap/bin/chromium"
-    ]
+    # 先检查环境变量
+    env_chrome = System.get_env("CHROME_PATH") || System.get_env("CHROMIUM_PATH")
 
-    Enum.find(paths, &File.exists?/1)
+    if env_chrome && File.exists?(env_chrome) do
+      env_chrome
+    else
+      paths =
+        [
+          # 用户自定义路径 (优先)
+          Path.expand("~/dev/usr/bin/google-chrome"),
+          Path.expand("~/.local/bin/google-chrome"),
+          Path.expand("~/dev/usr/bin/chromium"),
+          Path.expand("~/.local/bin/chromium"),
+          # Puppeteer 下载的 Chrome
+          Path.expand("~/.cache/puppeteer/chrome/linux-*/chrome-linux64/chrome")
+          |> Path.wildcard()
+          |> List.first(),
+          # Google Chrome (优先 - chromium-browser 在 Ubuntu 22.04 上可能是 snap wrapper)
+          "/usr/bin/google-chrome-stable",
+          "/usr/bin/google-chrome",
+          # Linux Chromium
+          "/usr/bin/chromium",
+          "/usr/bin/chromium-browser",
+          # macOS
+          "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+          "/Applications/Chromium.app/Contents/MacOS/Chromium",
+          # snap
+          "/snap/bin/chromium"
+        ]
+        |> Enum.reject(&is_nil/1)
+
+      Enum.find(paths, &File.exists?/1)
+    end
   end
 
   defp build_chrome_args(headless, debug_port, user_data_dir) do
@@ -637,6 +655,7 @@ defmodule ClawdEx.Browser.Server do
   defp normalize_aria_tree(%{"nodes" => nodes}) when is_list(nodes) do
     Enum.map(nodes, &normalize_aria_node/1)
   end
+
   defp normalize_aria_tree(tree), do: tree
 
   defp normalize_aria_node(node) when is_map(node) do
@@ -651,6 +670,7 @@ defmodule ClawdEx.Browser.Server do
     |> Enum.reject(fn {_, v} -> is_nil(v) end)
     |> Map.new()
   end
+
   defp normalize_aria_node(node), do: node
 
   # ============================================================================
@@ -717,6 +737,7 @@ defmodule ClawdEx.Browser.Server do
 
   defp ensure_screenshot_dir do
     dir = screenshot_dir()
+
     unless File.exists?(dir) do
       File.mkdir_p!(dir)
     end
@@ -1034,7 +1055,8 @@ defmodule ClawdEx.Browser.Server do
         {:ok, %{action: "wait", ref: ref, note: "Element wait not fully implemented"}}
 
       text_gone ->
-        {:ok, %{action: "wait", textGone: text_gone, note: "Text gone wait not fully implemented"}}
+        {:ok,
+         %{action: "wait", textGone: text_gone, note: "Text gone wait not fully implemented"}}
 
       true ->
         {:ok, %{action: "wait", note: "No wait condition specified"}}

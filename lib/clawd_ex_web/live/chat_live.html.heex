@@ -18,7 +18,7 @@
     </button>
   </header>
   
-  <!-- Messages -->
+<!-- Messages -->
   <main
     class="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin"
     id="messages-container"
@@ -43,7 +43,9 @@
             message.role == "assistant" && "bg-gray-700 text-gray-100",
             message.role == "error" && "bg-red-900/50 text-red-200 border border-red-700"
           ]}>
-            <div class="whitespace-pre-wrap break-words"><%= ClawdExWeb.ContentRenderer.render_content(message.content) %></div>
+            <div class="break-words">
+              {ClawdExWeb.ContentRenderer.render_content(message.content)}
+            </div>
             <div class={[
               "text-xs mt-1 opacity-70",
               message.role == "user" && "text-right"
@@ -55,21 +57,31 @@
       <% end %>
     <% end %>
     
-    <!-- Streaming content -->
+<!-- Streaming content -->
     <%= if @streaming_content && @streaming_content != "" do %>
       <div class="flex justify-start">
         <div class="max-w-[80%] rounded-2xl px-4 py-2 shadow-sm bg-gray-700 text-gray-100">
-          <div class="whitespace-pre-wrap break-words"><%= ClawdExWeb.ContentRenderer.render_content(@streaming_content) %></div>
+          <div class="whitespace-pre-wrap break-words">
+            {ClawdExWeb.ContentRenderer.render_content(@streaming_content)}
+          </div>
           <div class="flex items-center gap-1 mt-1">
             <span class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce"></span>
-            <span class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 0.1s"></span>
-            <span class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 0.2s"></span>
+            <span
+              class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce"
+              style="animation-delay: 0.1s"
+            >
+            </span>
+            <span
+              class="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce"
+              style="animation-delay: 0.2s"
+            >
+            </span>
           </div>
         </div>
       </div>
     <% end %>
     
-    <!-- Tool Executions History -->
+<!-- Tool Executions History -->
     <%= if @tool_executions != [] do %>
       <div class="flex justify-start">
         <div class="max-w-[85%] rounded-2xl px-3 py-2 shadow-sm bg-gray-900 text-gray-300 border border-gray-700">
@@ -85,12 +97,30 @@
               ]}>
                 <!-- 序号和状态 -->
                 <div class="flex items-center gap-1 flex-shrink-0">
-                  <span class="text-gray-500 w-4"><%= idx + 1 %>.</span>
+                  <span class="text-gray-500 w-4">{idx + 1}.</span>
                   <%= case exec.status do %>
                     <% :running -> %>
-                      <svg class="animate-spin h-3.5 w-3.5 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                      <svg
+                        class="animate-spin h-3.5 w-3.5 text-blue-400"
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle
+                          class="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          stroke-width="4"
+                        >
+                        </circle>
+                        <path
+                          class="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                        >
+                        </path>
                       </svg>
                     <% :done -> %>
                       <span class="text-green-400">✓</span>
@@ -102,9 +132,9 @@
                 </div>
                 <!-- 工具信息 -->
                 <div class="flex-1 min-w-0">
-                  <div class="font-mono font-medium text-gray-200"><%= exec.tool || "unknown" %></div>
+                  <div class="font-mono font-medium text-gray-200">{exec.tool || "unknown"}</div>
                   <%= if exec[:params] do %>
-                    <div class="text-gray-500 truncate mt-0.5"><%= exec.params %></div>
+                    <div class="text-gray-500 truncate mt-0.5">{exec.params}</div>
                   <% end %>
                 </div>
               </div>
@@ -113,15 +143,33 @@
         </div>
       </div>
     <% end %>
-
-    <!-- Current Status (inferring/etc) -->
+    
+<!-- Current Status (inferring/etc) -->
     <%= if @run_status && elem(@run_status, 0) == :inferring do %>
       <div class="flex justify-start">
         <div class="max-w-[80%] rounded-2xl px-4 py-2 shadow-sm bg-blue-900/30 text-blue-200 border border-blue-800">
           <div class="flex items-center gap-2">
-            <svg class="animate-spin h-4 w-4 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            <svg
+              class="animate-spin h-4 w-4 text-blue-400"
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                class="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                stroke-width="4"
+              >
+              </circle>
+              <path
+                class="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+              >
+              </path>
             </svg>
             <span class="text-sm font-medium">思考中...</span>
           </div>
@@ -129,21 +177,29 @@
       </div>
     <% end %>
     
-    <!-- Typing indicator -->
+<!-- Typing indicator -->
     <%= if @sending && @run_status == nil && (@streaming_content == nil || @streaming_content == "") do %>
       <div class="flex justify-start">
         <div class="bg-gray-700 rounded-2xl px-4 py-3 shadow-sm">
           <div class="flex items-center gap-1">
             <span class="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></span>
-            <span class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.1s"></span>
-            <span class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></span>
+            <span
+              class="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+              style="animation-delay: 0.1s"
+            >
+            </span>
+            <span
+              class="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+              style="animation-delay: 0.2s"
+            >
+            </span>
           </div>
         </div>
       </div>
     <% end %>
   </main>
   
-  <!-- Input -->
+<!-- Input -->
   <footer class="bg-gray-900 border-t border-gray-700 p-4">
     <form phx-submit="send" class="flex gap-2">
       <textarea
@@ -175,9 +231,27 @@
       >
         <%= if @sending do %>
           <span class="flex items-center gap-2">
-            <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            <svg
+              class="animate-spin h-4 w-4"
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                class="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                stroke-width="4"
+              >
+              </circle>
+              <path
+                class="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+              >
+              </path>
             </svg>
             发送中
           </span>

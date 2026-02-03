@@ -11,7 +11,7 @@ defmodule ClawdEx.Nodes.RegistryTest do
     unless Process.whereis(Registry) do
       {:ok, _} = Registry.start_link(name: Registry)
     end
-    
+
     # Clear the registry state for test isolation
     # We call reset which clears all nodes
     Registry.reset()
@@ -21,11 +21,12 @@ defmodule ClawdEx.Nodes.RegistryTest do
 
   describe "register_pending/1" do
     test "registers a new pending node" do
-      {:ok, node} = Registry.register_pending(%{
-        name: "Test iPhone",
-        type: "mobile",
-        capabilities: ["camera", "location"]
-      })
+      {:ok, node} =
+        Registry.register_pending(%{
+          name: "Test iPhone",
+          type: "mobile",
+          capabilities: ["camera", "location"]
+        })
 
       assert node.id != nil
       assert node.name == "Test iPhone"

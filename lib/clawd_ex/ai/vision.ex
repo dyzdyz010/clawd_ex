@@ -15,7 +15,8 @@ defmodule ClawdEx.AI.Vision do
   @type image_source :: {:url, String.t()} | {:base64, String.t(), String.t()}
   @type analysis_result :: {:ok, String.t()} | {:error, term()}
 
-  @default_max_bytes 20 * 1024 * 1024  # 20MB
+  # 20MB
+  @default_max_bytes 20 * 1024 * 1024
   @default_timeout_ms 60_000
 
   @doc """
@@ -151,11 +152,12 @@ defmodule ClawdEx.AI.Vision do
           messages: [%{role: "user", content: content}]
         }
 
-        body = if is_oauth do
-          Map.put(body, :system, ClawdEx.AI.OAuth.Anthropic.build_system_prompt(nil))
-        else
-          body
-        end
+        body =
+          if is_oauth do
+            Map.put(body, :system, ClawdEx.AI.OAuth.Anthropic.build_system_prompt(nil))
+          else
+            body
+          end
 
         headers = anthropic_headers(api_key)
 
@@ -284,14 +286,19 @@ defmodule ClawdEx.AI.Vision do
         generationConfig: %{maxOutputTokens: 4096}
       }
 
-      url = "https://generativelanguage.googleapis.com/v1beta/models/#{model}:generateContent?key=#{api_key}"
+      url =
+        "https://generativelanguage.googleapis.com/v1beta/models/#{model}:generateContent?key=#{api_key}"
 
       case Req.post(url,
              json: body,
              headers: [{"content-type", "application/json"}],
              receive_timeout: timeout
            ) do
-        {:ok, %{status: 200, body: %{"candidates" => [%{"content" => %{"parts" => [%{"text" => text} | _]}} | _]}}} ->
+        {:ok,
+         %{
+           status: 200,
+           body: %{"candidates" => [%{"content" => %{"parts" => [%{"text" => text} | _]}} | _]}
+         }} ->
           {:ok, text}
 
         {:ok, %{status: status, body: body}} ->
@@ -310,6 +317,7 @@ defmodule ClawdEx.AI.Vision do
       {:ok, %{status: 200, body: binary, headers: headers}} ->
         content_type = get_content_type(headers) || "image/jpeg"
         b64 = Base.encode64(binary)
+
         [
           %{text: prompt},
           %{inline_data: %{mime_type: content_type, data: b64}}

@@ -163,7 +163,8 @@ defmodule ClawdEx.Tools.Canvas do
         do_a2ui_reset(params, gateway_url, gateway_token, timeout)
 
       _ ->
-        {:error, "Unknown action: #{action}. Use one of: present, hide, navigate, eval, snapshot, a2ui_push, a2ui_reset"}
+        {:error,
+         "Unknown action: #{action}. Use one of: present, hide, navigate, eval, snapshot, a2ui_push, a2ui_reset"}
     end
   end
 
@@ -177,28 +178,30 @@ defmodule ClawdEx.Tools.Canvas do
     if is_nil(url) do
       {:error, "url parameter is required for present action"}
     else
-      body = %{
-        node: get_param(params, :node),
-        target: get_param(params, :target),
-        url: url,
-        width: get_param(params, :width),
-        height: get_param(params, :height),
-        maxWidth: get_param(params, :maxWidth),
-        x: get_param(params, :x),
-        y: get_param(params, :y)
-      }
-      |> reject_nil_values()
+      body =
+        %{
+          node: get_param(params, :node),
+          target: get_param(params, :target),
+          url: url,
+          width: get_param(params, :width),
+          height: get_param(params, :height),
+          maxWidth: get_param(params, :maxWidth),
+          x: get_param(params, :x),
+          y: get_param(params, :y)
+        }
+        |> reject_nil_values()
 
       call_gateway(gateway_url, token, "present", body, timeout)
     end
   end
 
   defp do_hide(params, gateway_url, token, timeout) do
-    body = %{
-      node: get_param(params, :node),
-      target: get_param(params, :target)
-    }
-    |> reject_nil_values()
+    body =
+      %{
+        node: get_param(params, :node),
+        target: get_param(params, :target)
+      }
+      |> reject_nil_values()
 
     call_gateway(gateway_url, token, "hide", body, timeout)
   end
@@ -209,12 +212,13 @@ defmodule ClawdEx.Tools.Canvas do
     if is_nil(url) do
       {:error, "url parameter is required for navigate action"}
     else
-      body = %{
-        node: get_param(params, :node),
-        target: get_param(params, :target),
-        url: url
-      }
-      |> reject_nil_values()
+      body =
+        %{
+          node: get_param(params, :node),
+          target: get_param(params, :target),
+          url: url
+        }
+        |> reject_nil_values()
 
       call_gateway(gateway_url, token, "navigate", body, timeout)
     end
@@ -226,31 +230,33 @@ defmodule ClawdEx.Tools.Canvas do
     if is_nil(javascript) do
       {:error, "javaScript parameter is required for eval action"}
     else
-      body = %{
-        node: get_param(params, :node),
-        target: get_param(params, :target),
-        javaScript: javascript
-      }
-      |> reject_nil_values()
+      body =
+        %{
+          node: get_param(params, :node),
+          target: get_param(params, :target),
+          javaScript: javascript
+        }
+        |> reject_nil_values()
 
       call_gateway(gateway_url, token, "eval", body, timeout)
     end
   end
 
   defp do_snapshot(params, gateway_url, token, timeout) do
-    body = %{
-      node: get_param(params, :node),
-      target: get_param(params, :target),
-      width: get_param(params, :width),
-      height: get_param(params, :height),
-      maxWidth: get_param(params, :maxWidth),
-      outputFormat: get_param(params, :outputFormat),
-      quality: get_param(params, :quality),
-      delayMs: get_param(params, :delayMs),
-      x: get_param(params, :x),
-      y: get_param(params, :y)
-    }
-    |> reject_nil_values()
+    body =
+      %{
+        node: get_param(params, :node),
+        target: get_param(params, :target),
+        width: get_param(params, :width),
+        height: get_param(params, :height),
+        maxWidth: get_param(params, :maxWidth),
+        outputFormat: get_param(params, :outputFormat),
+        quality: get_param(params, :quality),
+        delayMs: get_param(params, :delayMs),
+        x: get_param(params, :x),
+        y: get_param(params, :y)
+      }
+      |> reject_nil_values()
 
     result = call_gateway(gateway_url, token, "snapshot", body, timeout)
     process_snapshot_result(result)
@@ -277,12 +283,13 @@ defmodule ClawdEx.Tools.Canvas do
 
     case jsonl_content do
       {:ok, content} ->
-        body = %{
-          node: get_param(params, :node),
-          target: get_param(params, :target),
-          jsonl: content
-        }
-        |> reject_nil_values()
+        body =
+          %{
+            node: get_param(params, :node),
+            target: get_param(params, :target),
+            jsonl: content
+          }
+          |> reject_nil_values()
 
         call_gateway(gateway_url, token, "a2ui_push", body, timeout)
 
@@ -292,11 +299,12 @@ defmodule ClawdEx.Tools.Canvas do
   end
 
   defp do_a2ui_reset(params, gateway_url, token, timeout) do
-    body = %{
-      node: get_param(params, :node),
-      target: get_param(params, :target)
-    }
-    |> reject_nil_values()
+    body =
+      %{
+        node: get_param(params, :node),
+        target: get_param(params, :target)
+      }
+      |> reject_nil_values()
 
     call_gateway(gateway_url, token, "a2ui_reset", body, timeout)
   end

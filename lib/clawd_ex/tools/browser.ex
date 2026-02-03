@@ -40,8 +40,20 @@ defmodule ClawdEx.Tools.Browser do
         action: %{
           type: "string",
           enum: [
-            "status", "start", "stop", "tabs", "open", "close", "navigate",
-            "snapshot", "screenshot", "console", "act", "evaluate", "upload", "dialog"
+            "status",
+            "start",
+            "stop",
+            "tabs",
+            "open",
+            "close",
+            "navigate",
+            "snapshot",
+            "screenshot",
+            "console",
+            "act",
+            "evaluate",
+            "upload",
+            "dialog"
           ],
           description: "Action to perform"
         },
@@ -491,7 +503,8 @@ defmodule ClawdEx.Tools.Browser do
   end
 
   defp execute_action(action, _params) do
-    {:error, "Unknown action: #{action}. Valid actions: status, start, stop, tabs, open, close, navigate, snapshot, screenshot, console, act, evaluate, upload, dialog"}
+    {:error,
+     "Unknown action: #{action}. Valid actions: status, start, stop, tabs, open, close, navigate, snapshot, screenshot, console, act, evaluate, upload, dialog"}
   end
 
   # ============================================================================

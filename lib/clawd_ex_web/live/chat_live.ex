@@ -27,8 +27,10 @@ defmodule ClawdExWeb.ChatLive do
       |> assign(:sending, false)
       |> assign(:streaming_content, nil)
       |> assign(:session_started, false)
-      |> assign(:run_status, nil)  # 当前运行状态 {status, details}
-      |> assign(:tool_executions, [])  # 工具执行历史 [{tool_name, status, result}]
+      # 当前运行状态 {status, details}
+      |> assign(:run_status, nil)
+      # 工具执行历史 [{tool_name, status, result}]
+      |> assign(:tool_executions, [])
 
     # 在连接后再启动会话（避免测试时的问题）
     if connected?(socket) do
@@ -61,7 +63,8 @@ defmodule ClawdExWeb.ChatLive do
       |> assign(:input, "")
       |> assign(:sending, true)
       |> assign(:streaming_content, "")
-      |> assign(:tool_executions, [])  # 新消息开始，清空工具历史
+      # 新消息开始，清空工具历史
+      |> assign(:tool_executions, [])
 
     # 异步发送消息
     send(self(), {:send_message, message})
@@ -122,6 +125,7 @@ defmodule ClawdExWeb.ChatLive do
         if session_id = get_session_id(session_key) do
           Phoenix.PubSub.subscribe(ClawdEx.PubSub, "agent:#{session_id}")
         end
+
         # 订阅异步结果
         Phoenix.PubSub.subscribe(ClawdEx.PubSub, "session:#{session_key}")
 
@@ -224,6 +228,10 @@ defmodule ClawdExWeb.ChatLive do
     end
   end
 
+  def handle_info(_msg, socket) do
+    {:noreply, socket}
+  end
+
   # 处理不同状态的更新
   defp handle_status_update(socket, :inferring, details) do
     # 新一轮推理开始，如果有未保存的 streaming 内容，先保存为消息
@@ -241,12 +249,14 @@ defmodule ClawdExWeb.ChatLive do
     # 工具开始执行，添加到执行历史（包含参数摘要）
     params = Map.get(details, :params, %{})
     params_summary = summarize_params(params)
+
     execution = %{
-      tool: tool_name, 
-      status: :running, 
+      tool: tool_name,
+      status: :running,
       params: params_summary,
       started_at: DateTime.utc_now()
     }
+
     socket
     |> update(:tool_executions, &(&1 ++ [execution]))
     |> assign(:run_status, {:tool_start, details})
@@ -255,16 +265,19 @@ defmodule ClawdExWeb.ChatLive do
   defp handle_status_update(socket, :tool_done, %{tool: tool_name} = details) do
     # 工具执行完成，更新执行历史
     success = Map.get(details, :success, true)
+
     socket
     |> update(:tool_executions, fn execs ->
       # 找到最后一个匹配的 running 状态工具并更新
-      {updated, _} = Enum.map_reduce(Enum.reverse(execs), false, fn exec, found ->
-        if not found and exec.tool == tool_name and exec.status == :running do
-          {%{exec | status: if(success, do: :done, else: :error)}, true}
-        else
-          {exec, found}
-        end
-      end)
+      {updated, _} =
+        Enum.map_reduce(Enum.reverse(execs), false, fn exec, found ->
+          if not found and exec.tool == tool_name and exec.status == :running do
+            {%{exec | status: if(success, do: :done, else: :error)}, true}
+          else
+            {exec, found}
+          end
+        end)
+
       Enum.reverse(updated)
     end)
     |> assign(:run_status, {:tool_done, details})
@@ -277,6 +290,7 @@ defmodule ClawdExWeb.ChatLive do
   # 如果有 streaming 内容，保存为消息
   defp maybe_save_streaming_as_message(socket) do
     content = socket.assigns.streaming_content
+
     if content && content != "" do
       message = %{
         id: System.unique_integer([:positive]),
@@ -284,6 +298,7 @@ defmodule ClawdExWeb.ChatLive do
         content: content,
         timestamp: DateTime.utc_now()
       }
+
       socket
       |> update(:messages, &(&1 ++ [message]))
       |> assign(:streaming_content, nil)
@@ -292,16 +307,6 @@ defmodule ClawdExWeb.ChatLive do
     end
   end
 
-  # 简化工具结果用于显示
-  defp summarize_result(result) when is_binary(result) do
-    if String.length(result) > 100 do
-      String.slice(result, 0, 100) <> "..."
-    else
-      result
-    end
-  end
-  defp summarize_result(result), do: inspect(result, limit: 3)
-
   # 简化工具参数用于显示
   defp summarize_params(params) when is_map(params) do
     # 提取关键参数显示
@@ -309,29 +314,26 @@ defmodule ClawdExWeb.ChatLive do
       Map.has_key?(params, "command") ->
         cmd = params["command"] |> String.split("\n") |> hd() |> String.slice(0, 60)
         if String.length(params["command"]) > 60, do: cmd <> "...", else: cmd
-      
+
       Map.has_key?(params, "path") ->
         Path.basename(params["path"])
-      
+
       Map.has_key?(params, "url") ->
         URI.parse(params["url"]).host || params["url"]
-      
+
       Map.has_key?(params, "query") ->
         "\"#{String.slice(params["query"], 0, 40)}#{if String.length(params["query"] || "") > 40, do: "...", else: ""}\""
-      
+
       Map.has_key?(params, "action") ->
         params["action"]
-      
+
       true ->
         keys = Map.keys(params) |> Enum.take(2) |> Enum.join(", ")
         if keys != "", do: "(#{keys})", else: nil
     end
   end
-  defp summarize_params(_), do: nil
 
-  def handle_info(_msg, socket) do
-    {:noreply, socket}
-  end
+  defp summarize_params(_), do: nil
 
   # ============================================================================
   # Private Functions
@@ -414,17 +416,4 @@ defmodule ClawdExWeb.ChatLive do
   defp format_error({:noproc, _}), do: "会话服务不可用"
   defp format_error(:noproc), do: "会话服务不可用"
   defp format_error(reason), do: inspect(reason)
-  
-  # 格式化运行状态显示
-  defp format_status({:started, _details}), do: "正在准备..."
-  defp format_status({:inferring, %{iteration: 0}}), do: "正在思考..."
-  defp format_status({:inferring, %{iteration: n}}), do: "正在思考... (第 #{n + 1} 轮)"
-  defp format_status({:tools_start, %{tools: tools}}), do: "准备执行: #{Enum.join(tools, ", ")}"
-  defp format_status({:tool_start, %{tool: tool}}), do: "正在执行: #{tool}"
-  defp format_status({:tool_done, %{tool: tool, success: true}}), do: "#{tool} 完成 ✓"
-  defp format_status({:tool_done, %{tool: tool, success: false}}), do: "#{tool} 失败 ✗"
-  defp format_status({:done, _}), do: "完成"
-  defp format_status({:error, %{reason: reason}}), do: "错误: #{reason}"
-  defp format_status({status, _}), do: "#{status}"
-  defp format_status(nil), do: ""
 end

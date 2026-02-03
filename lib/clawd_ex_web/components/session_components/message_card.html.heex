@@ -1,0 +1,49 @@
+<div class={"rounded-lg p-4 " <> message_bg(@message.role)}>
+  <div class="flex items-start justify-between gap-4">
+    <div class="flex-1 min-w-0">
+      <div class="flex items-center gap-2 mb-2">
+        <.role_badge role={@message.role} />
+        <span class="text-xs text-gray-500">
+          {format_datetime(@message.inserted_at)}
+        </span>
+        <%= if @message.model do %>
+          <span class="text-xs text-gray-600 font-mono">
+            {@message.model}
+          </span>
+        <% end %>
+        <%= if @message.tokens_in || @message.tokens_out do %>
+          <span class="text-xs text-gray-600">
+            📊 {@message.tokens_in || 0} / {@message.tokens_out || 0}
+          </span>
+        <% end %>
+      </div>
+      <div class="prose prose-invert prose-sm max-w-none">
+        <pre class="whitespace-pre-wrap text-sm text-gray-200 font-sans"><%= @message.content %></pre>
+      </div>
+      <%= if @message.tool_calls && length(@message.tool_calls) > 0 do %>
+        <div class="mt-3 space-y-2">
+          <div class="text-xs text-gray-400 font-medium">Tool Calls:</div>
+          <%= for tool_call <- @message.tool_calls do %>
+            <div class="bg-gray-900 rounded p-2 text-xs font-mono">
+              <div class="text-purple-400">{tool_call["function"]["name"]}</div>
+              <pre class="text-gray-500 mt-1 overflow-x-auto"><%= Jason.encode!(tool_call["function"]["arguments"], pretty: true) %></pre>
+            </div>
+          <% end %>
+        </div>
+      <% end %>
+      <%= if @message.tool_call_id do %>
+        <div class="mt-2 text-xs text-gray-500">
+          Tool Call ID: <span class="font-mono">{@message.tool_call_id}</span>
+        </div>
+      <% end %>
+    </div>
+    <button
+      phx-click="delete_message"
+      phx-value-id={@message.id}
+      data-confirm="Delete this message?"
+      class="text-gray-500 hover:text-red-400 text-sm"
+    >
+      🗑
+    </button>
+  </div>
+</div>

@@ -1,7 +1,7 @@
 defmodule ClawdEx.AI.OAuth do
   @moduledoc """
   OAuth credential management for AI providers.
-  
+
   Supports:
   - Anthropic Claude (Claude Code OAuth)
   - Token storage and automatic refresh
@@ -10,7 +10,8 @@ defmodule ClawdEx.AI.OAuth do
   use GenServer
   require Logger
 
-  @refresh_margin_ms 5 * 60 * 1000  # Refresh 5 minutes before expiry
+  # Refresh 5 minutes before expiry
+  @refresh_margin_ms 5 * 60 * 1000
 
   # ============================================================================
   # Public API
@@ -36,6 +37,7 @@ defmodule ClawdEx.AI.OAuth do
   def oauth_token?(api_key) when is_binary(api_key) do
     String.contains?(api_key, "sk-ant-oat")
   end
+
   def oauth_token?(_), do: false
 
   @doc """
@@ -157,22 +159,25 @@ defmodule ClawdEx.AI.OAuth do
 
   defp needs_refresh?(expires) when is_number(expires) do
     now = System.system_time(:millisecond)
-    now >= (expires - @refresh_margin_ms)
+    now >= expires - @refresh_margin_ms
   end
+
   defp needs_refresh?(_), do: true
 
   defp refresh_token(:anthropic, creds, state) do
     case ClawdEx.AI.OAuth.Anthropic.refresh_token(creds.refresh) do
       {:ok, new_creds} ->
-        Logger.info("Refreshed Anthropic OAuth token, expires: #{DateTime.from_unix!(new_creds.expires, :millisecond)}")
-        
+        Logger.info(
+          "Refreshed Anthropic OAuth token, expires: #{DateTime.from_unix!(new_creds.expires, :millisecond)}"
+        )
+
         new_credentials = Map.put(state.credentials, :anthropic, new_creds)
         new_state = %{state | credentials: new_credentials}
         save_credentials_to_file(new_state)
-        
+
         # Also update Claude CLI credentials file if it exists
         write_claude_cli_credentials(new_creds)
-        
+
         {:ok, new_creds.access, new_state}
 
       {:error, reason} ->
@@ -203,6 +208,7 @@ defmodule ClawdEx.AI.OAuth do
               refresh: oauth["refreshToken"],
               expires: oauth["expiresAt"]
             }
+
             {:ok, creds}
 
           {:ok, _} ->
@@ -224,11 +230,12 @@ defmodule ClawdEx.AI.OAuth do
       {:ok, content} ->
         case Jason.decode(content) do
           {:ok, data} ->
-            updated = Map.put(data, "claudeAiOauth", %{
-              "accessToken" => creds.access,
-              "refreshToken" => creds.refresh,
-              "expiresAt" => creds.expires
-            })
+            updated =
+              Map.put(data, "claudeAiOauth", %{
+                "accessToken" => creds.access,
+                "refreshToken" => creds.refresh,
+                "expiresAt" => creds.expires
+              })
 
             case Jason.encode(updated, pretty: true) do
               {:ok, json} ->
@@ -263,11 +270,11 @@ defmodule ClawdEx.AI.OAuth do
       {:ok, content} ->
         case Jason.decode(content) do
           {:ok, data} ->
-            credentials = 
+            credentials =
               data
               |> Enum.map(fn {k, v} -> {String.to_atom(k), atomize_keys(v)} end)
               |> Enum.into(%{})
-            
+
             %{state | credentials: credentials}
 
           _ ->
@@ -298,7 +305,7 @@ defmodule ClawdEx.AI.OAuth do
 
     File.mkdir_p!(dir)
 
-    data = 
+    data =
       state.credentials
       |> Enum.map(fn {k, v} -> {Atom.to_string(k), stringify_keys(v)} end)
       |> Enum.into(%{})
@@ -345,6 +352,7 @@ defmodule ClawdEx.AI.OAuth do
       {k, v} -> {k, v}
     end)
   end
+
   defp atomize_keys(other), do: other
 
   defp stringify_keys(map) when is_map(map) do
@@ -353,5 +361,6 @@ defmodule ClawdEx.AI.OAuth do
       {k, v} -> {k, v}
     end)
   end
+
   defp stringify_keys(other), do: other
 end

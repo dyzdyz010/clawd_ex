@@ -54,7 +54,7 @@ defmodule ClawdEx.AI.Providers.OpenRouterTest do
       # 确保没有 API key
       original_app = Application.get_env(:clawd_ex, :openrouter_api_key)
       original_env = System.get_env("OPENROUTER_API_KEY")
-      
+
       Application.delete_env(:clawd_ex, :openrouter_api_key)
       System.delete_env("OPENROUTER_API_KEY")
 
@@ -73,7 +73,7 @@ defmodule ClawdEx.AI.Providers.OpenRouterTest do
       # 运行: mix test --only integration
 
       messages = [%{role: "user", content: "Say 'Hello' and nothing else."}]
-      
+
       case OpenRouter.chat("anthropic/claude-3-haiku", messages, max_tokens: 50) do
         {:ok, response} ->
           assert is_binary(response.content)
@@ -90,7 +90,7 @@ defmodule ClawdEx.AI.Providers.OpenRouterTest do
     test "returns error when API key is not configured" do
       original_app = Application.get_env(:clawd_ex, :openrouter_api_key)
       original_env = System.get_env("OPENROUTER_API_KEY")
-      
+
       Application.delete_env(:clawd_ex, :openrouter_api_key)
       System.delete_env("OPENROUTER_API_KEY")
 
@@ -107,7 +107,7 @@ defmodule ClawdEx.AI.Providers.OpenRouterTest do
     test "streams response chunks to the specified process" do
       # 集成测试
       messages = [%{role: "user", content: "Count from 1 to 3."}]
-      
+
       case OpenRouter.stream("openai/gpt-3.5-turbo", messages, stream_to: self(), max_tokens: 50) do
         {:ok, response} ->
           assert is_binary(response.content)

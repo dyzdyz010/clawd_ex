@@ -40,7 +40,8 @@ defmodule ClawdEx.Tools.Image do
         },
         model: %{
           type: "string",
-          description: "Vision model override (e.g., 'anthropic/claude-sonnet-4-20250514', 'openai/gpt-4o')"
+          description:
+            "Vision model override (e.g., 'anthropic/claude-sonnet-4-20250514', 'openai/gpt-4o')"
         },
         maxBytesMb: %{
           type: "number",
@@ -376,7 +377,8 @@ defmodule ClawdEx.Tools.Image do
   defp analyze_google(model, image_data, prompt) do
     case OAuth.get_api_key(:gemini) do
       {:ok, api_key} ->
-        url = "https://generativelanguage.googleapis.com/v1beta/models/#{model}:generateContent?key=#{api_key}"
+        url =
+          "https://generativelanguage.googleapis.com/v1beta/models/#{model}:generateContent?key=#{api_key}"
 
         body = %{
           contents: [

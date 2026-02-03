@@ -2,7 +2,7 @@ defmodule ClawdEx.AI.Chat do
   @moduledoc """
   AI 聊天补全服务
   支持 Anthropic, OpenAI, Google 等提供商
-  
+
   OAuth 支持:
   - 自动检测 OAuth token (sk-ant-oat*)
   - 自动刷新过期 token
@@ -65,13 +65,17 @@ defmodule ClawdEx.AI.Chat do
         }
 
         # OAuth tokens require special system prompt format (Claude Code identity)
-        body = if is_oauth do
-          Map.put(body, :system, AnthropicOAuth.build_system_prompt(system_prompt))
-        else
-          if system_prompt, do: Map.put(body, :system, system_prompt), else: body
-        end
+        body =
+          if is_oauth do
+            Map.put(body, :system, AnthropicOAuth.build_system_prompt(system_prompt))
+          else
+            if system_prompt, do: Map.put(body, :system, system_prompt), else: body
+          end
 
-        body = if tools != [], do: Map.put(body, :tools, format_tools_anthropic(tools, is_oauth)), else: body
+        body =
+          if tools != [],
+            do: Map.put(body, :tools, format_tools_anthropic(tools, is_oauth)),
+            else: body
 
         case Req.post("https://api.anthropic.com/v1/messages",
                json: body,
@@ -170,6 +174,7 @@ defmodule ClawdEx.AI.Chat do
   # Streaming implementations (placeholder)
   defp stream_anthropic(_model, _messages, _opts), do: Stream.cycle([:not_implemented])
   defp stream_openai(_model, _messages, _opts), do: Stream.cycle([:not_implemented])
+
   defp stream_openrouter(model, messages, opts) do
     ClawdEx.AI.Providers.OpenRouter.stream(model, messages, opts)
   end
@@ -208,12 +213,13 @@ defmodule ClawdEx.AI.Chat do
 
   defp format_tools_anthropic(tools, is_oauth) do
     Enum.map(tools, fn tool ->
-      name = if is_oauth do
-        # Claude Code uses specific tool name casing
-        to_claude_code_name(tool[:name])
-      else
-        tool[:name]
-      end
+      name =
+        if is_oauth do
+          # Claude Code uses specific tool name casing
+          to_claude_code_name(tool[:name])
+        else
+          tool[:name]
+        end
 
       %{
         name: name,
@@ -228,6 +234,7 @@ defmodule ClawdEx.AI.Chat do
 
   defp to_claude_code_name(name) do
     lower_name = String.downcase(to_string(name))
+
     Enum.find(@claude_code_tools, name, fn cc_name ->
       String.downcase(cc_name) == lower_name
     end)

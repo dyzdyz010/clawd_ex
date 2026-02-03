@@ -92,41 +92,44 @@ defmodule ClawdEx.Tools.Exec do
     # 收集输出，最多等待 yield_ms
     wait_time = min(timeout, yield_ms)
     deadline = System.monotonic_time(:millisecond) + wait_time
-    
+
     collect_port_output(port, "", deadline, timeout, yield_ms, agent_id, command)
   end
-  
+
   defp collect_port_output(port, output, deadline, timeout, yield_ms, agent_id, command) do
     remaining = deadline - System.monotonic_time(:millisecond)
-    
+
     if remaining <= 0 do
       # 超过 yield_ms，检查是否应该后台化或超时
       if yield_ms >= timeout do
         # 总 timeout 已到，杀死进程
         Port.close(port)
-        {:error, "Command timed out after #{div(timeout, 1000)} seconds\n\n#{sanitize_output(output)}"}
+
+        {:error,
+         "Command timed out after #{div(timeout, 1000)} seconds\n\n#{sanitize_output(output)}"}
       else
         # 转为后台模式
         Logger.info("Command running longer than #{yield_ms}ms, backgrounding...")
-        
+
         session_id = generate_session_id()
         remaining_timeout = timeout - yield_ms
-        
+
         # 注册进程并保存已有输出
         ProcessTool.register_process(agent_id, session_id, port, command)
         if output != "", do: ProcessTool.append_output(agent_id, session_id, output)
-        
+
         # 启动后台监控，并转移 Port 控制权
-        monitor_pid = spawn(fn -> 
-          receive do
-            :start -> monitor_port_with_timeout(port, agent_id, session_id, remaining_timeout)
-          end
-        end)
-        
+        monitor_pid =
+          spawn(fn ->
+            receive do
+              :start -> monitor_port_with_timeout(port, agent_id, session_id, remaining_timeout)
+            end
+          end)
+
         # 转移 Port 控制权给监控进程
         Port.connect(port, monitor_pid)
         send(monitor_pid, :start)
-        
+
         {:ok,
          %{
            status: "running",
@@ -137,10 +140,19 @@ defmodule ClawdEx.Tools.Exec do
     else
       receive do
         {^port, {:data, data}} ->
-          collect_port_output(port, output <> data, deadline, timeout, yield_ms, agent_id, command)
-          
+          collect_port_output(
+            port,
+            output <> data,
+            deadline,
+            timeout,
+            yield_ms,
+            agent_id,
+            command
+          )
+
         {^port, {:exit_status, exit_code}} ->
           clean_output = sanitize_output(output)
+
           if exit_code == 0 do
             {:ok, clean_output}
           else
@@ -153,29 +165,29 @@ defmodule ClawdEx.Tools.Exec do
       end
     end
   end
-  
+
   defp monitor_port_with_timeout(port, agent_id, session_id, timeout) do
     deadline = System.monotonic_time(:millisecond) + timeout
     do_monitor_port(port, agent_id, session_id, deadline)
   end
-  
+
   defp do_monitor_port(port, agent_id, session_id, :infinity) do
     receive do
       {^port, {:data, data}} ->
         ProcessTool.append_output(agent_id, session_id, data)
         do_monitor_port(port, agent_id, session_id, :infinity)
-        
+
       {^port, {:exit_status, status}} ->
         ProcessTool.mark_completed(agent_id, session_id, status)
-        
+
       {:EXIT, ^port, reason} ->
         ProcessTool.mark_completed(agent_id, session_id, {:exit, reason})
     end
   end
-  
+
   defp do_monitor_port(port, agent_id, session_id, deadline) do
     remaining = deadline - System.monotonic_time(:millisecond)
-    
+
     if remaining <= 0 do
       Port.close(port)
       ProcessTool.append_output(agent_id, session_id, "\n[Process timed out]")
@@ -185,10 +197,10 @@ defmodule ClawdEx.Tools.Exec do
         {^port, {:data, data}} ->
           ProcessTool.append_output(agent_id, session_id, data)
           do_monitor_port(port, agent_id, session_id, deadline)
-          
+
         {^port, {:exit_status, status}} ->
           ProcessTool.mark_completed(agent_id, session_id, status)
-          
+
         {:EXIT, ^port, reason} ->
           ProcessTool.mark_completed(agent_id, session_id, {:exit, reason})
       after
@@ -212,12 +224,13 @@ defmodule ClawdEx.Tools.Exec do
     ProcessTool.register_process(agent_id, session_id, port, command)
 
     # 启动监控进程（无限超时），并转移 Port 控制权
-    monitor_pid = spawn(fn -> 
-      receive do
-        :start -> do_monitor_port(port, agent_id, session_id, :infinity) 
-      end
-    end)
-    
+    monitor_pid =
+      spawn(fn ->
+        receive do
+          :start -> do_monitor_port(port, agent_id, session_id, :infinity)
+        end
+      end)
+
     Port.connect(port, monitor_pid)
     send(monitor_pid, :start)
 

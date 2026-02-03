@@ -28,22 +28,38 @@
             <span class="text-xl font-bold text-white">ClawdEx</span>
           </a>
         </div>
-
-        <!-- Navigation -->
+        
+<!-- Navigation -->
         <nav class="flex-1 p-4 flex flex-col gap-1" id="sidebar-nav">
-          <a href="/" data-path="/" class="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors">
+          <a
+            href="/"
+            data-path="/"
+            class="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors"
+          >
             <span class="text-xl">📊</span>
             <span>Dashboard</span>
           </a>
-          <a href="/chat" data-path="/chat" class="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors">
+          <a
+            href="/chat"
+            data-path="/chat"
+            class="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors"
+          >
             <span class="text-xl">💬</span>
             <span>Chat</span>
           </a>
-          <a href="/sessions" data-path="/sessions" class="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors">
+          <a
+            href="/sessions"
+            data-path="/sessions"
+            class="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors"
+          >
             <span class="text-xl">📋</span>
             <span>Sessions</span>
           </a>
-          <a href="/agents" data-path="/agents" class="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors">
+          <a
+            href="/agents"
+            data-path="/agents"
+            class="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors"
+          >
             <span class="text-xl">🤖</span>
             <span>Agents</span>
           </a>
@@ -59,28 +75,36 @@
             });
           })();
         </script>
-
-        <!-- Footer -->
+        
+<!-- Footer -->
         <div class="p-4 border-t border-gray-800">
           <div class="text-xs text-gray-500">ClawdEx v0.1.0</div>
         </div>
       </aside>
-
-      <!-- Main Content -->
+      
+<!-- Main Content -->
       <main class="flex-1 overflow-auto scrollbar-thin">
         <!-- Flash Messages -->
         <div class="fixed top-4 right-4 z-50 flex flex-col gap-2" id="flash-container">
           <%= if Phoenix.Flash.get(@flash, :info) do %>
-            <div class="bg-blue-600 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-2" role="alert" phx-click={JS.push("lv:clear-flash", value: %{key: "info"}) |> JS.hide()}>
+            <div
+              class="bg-blue-600 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-2"
+              role="alert"
+              phx-click={JS.push("lv:clear-flash", value: %{key: "info"}) |> JS.hide()}
+            >
               <span>ℹ️</span>
-              <span><%= Phoenix.Flash.get(@flash, :info) %></span>
+              <span>{Phoenix.Flash.get(@flash, :info)}</span>
               <button class="ml-auto">✕</button>
             </div>
           <% end %>
           <%= if Phoenix.Flash.get(@flash, :error) do %>
-            <div class="bg-red-600 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-2" role="alert" phx-click={JS.push("lv:clear-flash", value: %{key: "error"}) |> JS.hide()}>
+            <div
+              class="bg-red-600 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-2"
+              role="alert"
+              phx-click={JS.push("lv:clear-flash", value: %{key: "error"}) |> JS.hide()}
+            >
               <span>⚠️</span>
-              <span><%= Phoenix.Flash.get(@flash, :error) %></span>
+              <span>{Phoenix.Flash.get(@flash, :error)}</span>
               <button class="ml-auto">✕</button>
             </div>
           <% end %>

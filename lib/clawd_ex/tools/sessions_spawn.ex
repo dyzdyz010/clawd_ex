@@ -204,9 +204,7 @@ defmodule ClawdEx.Tools.SessionsSpawn do
       result: format_result(result)
     }
 
-    Logger.info(
-      "Subagent #{label || child_session_key} #{status} in #{duration_ms}ms"
-    )
+    Logger.info("Subagent #{label || child_session_key} #{status} in #{duration_ms}ms")
 
     # 通过 PubSub 广播到父会话
     if parent_session_key do
@@ -287,7 +285,9 @@ defmodule ClawdEx.Tools.SessionsSpawn do
   end
 
   defp get_timeout(params) do
-    timeout = params["runTimeoutSeconds"] || params[:runTimeoutSeconds] || @default_timeout_seconds
+    timeout =
+      params["runTimeoutSeconds"] || params[:runTimeoutSeconds] || @default_timeout_seconds
+
     min(timeout, 3600)
   end
 

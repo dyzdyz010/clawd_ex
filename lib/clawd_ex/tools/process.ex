@@ -165,7 +165,7 @@ defmodule ClawdEx.Tools.Process do
       [{{^agent_id, ^session_id}, entry}] ->
         is_running = entry.exit_code == nil
         elapsed_seconds = DateTime.diff(DateTime.utc_now(), entry.started_at, :second)
-        
+
         result = %{
           sessionId: session_id,
           status: if(is_running, do: "running", else: "completed"),
@@ -173,13 +173,18 @@ defmodule ClawdEx.Tools.Process do
           output: entry.output,
           elapsedSeconds: elapsed_seconds
         }
-        
+
         # Add guidance for AI when task is still running
-        result = if is_running do
-          Map.put(result, :hint, "Task still running after #{elapsed_seconds}s. Tell the user it's running in background and they can check later with process tool. Do NOT keep polling.")
-        else
-          result
-        end
+        result =
+          if is_running do
+            Map.put(
+              result,
+              :hint,
+              "Task still running after #{elapsed_seconds}s. Tell the user it's running in background and they can check later with process tool. Do NOT keep polling."
+            )
+          else
+            result
+          end
 
         {:ok, result}
 

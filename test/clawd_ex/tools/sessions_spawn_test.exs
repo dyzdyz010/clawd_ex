@@ -29,7 +29,7 @@ defmodule ClawdEx.Tools.SessionsSpawnTest do
     test "includes optional parameters" do
       params = SessionsSpawn.parameters()
       props = params.properties
-      
+
       assert Map.has_key?(props, :label)
       assert Map.has_key?(props, :agentId)
       assert Map.has_key?(props, :model)
@@ -123,6 +123,7 @@ defmodule ClawdEx.Tools.SessionsSpawnTest do
         %ClawdEx.Agents.Agent{}
         |> ClawdEx.Agents.Agent.changeset(%{name: "format-test-agent-#{System.unique_integer()}"})
         |> ClawdEx.Repo.insert()
+
       %{agent: agent}
     end
 
@@ -131,7 +132,7 @@ defmodule ClawdEx.Tools.SessionsSpawnTest do
       params = %{"task" => "test"}
 
       assert {:ok, result} = SessionsSpawn.execute(params, context)
-      
+
       # 验证格式: agent:{id}:subagent:{uuid}
       [prefix, agent_id, subagent, uuid] = String.split(result.childSessionKey, ":")
       assert prefix == "agent"
@@ -160,8 +161,11 @@ defmodule ClawdEx.Tools.SessionsSpawnTest do
     setup do
       {:ok, agent} =
         %ClawdEx.Agents.Agent{}
-        |> ClawdEx.Agents.Agent.changeset(%{name: "cleanup-test-agent-#{System.unique_integer()}"})
+        |> ClawdEx.Agents.Agent.changeset(%{
+          name: "cleanup-test-agent-#{System.unique_integer()}"
+        })
         |> ClawdEx.Repo.insert()
+
       context = %{agent_id: agent.id, session_key: "parent"}
       %{context: context, agent: agent}
     end
@@ -173,7 +177,7 @@ defmodule ClawdEx.Tools.SessionsSpawnTest do
       }
 
       assert {:ok, result} = SessionsSpawn.execute(params, context)
-      
+
       # 给任务时间完成
       Process.sleep(500)
 

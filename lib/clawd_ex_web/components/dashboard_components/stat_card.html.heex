@@ -1,0 +1,18 @@
+<% gradient =
+  case @color do
+    "blue" -> "from-blue-600 to-blue-800"
+    "purple" -> "from-purple-600 to-purple-800"
+    "green" -> "from-green-600 to-green-800"
+    "yellow" -> "from-yellow-600 to-yellow-800"
+    "pink" -> "from-pink-600 to-pink-800"
+    _ -> "from-blue-600 to-blue-800"
+  end %>
+<div class={"bg-gradient-to-br #{gradient} rounded-lg p-4"}>
+  <div class="flex items-center justify-between">
+    <div>
+      <div class="text-sm text-gray-200 opacity-80">{@title}</div>
+      <div class="text-2xl font-bold">{@value}</div>
+    </div>
+    <div class="text-3xl">{@icon}</div>
+  </div>
+</div>

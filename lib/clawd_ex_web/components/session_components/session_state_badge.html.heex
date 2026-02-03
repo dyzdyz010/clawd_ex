@@ -1,0 +1,9 @@
+<% {bg, text} =
+  case @state do
+    :active -> {"bg-green-500", "Active"}
+    :idle -> {"bg-gray-500", "Idle"}
+    :compacting -> {"bg-yellow-500", "Compacting"}
+    :archived -> {"bg-red-500", "Archived"}
+    _ -> {"bg-gray-500", "Unknown"}
+  end %>
+<span class={"text-xs px-2 py-1 rounded-full #{bg}"}>{text}</span>

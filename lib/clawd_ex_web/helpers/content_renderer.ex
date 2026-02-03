@@ -38,7 +38,12 @@ defmodule ClawdExWeb.ContentRenderer do
       content,
       fn _, lang, code ->
         escaped_code = escape_html(code)
-        lang_label = if lang != "", do: "<span class=\"text-xs text-gray-400\">#{escape_html(lang)}</span>", else: ""
+
+        lang_label =
+          if lang != "",
+            do: "<span class=\"text-xs text-gray-400\">#{escape_html(lang)}</span>",
+            else: ""
+
         """
         <div class="my-2 bg-gray-800 rounded-lg overflow-hidden">
           #{lang_label}
@@ -58,7 +63,12 @@ defmodule ClawdExWeb.ContentRenderer do
         url = resolve_image_url(path)
         escaped_url = escape_html(url)
         escaped_alt = escape_html(alt)
-        alt_div = if alt != "", do: "<div class=\"text-xs text-gray-500 mt-1\">#{escaped_alt}</div>", else: ""
+
+        alt_div =
+          if alt != "",
+            do: "<div class=\"text-xs text-gray-500 mt-1\">#{escaped_alt}</div>",
+            else: ""
+
         """
         <div class="my-2">
           <img src="#{escaped_url}" alt="#{escaped_alt}" class="max-w-full max-h-96 rounded-lg shadow-sm cursor-pointer hover:shadow-md transition-shadow" onclick="window.open(this.src, '_blank')" loading="lazy" />

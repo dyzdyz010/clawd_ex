@@ -1,0 +1,8 @@
+<button
+  phx-click="filter"
+  phx-value-state={@state}
+  class={"px-4 py-2 rounded-lg text-sm font-medium transition-colors " <>
+    if(@state == @current, do: "bg-blue-600 text-white", else: "bg-gray-700 text-gray-300 hover:bg-gray-600")}
+>
+  {@label}
+</button>

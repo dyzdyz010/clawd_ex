@@ -173,7 +173,7 @@ defmodule ClawdEx.Tools.WebFetch do
   defp extract_content(body, content_type, extract_mode) when is_binary(body) do
     # Ensure content_type is a string
     ct = to_string(content_type || "text/html")
-    
+
     cond do
       String.contains?(ct, "text/html") or
           String.contains?(ct, "application/xhtml") ->

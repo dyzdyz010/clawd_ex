@@ -58,31 +58,36 @@ defmodule ClawdEx.AI.Stream do
         }
 
         # OAuth tokens require special system prompt format
-        body = if is_oauth do
-          Map.put(body, :system, AnthropicOAuth.build_system_prompt(system_prompt))
-        else
-          if system_prompt, do: Map.put(body, :system, system_prompt), else: body
-        end
+        body =
+          if is_oauth do
+            Map.put(body, :system, AnthropicOAuth.build_system_prompt(system_prompt))
+          else
+            if system_prompt, do: Map.put(body, :system, system_prompt), else: body
+          end
 
-        body = if tools != [], do: Map.put(body, :tools, format_tools_for_oauth(tools, is_oauth)), else: body
+        body =
+          if tools != [],
+            do: Map.put(body, :tools, format_tools_for_oauth(tools, is_oauth)),
+            else: body
 
         # OAuth tokens need Claude Code compatible headers
         # Note: Override accept header for SSE streaming
-        headers = if is_oauth do
-          AnthropicOAuth.api_headers(api_key)
-          |> Enum.reject(fn {k, _} -> k == "accept" end)
-          |> Kernel.++([
-            {"content-type", "application/json"},
-            {"accept", "text/event-stream"}
-          ])
-        else
-          [
-            {"x-api-key", api_key},
-            {"anthropic-version", "2023-06-01"},
-            {"content-type", "application/json"},
-            {"accept", "text/event-stream"}
-          ]
-        end
+        headers =
+          if is_oauth do
+            AnthropicOAuth.api_headers(api_key)
+            |> Enum.reject(fn {k, _} -> k == "accept" end)
+            |> Kernel.++([
+              {"content-type", "application/json"},
+              {"accept", "text/event-stream"}
+            ])
+          else
+            [
+              {"x-api-key", api_key},
+              {"anthropic-version", "2023-06-01"},
+              {"content-type", "application/json"},
+              {"accept", "text/event-stream"}
+            ]
+          end
 
         # 使用 Req 的流式处理
         case stream_request(
@@ -105,12 +110,14 @@ defmodule ClawdEx.AI.Stream do
   defp format_tools_for_oauth(tools, true = _is_oauth) do
     Enum.map(tools, fn tool ->
       name = tool[:name] || tool["name"]
+
       %{
-        tool |
-        name: to_claude_code_name(name)
+        tool
+        | name: to_claude_code_name(name)
       }
     end)
   end
+
   defp format_tools_for_oauth(tools, false), do: tools
 
   # Claude Code tool name mapping
@@ -118,6 +125,7 @@ defmodule ClawdEx.AI.Stream do
 
   defp to_claude_code_name(name) do
     lower_name = String.downcase(to_string(name))
+
     Enum.find(@claude_code_tools, name, fn cc_name ->
       String.downcase(cc_name) == lower_name
     end)
@@ -234,7 +242,8 @@ defmodule ClawdEx.AI.Stream do
         receive_timeout: 120_000,
         connect_options: [timeout: 30_000],
         retry: :transient,
-        retry_delay: fn attempt -> attempt * 1000 end,  # 指数退避: 1s, 2s, 3s
+        # 指数退避: 1s, 2s, 3s
+        retry_delay: fn attempt -> attempt * 1000 end,
         max_retries: 3,
         into: :self
       )
@@ -250,11 +259,15 @@ defmodule ClawdEx.AI.Stream do
           # API 错误，尝试读取错误信息
           error_body =
             case response.body do
-              %{ref: ref} = async_body -> 
+              %{ref: ref} = async_body ->
                 # 尝试从流式响应中读取错误
                 read_error_from_stream(async_body, ref, "")
-              body when is_binary(body) -> body
-              body -> inspect(body)
+
+              body when is_binary(body) ->
+                body
+
+              body ->
+                inspect(body)
             end
 
           Logger.error("AI API error: HTTP #{status} - #{error_body}")
@@ -280,7 +293,7 @@ defmodule ClawdEx.AI.Stream do
   defp receive_loop(response, acc, stream_to, provider, buffer) do
     # Req 0.5.x: async ref is in response.body.ref
     async_ref = get_async_ref(response)
-    
+
     receive do
       {ref, {:data, data}} when ref == async_ref ->
         # 合并 buffer 和新数据
@@ -313,8 +326,10 @@ defmodule ClawdEx.AI.Stream do
     receive do
       {^ref, {:data, data}} ->
         read_error_from_stream(nil, ref, acc <> data)
+
       {^ref, :done} ->
         parse_error_response(acc)
+
       {^ref, {:error, _reason}} ->
         parse_error_response(acc)
     after
@@ -322,7 +337,7 @@ defmodule ClawdEx.AI.Stream do
         if acc == "", do: "HTTP error (no body)", else: parse_error_response(acc)
     end
   end
-  
+
   defp parse_error_response(body) do
     case Jason.decode(body) do
       {:ok, %{"error" => %{"message" => msg}}} -> msg
@@ -443,7 +458,11 @@ defmodule ClawdEx.AI.Stream do
 
   # Anthropic event processing - tool input JSON delta
   defp process_event(
-         %{"type" => "content_block_delta", "index" => index, "delta" => %{"type" => "input_json_delta", "partial_json" => json_fragment}},
+         %{
+           "type" => "content_block_delta",
+           "index" => index,
+           "delta" => %{"type" => "input_json_delta", "partial_json" => json_fragment}
+         },
          acc,
          _stream_to,
          :anthropic
@@ -491,7 +510,11 @@ defmodule ClawdEx.AI.Stream do
   end
 
   defp process_event(
-         %{"type" => "content_block_start", "index" => index, "content_block" => %{"type" => "tool_use"} = block},
+         %{
+           "type" => "content_block_start",
+           "index" => index,
+           "content_block" => %{"type" => "tool_use"} = block
+         },
          acc,
          _stream_to,
          :anthropic

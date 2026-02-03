@@ -1,0 +1,85 @@
+<Layouts.app flash={@flash}>
+  <div class="max-w-6xl mx-auto px-4 py-8">
+    <%!-- Header --%>
+    <div class="flex items-center gap-4 mb-6">
+      <.link navigate={~p"/sessions"} class="text-gray-400 hover:text-white">
+        ← Back
+      </.link>
+      <h1 class="text-2xl font-bold flex-1 truncate">
+        {@session.session_key}
+      </h1>
+      <.session_state_badge state={@session.state} />
+    </div>
+
+    <%!-- Session Info --%>
+    <div class="bg-gray-800 rounded-lg p-6 mb-6">
+      <h2 class="text-lg font-semibold mb-4">Session Info</h2>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div>
+          <div class="text-sm text-gray-400">Agent</div>
+          <div class="font-medium">
+            {if @session.agent, do: @session.agent.name, else: "-"}
+          </div>
+        </div>
+        <div>
+          <div class="text-sm text-gray-400">Channel</div>
+          <div class="font-medium">{@session.channel}</div>
+        </div>
+        <div>
+          <div class="text-sm text-gray-400">Messages</div>
+          <div class="font-medium">{@session.message_count}</div>
+        </div>
+        <div>
+          <div class="text-sm text-gray-400">Tokens</div>
+          <div class="font-medium">{@session.token_count || 0}</div>
+        </div>
+        <div>
+          <div class="text-sm text-gray-400">Model Override</div>
+          <div class="font-medium">{@session.model_override || "-"}</div>
+        </div>
+        <div>
+          <div class="text-sm text-gray-400">Created</div>
+          <div class="font-medium">{format_datetime(@session.inserted_at)}</div>
+        </div>
+        <div>
+          <div class="text-sm text-gray-400">Last Activity</div>
+          <div class="font-medium">{format_datetime(@session.last_activity_at)}</div>
+        </div>
+        <div>
+          <div class="text-sm text-gray-400">Channel ID</div>
+          <div class="font-medium text-xs">{@session.channel_id || "-"}</div>
+        </div>
+      </div>
+    </div>
+
+    <%!-- Messages --%>
+    <div class="bg-gray-800 rounded-lg p-6">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-lg font-semibold">Messages ({@total_count})</h2>
+        <.link navigate={~p"/chat?session=#{@session.session_key}"} class="btn-primary text-sm">
+          Continue Chat →
+        </.link>
+      </div>
+
+      <div class="space-y-4">
+        <%= for message <- @messages do %>
+          <.message_card message={message} />
+        <% end %>
+      </div>
+
+      <%= if @has_more do %>
+        <div class="mt-4 text-center">
+          <button phx-click="load_more" class="btn-secondary">
+            Load More
+          </button>
+        </div>
+      <% end %>
+
+      <%= if Enum.empty?(@messages) do %>
+        <div class="text-center py-12 text-gray-500">
+          No messages in this session
+        </div>
+      <% end %>
+    </div>
+  </div>
+</Layouts.app>

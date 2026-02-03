@@ -49,8 +49,11 @@ defmodule ClawdEx.Cron.Job do
 
       schedule ->
         case parse_cron_expression(schedule) do
-          {:ok, _} -> changeset
-          {:error, reason} -> add_error(changeset, :schedule, "invalid cron expression: #{reason}")
+          {:ok, _} ->
+            changeset
+
+          {:error, reason} ->
+            add_error(changeset, :schedule, "invalid cron expression: #{reason}")
         end
     end
   end
@@ -108,7 +111,8 @@ defmodule ClawdEx.Cron.Job do
           [start_s, end_s] ->
             with {start_i, ""} <- Integer.parse(start_s),
                  {end_i, ""} <- Integer.parse(end_s),
-                 true <- in_range?(start_i, range) and in_range?(end_i, range) and start_i <= end_i do
+                 true <-
+                   in_range?(start_i, range) and in_range?(end_i, range) and start_i <= end_i do
               {:ok, {:range, start_i, end_i}}
             else
               _ -> {:error, "invalid range in #{name}: #{field}"}

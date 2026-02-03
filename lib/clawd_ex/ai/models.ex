@@ -288,7 +288,8 @@ defmodule ClawdEx.AI.Models do
 
     case get(full_model) do
       %{context_window: cw} -> cw
-      nil -> 128_000  # 默认值
+      # 默认值
+      nil -> 128_000
     end
   end
 
@@ -301,7 +302,8 @@ defmodule ClawdEx.AI.Models do
 
     case get(full_model) do
       %{max_tokens: mt} -> mt
-      nil -> 8_192  # 默认值
+      # 默认值
+      nil -> 8_192
     end
   end
 

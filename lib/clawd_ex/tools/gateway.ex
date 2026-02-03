@@ -138,10 +138,11 @@ defmodule ClawdEx.Tools.Gateway do
       Application.ensure_all_started(:clawd_ex)
     end)
 
-    {:ok, %{
-      status: "scheduled",
-      message: "Restart scheduled. The application will restart in ~1 second."
-    }}
+    {:ok,
+     %{
+       status: "scheduled",
+       message: "Restart scheduled. The application will restart in ~1 second."
+     }}
   end
 
   defp do_config_get(params) do
@@ -273,9 +274,11 @@ defmodule ClawdEx.Tools.Gateway do
 
   defp get_nested(map, []), do: map
   defp get_nested(nil, _), do: nil
+
   defp get_nested(map, [key | rest]) when is_map(map) do
     get_nested(Map.get(map, key), rest)
   end
+
   defp get_nested(_, _), do: nil
 
   defp deep_merge(left, right) when is_map(left) and is_map(right) do

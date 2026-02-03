@@ -234,13 +234,18 @@ defmodule ClawdEx.Tools.Tts do
 
     voice = get_config([:edge, :voice]) || "en-US-AriaNeural"
     temp_dir = create_temp_dir()
-    output_path = Path.join(temp_dir, "voice-#{System.unique_integer([:positive])}#{output_format.extension}")
+
+    output_path =
+      Path.join(temp_dir, "voice-#{System.unique_integer([:positive])}#{output_format.extension}")
 
     # Use edge-tts CLI
     cmd_args = [
-      "--voice", voice,
-      "--text", text,
-      "--write-media", output_path
+      "--voice",
+      voice,
+      "--text",
+      text,
+      "--write-media",
+      output_path
     ]
 
     Logger.debug("Edge TTS request: voice=#{voice}")

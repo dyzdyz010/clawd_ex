@@ -90,7 +90,9 @@ defmodule ClawdEx.Tools.ImageTest do
   describe "execute/2 - data URL decoding" do
     test "accepts valid PNG data URL" do
       # 1x1 transparent PNG
-      png_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+      png_base64 =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+
       data_url = "data:image/png;base64,#{png_base64}"
 
       # Will fail at API call level (no key), but should pass validation
@@ -105,7 +107,9 @@ defmodule ClawdEx.Tools.ImageTest do
 
     test "accepts valid JPEG data URL" do
       # Minimal JPEG header
-      jpeg_base64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVN//2Q=="
+      jpeg_base64 =
+        "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVN//2Q=="
+
       data_url = "data:image/jpeg;base64,#{jpeg_base64}"
 
       result = Image.execute(%{"image" => data_url}, %{})
@@ -130,7 +134,9 @@ defmodule ClawdEx.Tools.ImageTest do
     end
 
     test "handles whitespace in base64 data" do
-      png_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAA\nDUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+      png_base64 =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAA\nDUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+
       data_url = "data:image/png;base64,#{png_base64}"
 
       result = Image.execute(%{"image" => data_url}, %{})
@@ -169,13 +175,19 @@ defmodule ClawdEx.Tools.ImageTest do
 
   describe "execute/2 - model selection" do
     test "accepts anthropic model override" do
-      png_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+      png_base64 =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+
       data_url = "data:image/png;base64,#{png_base64}"
 
-      result = Image.execute(%{
-        "image" => data_url,
-        "model" => "anthropic/claude-sonnet-4-20250514"
-      }, %{})
+      result =
+        Image.execute(
+          %{
+            "image" => data_url,
+            "model" => "anthropic/claude-sonnet-4-20250514"
+          },
+          %{}
+        )
 
       # Should fail at API level, not model validation
       case result do
@@ -185,13 +197,19 @@ defmodule ClawdEx.Tools.ImageTest do
     end
 
     test "accepts openai model override" do
-      png_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+      png_base64 =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+
       data_url = "data:image/png;base64,#{png_base64}"
 
-      result = Image.execute(%{
-        "image" => data_url,
-        "model" => "openai/gpt-4o"
-      }, %{})
+      result =
+        Image.execute(
+          %{
+            "image" => data_url,
+            "model" => "openai/gpt-4o"
+          },
+          %{}
+        )
 
       case result do
         {:ok, _} -> assert true
@@ -200,13 +218,19 @@ defmodule ClawdEx.Tools.ImageTest do
     end
 
     test "accepts google model override" do
-      png_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+      png_base64 =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+
       data_url = "data:image/png;base64,#{png_base64}"
 
-      result = Image.execute(%{
-        "image" => data_url,
-        "model" => "google/gemini-2.0-flash"
-      }, %{})
+      result =
+        Image.execute(
+          %{
+            "image" => data_url,
+            "model" => "google/gemini-2.0-flash"
+          },
+          %{}
+        )
 
       case result do
         {:ok, _} -> assert true
@@ -217,7 +241,9 @@ defmodule ClawdEx.Tools.ImageTest do
 
   describe "execute/2 - prompt handling" do
     test "uses default prompt when not provided" do
-      png_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+      png_base64 =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+
       data_url = "data:image/png;base64,#{png_base64}"
 
       # Should not fail due to missing prompt
@@ -230,13 +256,19 @@ defmodule ClawdEx.Tools.ImageTest do
     end
 
     test "accepts custom prompt" do
-      png_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+      png_base64 =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+
       data_url = "data:image/png;base64,#{png_base64}"
 
-      result = Image.execute(%{
-        "image" => data_url,
-        "prompt" => "What color is this pixel?"
-      }, %{})
+      result =
+        Image.execute(
+          %{
+            "image" => data_url,
+            "prompt" => "What color is this pixel?"
+          },
+          %{}
+        )
 
       # Should not fail due to custom prompt
       case result do

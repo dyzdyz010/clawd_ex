@@ -82,7 +82,11 @@ defmodule ClawdEx.Tools.Cron do
 
   defp get_status(agent_id) do
     total = CronJob |> where([j], j.agent_id == ^agent_id) |> Repo.aggregate(:count)
-    enabled = CronJob |> where([j], j.agent_id == ^agent_id and j.enabled == true) |> Repo.aggregate(:count)
+
+    enabled =
+      CronJob
+      |> where([j], j.agent_id == ^agent_id and j.enabled == true)
+      |> Repo.aggregate(:count)
 
     next_job =
       CronJob
@@ -91,15 +95,18 @@ defmodule ClawdEx.Tools.Cron do
       |> limit(1)
       |> Repo.one()
 
-    {:ok, %{
-      total_jobs: total,
-      enabled_jobs: enabled,
-      next_run: next_job && %{
-        id: next_job.id,
-        name: next_job.name,
-        next_run_at: next_job.next_run_at
-      }
-    }}
+    {:ok,
+     %{
+       total_jobs: total,
+       enabled_jobs: enabled,
+       next_run:
+         next_job &&
+           %{
+             id: next_job.id,
+             name: next_job.name,
+             next_run_at: next_job.next_run_at
+           }
+     }}
   end
 
   defp list_jobs(agent_id, params) do
@@ -110,11 +117,12 @@ defmodule ClawdEx.Tools.Cron do
       |> where([j], j.agent_id == ^agent_id)
       |> order_by([j], asc: j.next_run_at)
 
-    query = if include_disabled do
-      query
-    else
-      where(query, [j], j.enabled == true)
-    end
+    query =
+      if include_disabled do
+        query
+      else
+        where(query, [j], j.enabled == true)
+      end
 
     jobs = Repo.all(query) |> Enum.map(&job_to_map/1)
 
@@ -187,11 +195,12 @@ defmodule ClawdEx.Tools.Cron do
 
       job ->
         # TODO: Actually trigger the job execution
-        {:ok, %{
-          triggered: true,
-          job: job_to_map(job),
-          message: "Job execution triggered"
-        }}
+        {:ok,
+         %{
+           triggered: true,
+           job: job_to_map(job),
+           message: "Job execution triggered"
+         }}
     end
   end
 
@@ -209,11 +218,12 @@ defmodule ClawdEx.Tools.Cron do
         select: r
       )
 
-    query = if job_id do
-      where(query, [r], r.job_id == ^job_id)
-    else
-      query
-    end
+    query =
+      if job_id do
+        where(query, [r], r.job_id == ^job_id)
+      else
+        query
+      end
 
     runs = Repo.all(query) |> Enum.map(&run_to_map/1)
 

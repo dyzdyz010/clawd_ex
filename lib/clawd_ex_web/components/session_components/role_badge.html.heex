@@ -1,0 +1,11 @@
+<% compact = Map.get(assigns, :compact, false)
+
+{bg, text} =
+  case @role do
+    :user -> {"bg-blue-600", "User"}
+    :assistant -> {"bg-green-600", if(compact, do: "AI", else: "Assistant")}
+    :system -> {"bg-gray-600", if(compact, do: "Sys", else: "System")}
+    :tool -> {"bg-purple-600", "Tool"}
+    _ -> {"bg-gray-600", "?"}
+  end %>
+<span class={"text-xs px-2 py-0.5 rounded font-medium #{bg}"}>{text}</span>

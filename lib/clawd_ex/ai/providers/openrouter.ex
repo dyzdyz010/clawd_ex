@@ -1,17 +1,17 @@
 defmodule ClawdEx.AI.Providers.OpenRouter do
   @moduledoc """
   OpenRouter AI 提供商
-  
+
   OpenRouter 使用 OpenAI 兼容 API，支持多模型路由。
-  
+
   API 文档: https://openrouter.ai/docs
-  
+
   特性:
   - OpenAI 兼容的 chat/completions 端点
   - 支持流式和非流式响应
   - 多模型路由 (如 anthropic/claude-3-opus, openai/gpt-4 等)
   - 支持模型别名 (如 openrouter/auto)
-  
+
   配置:
   - OPENROUTER_API_KEY 环境变量
   - 或 Application.get_env(:clawd_ex, :openrouter_api_key)
@@ -37,7 +37,7 @@ defmodule ClawdEx.AI.Providers.OpenRouter do
 
   @doc """
   非流式聊天补全
-  
+
   ## 参数
   - model: 模型名称 (如 "anthropic/claude-3-opus" 或 "openrouter/auto")
   - messages: 消息列表
@@ -61,7 +61,7 @@ defmodule ClawdEx.AI.Providers.OpenRouter do
 
   @doc """
   流式聊天补全
-  
+
   发送流式块到 stream_to 进程，格式: {:ai_chunk, %{content: text}}
   """
   @spec stream(String.t(), [message()], opts()) :: {:ok, map()} | {:error, term()}
@@ -363,7 +363,7 @@ defmodule ClawdEx.AI.Providers.OpenRouter do
 
   @doc """
   解析模型名称
-  
+
   支持的格式:
   - "anthropic/claude-3-opus" -> "anthropic/claude-3-opus"
   - "openrouter/auto" -> "openrouter/auto"

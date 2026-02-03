@@ -50,7 +50,9 @@ defmodule ClawdEx.Tools.SessionsHistoryTest do
 
     test "returns error when sessionKey is missing" do
       assert {:error, "sessionKey is required"} = SessionsHistory.execute(%{}, %{})
-      assert {:error, "sessionKey is required"} = SessionsHistory.execute(%{"sessionKey" => ""}, %{})
+
+      assert {:error, "sessionKey is required"} =
+               SessionsHistory.execute(%{"sessionKey" => ""}, %{})
     end
 
     test "returns error when session not found" do
@@ -111,7 +113,9 @@ defmodule ClawdEx.Tools.SessionsHistoryTest do
         |> Repo.insert!()
       end
 
-      assert {:ok, result} = SessionsHistory.execute(%{"sessionKey" => session_key, "limit" => 2}, %{})
+      assert {:ok, result} =
+               SessionsHistory.execute(%{"sessionKey" => session_key, "limit" => 2}, %{})
+
       assert result.messageCount == 2
     end
 
@@ -154,7 +158,10 @@ defmodule ClawdEx.Tools.SessionsHistoryTest do
 
       # With tools (default)
       assert {:ok, with_tools} =
-               SessionsHistory.execute(%{"sessionKey" => session_key, "includeTools" => true}, %{})
+               SessionsHistory.execute(
+                 %{"sessionKey" => session_key, "includeTools" => true},
+                 %{}
+               )
 
       assert with_tools.messageCount == 4
 
@@ -198,7 +205,10 @@ defmodule ClawdEx.Tools.SessionsHistoryTest do
 
       [assistant_msg, tool_msg] = result.messages
 
-      assert assistant_msg.toolCalls == [%{"id" => "call_123", "type" => "function", "name" => "read"}]
+      assert assistant_msg.toolCalls == [
+               %{"id" => "call_123", "type" => "function", "name" => "read"}
+             ]
+
       assert tool_msg.toolCallId == "call_123"
     end
 

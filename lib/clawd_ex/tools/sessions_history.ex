@@ -56,12 +56,12 @@ defmodule ClawdEx.Tools.SessionsHistory do
 
   defp get_include_tools(params) do
     # Can't use || here because false is falsy - use Map.get with fallback
-    raw = 
+    raw =
       case Map.get(params, "includeTools") do
         nil -> Map.get(params, :includeTools)
         val -> val
       end
-      
+
     case raw do
       nil -> true
       val when is_boolean(val) -> val

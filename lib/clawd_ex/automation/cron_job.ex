@@ -32,22 +32,37 @@ defmodule ClawdEx.Automation.CronJob do
   @doc false
   def changeset(cron_job, attrs) do
     # Handle text as alias for command
-    attrs = if Map.has_key?(attrs, "text") || Map.has_key?(attrs, :text) do
-      text = Map.get(attrs, "text") || Map.get(attrs, :text)
-      Map.put(attrs, :command, text)
-    else
-      attrs
-    end
+    attrs =
+      if Map.has_key?(attrs, "text") || Map.has_key?(attrs, :text) do
+        text = Map.get(attrs, "text") || Map.get(attrs, :text)
+        Map.put(attrs, :command, text)
+      else
+        attrs
+      end
 
     cron_job
-    |> cast(attrs, [:name, :description, :schedule, :command, :agent_id, :enabled, :timezone, :last_run_at, :next_run_at, :run_count, :metadata])
+    |> cast(attrs, [
+      :name,
+      :description,
+      :schedule,
+      :command,
+      :agent_id,
+      :enabled,
+      :timezone,
+      :last_run_at,
+      :next_run_at,
+      :run_count,
+      :metadata
+    ])
     |> validate_required([:name, :schedule, :command])
     |> maybe_set_next_run()
   end
 
   defp maybe_set_next_run(changeset) do
     case get_change(changeset, :schedule) do
-      nil -> changeset
+      nil ->
+        changeset
+
       _schedule ->
         # Calculate next run from schedule
         # For now, just set to 1 hour from now as placeholder

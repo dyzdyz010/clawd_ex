@@ -1,0 +1,42 @@
+<%= case @type do %>
+  <% "textarea" -> %>
+    <textarea
+      name={@field.name}
+      id={@field.id}
+      rows={@rows}
+      placeholder={@placeholder}
+      class={@class <> input_error_class(@field)}
+    ><%= @field.value %></textarea>
+  <% "select" -> %>
+    <select name={@field.name} id={@field.id} class={@class <> input_error_class(@field)}>
+      <%= for {label, value} <- @options do %>
+        <option value={value} selected={@field.value == value}>{label}</option>
+      <% end %>
+    </select>
+  <% "checkbox" -> %>
+    <input
+      type="checkbox"
+      name={@field.name}
+      id={@field.id}
+      value="true"
+      checked={@field.value == true or @field.value == "true"}
+      class={@class}
+    />
+    <input type="hidden" name={@field.name} value="false" />
+  <% _ -> %>
+    <input
+      type={@type}
+      name={@field.name}
+      id={@field.id}
+      value={@field.value}
+      placeholder={@placeholder}
+      class={@class <> input_error_class(@field)}
+    />
+<% end %>
+<%= if @field.errors != [] do %>
+  <div class="text-red-400 text-sm mt-1">
+    <%= for error <- @field.errors do %>
+      <span>{format_error(error)}</span>
+    <% end %>
+  </div>
+<% end %>

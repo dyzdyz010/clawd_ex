@@ -70,9 +70,10 @@ defmodule ClawdEx.Tools.Registry do
   @spec execute(String.t(), map(), map()) :: {:ok, any()} | {:error, term()}
   def execute(tool_name, params, context) do
     # Try exact match first, then case-insensitive
-    module = Map.get(@tools, tool_name) || 
-             Map.get(@tools, String.downcase(tool_name))
-    
+    module =
+      Map.get(@tools, tool_name) ||
+        Map.get(@tools, String.downcase(tool_name))
+
     case module do
       nil ->
         Logger.warning("Tool not found: #{tool_name}")
@@ -94,9 +95,10 @@ defmodule ClawdEx.Tools.Registry do
   """
   @spec get_tool_spec(String.t()) :: tool_spec() | nil
   def get_tool_spec(tool_name) do
-    module = Map.get(@tools, tool_name) || 
-             Map.get(@tools, String.downcase(tool_name))
-    
+    module =
+      Map.get(@tools, tool_name) ||
+        Map.get(@tools, String.downcase(tool_name))
+
     case module do
       nil ->
         nil

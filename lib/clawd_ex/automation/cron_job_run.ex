@@ -12,7 +12,8 @@ defmodule ClawdEx.Automation.CronJobRun do
   schema "cron_job_runs" do
     field :started_at, :utc_datetime_usec
     field :finished_at, :utc_datetime_usec
-    field :status, :string  # "running", "completed", "failed", "timeout"
+    # "running", "completed", "failed", "timeout"
+    field :status, :string
     field :exit_code, :integer
     field :output, :string
     field :error, :string
@@ -26,7 +27,16 @@ defmodule ClawdEx.Automation.CronJobRun do
   @doc false
   def changeset(run, attrs) do
     run
-    |> cast(attrs, [:job_id, :started_at, :finished_at, :status, :exit_code, :output, :error, :duration_ms])
+    |> cast(attrs, [
+      :job_id,
+      :started_at,
+      :finished_at,
+      :status,
+      :exit_code,
+      :output,
+      :error,
+      :duration_ms
+    ])
     |> validate_required([:job_id, :started_at, :status])
     |> validate_inclusion(:status, ["running", "completed", "failed", "timeout"])
   end

@@ -1,11 +1,11 @@
 defmodule ClawdEx.AI.OAuth.Anthropic do
   @moduledoc """
   Anthropic OAuth implementation for Claude Code tokens.
-  
+
   Handles:
   - OAuth token refresh
   - PKCE-based login flow (future)
-  
+
   OAuth flow uses:
   - Authorization URL: https://claude.ai/oauth/authorize
   - Token URL: https://console.anthropic.com/v1/oauth/token
@@ -25,7 +25,7 @@ defmodule ClawdEx.AI.OAuth.Anthropic do
 
   @doc """
   Refresh an OAuth token using the refresh token.
-  
+
   Returns:
   - `{:ok, credentials}` with new access token, refresh token, and expiry
   - `{:error, reason}` on failure
@@ -45,7 +45,7 @@ defmodule ClawdEx.AI.OAuth.Anthropic do
     case Req.post(@token_url, json: body, headers: headers) do
       {:ok, %{status: 200, body: response}} ->
         expires_in = response["expires_in"] || 3600
-        expires_at = System.system_time(:millisecond) + (expires_in * 1000) - @expiry_buffer_ms
+        expires_at = System.system_time(:millisecond) + expires_in * 1000 - @expiry_buffer_ms
 
         credentials = %{
           type: "oauth",
@@ -98,7 +98,7 @@ defmodule ClawdEx.AI.OAuth.Anthropic do
 
   @doc """
   Exchange authorization code for tokens.
-  
+
   The auth_code should be in format "code#state" as returned by the OAuth flow.
   """
   @spec exchange_code(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
@@ -121,7 +121,7 @@ defmodule ClawdEx.AI.OAuth.Anthropic do
     case Req.post(@token_url, json: body, headers: headers) do
       {:ok, %{status: 200, body: response}} ->
         expires_in = response["expires_in"] || 3600
-        expires_at = System.system_time(:millisecond) + (expires_in * 1000) - @expiry_buffer_ms
+        expires_at = System.system_time(:millisecond) + expires_in * 1000 - @expiry_buffer_ms
 
         credentials = %{
           type: "oauth",
@@ -150,6 +150,7 @@ defmodule ClawdEx.AI.OAuth.Anthropic do
     now = System.system_time(:millisecond)
     now >= expires
   end
+
   def needs_refresh?(_), do: true
 
   @doc """
@@ -162,7 +163,8 @@ defmodule ClawdEx.AI.OAuth.Anthropic do
       {"authorization", "Bearer #{access_token}"},
       {"anthropic-version", "2023-06-01"},
       {"anthropic-dangerous-direct-browser-access", "true"},
-      {"anthropic-beta", "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14,interleaved-thinking-2025-05-14"},
+      {"anthropic-beta",
+       "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14,interleaved-thinking-2025-05-14"},
       {"user-agent", "claude-cli/2.1.2 (external, cli)"},
       {"x-app", "cli"},
       {"accept", "application/json"}
@@ -195,6 +197,7 @@ defmodule ClawdEx.AI.OAuth.Anthropic do
         "text" => user_prompt,
         "cache_control" => %{"type" => "ephemeral"}
       }
+
       [prefix_block, user_block]
     else
       [prefix_block]

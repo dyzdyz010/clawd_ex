@@ -77,10 +77,13 @@ defmodule ClawdEx.Tools.CronTest do
     end
 
     test "creates job with minimal required fields" do
-      params = %{"action" => "add", "job" => %{
-        "name" => "Minimal Job",
-        "text" => "Do something"
-      }}
+      params = %{
+        "action" => "add",
+        "job" => %{
+          "name" => "Minimal Job",
+          "text" => "Do something"
+        }
+      }
 
       {:ok, result} = Cron.execute(params, context())
 

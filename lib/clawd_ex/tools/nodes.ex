@@ -257,7 +257,8 @@ defmodule ClawdEx.Tools.Nodes do
         do_location_get(params, gateway_url, gateway_token, timeout)
 
       _ ->
-        {:error, "Unknown action: #{action}. Use one of: status, describe, pending, approve, reject, notify, run, camera_snap, camera_list, camera_clip, screen_record, location_get"}
+        {:error,
+         "Unknown action: #{action}. Use one of: status, describe, pending, approve, reject, notify, run, camera_snap, camera_list, camera_clip, screen_record, location_get"}
     end
   end
 
@@ -309,15 +310,16 @@ defmodule ClawdEx.Tools.Nodes do
     if is_nil(node) do
       {:error, "node parameter is required for notify action"}
     else
-      body = %{
-        node: node,
-        title: get_param(params, :title),
-        body: get_param(params, :body),
-        priority: get_param(params, :priority),
-        sound: get_param(params, :sound),
-        delivery: get_param(params, :delivery)
-      }
-      |> reject_nil_values()
+      body =
+        %{
+          node: node,
+          title: get_param(params, :title),
+          body: get_param(params, :body),
+          priority: get_param(params, :priority),
+          sound: get_param(params, :sound),
+          delivery: get_param(params, :delivery)
+        }
+        |> reject_nil_values()
 
       call_gateway(gateway_url, token, "notify", body, timeout)
     end
@@ -335,15 +337,16 @@ defmodule ClawdEx.Tools.Nodes do
         {:error, "command parameter is required for run action"}
 
       true ->
-        body = %{
-          node: node,
-          command: command,
-          cwd: get_param(params, :cwd),
-          env: get_param(params, :env),
-          commandTimeoutMs: get_param(params, :commandTimeoutMs),
-          invokeTimeoutMs: get_param(params, :invokeTimeoutMs)
-        }
-        |> reject_nil_values()
+        body =
+          %{
+            node: node,
+            command: command,
+            cwd: get_param(params, :cwd),
+            env: get_param(params, :env),
+            commandTimeoutMs: get_param(params, :commandTimeoutMs),
+            invokeTimeoutMs: get_param(params, :invokeTimeoutMs)
+          }
+          |> reject_nil_values()
 
         call_gateway(gateway_url, token, "run", body, timeout)
     end
@@ -355,15 +358,16 @@ defmodule ClawdEx.Tools.Nodes do
     if is_nil(node) do
       {:error, "node parameter is required for camera_snap action"}
     else
-      body = %{
-        node: node,
-        facing: get_param(params, :facing),
-        deviceId: get_param(params, :deviceId),
-        quality: get_param(params, :quality),
-        maxWidth: get_param(params, :maxWidth),
-        delayMs: get_param(params, :delayMs)
-      }
-      |> reject_nil_values()
+      body =
+        %{
+          node: node,
+          facing: get_param(params, :facing),
+          deviceId: get_param(params, :deviceId),
+          quality: get_param(params, :quality),
+          maxWidth: get_param(params, :maxWidth),
+          delayMs: get_param(params, :delayMs)
+        }
+        |> reject_nil_values()
 
       result = call_gateway(gateway_url, token, "camera_snap", body, timeout)
       process_media_result(result, params)
@@ -386,19 +390,20 @@ defmodule ClawdEx.Tools.Nodes do
     if is_nil(node) do
       {:error, "node parameter is required for camera_clip action"}
     else
-      body = %{
-        node: node,
-        facing: get_param(params, :facing),
-        deviceId: get_param(params, :deviceId),
-        quality: get_param(params, :quality),
-        maxWidth: get_param(params, :maxWidth),
-        durationMs: get_param(params, :durationMs),
-        duration: get_param(params, :duration),
-        fps: get_param(params, :fps),
-        includeAudio: get_param(params, :includeAudio),
-        delayMs: get_param(params, :delayMs)
-      }
-      |> reject_nil_values()
+      body =
+        %{
+          node: node,
+          facing: get_param(params, :facing),
+          deviceId: get_param(params, :deviceId),
+          quality: get_param(params, :quality),
+          maxWidth: get_param(params, :maxWidth),
+          durationMs: get_param(params, :durationMs),
+          duration: get_param(params, :duration),
+          fps: get_param(params, :fps),
+          includeAudio: get_param(params, :includeAudio),
+          delayMs: get_param(params, :delayMs)
+        }
+        |> reject_nil_values()
 
       result = call_gateway(gateway_url, token, "camera_clip", body, timeout)
       process_media_result(result, params)
@@ -411,19 +416,20 @@ defmodule ClawdEx.Tools.Nodes do
     if is_nil(node) do
       {:error, "node parameter is required for screen_record action"}
     else
-      body = %{
-        node: node,
-        screenIndex: get_param(params, :screenIndex),
-        quality: get_param(params, :quality),
-        maxWidth: get_param(params, :maxWidth),
-        durationMs: get_param(params, :durationMs),
-        duration: get_param(params, :duration),
-        fps: get_param(params, :fps),
-        includeAudio: get_param(params, :includeAudio),
-        needsScreenRecording: get_param(params, :needsScreenRecording),
-        delayMs: get_param(params, :delayMs)
-      }
-      |> reject_nil_values()
+      body =
+        %{
+          node: node,
+          screenIndex: get_param(params, :screenIndex),
+          quality: get_param(params, :quality),
+          maxWidth: get_param(params, :maxWidth),
+          durationMs: get_param(params, :durationMs),
+          duration: get_param(params, :duration),
+          fps: get_param(params, :fps),
+          includeAudio: get_param(params, :includeAudio),
+          needsScreenRecording: get_param(params, :needsScreenRecording),
+          delayMs: get_param(params, :delayMs)
+        }
+        |> reject_nil_values()
 
       result = call_gateway(gateway_url, token, "screen_record", body, timeout)
       process_media_result(result, params)
@@ -436,13 +442,14 @@ defmodule ClawdEx.Tools.Nodes do
     if is_nil(node) do
       {:error, "node parameter is required for location_get action"}
     else
-      body = %{
-        node: node,
-        desiredAccuracy: get_param(params, :desiredAccuracy),
-        maxAgeMs: get_param(params, :maxAgeMs),
-        locationTimeoutMs: get_param(params, :locationTimeoutMs)
-      }
-      |> reject_nil_values()
+      body =
+        %{
+          node: node,
+          desiredAccuracy: get_param(params, :desiredAccuracy),
+          maxAgeMs: get_param(params, :maxAgeMs),
+          locationTimeoutMs: get_param(params, :locationTimeoutMs)
+        }
+        |> reject_nil_values()
 
       call_gateway(gateway_url, token, "location_get", body, timeout)
     end

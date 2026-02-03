@@ -117,7 +117,7 @@ defmodule ClawdEx.Sessions.SessionWorker do
     # 默认 5 分钟，复杂任务需要更多时间
     caller_timeout = Keyword.get(opts, :timeout, 300_000)
     opts = Keyword.put(opts, :timeout, max(caller_timeout - 5000, 30_000))
-    
+
     # 检查是否是重置触发器
     if Reset.is_reset_trigger?(content) do
       handle_reset_trigger(content, opts, state)
@@ -139,20 +139,6 @@ defmodule ClawdEx.Sessions.SessionWorker do
           result = safe_run_agent(state.loop_pid, content, opts)
           {:reply, result, state}
       end
-    end
-  end
-
-  # Wrapper to catch timeout and other errors, preventing SessionWorker crash
-  defp safe_run_agent(loop_pid, content, opts) do
-    try do
-      AgentLoop.run(loop_pid, content, opts)
-    catch
-      :exit, {:timeout, _} ->
-        Logger.warning("Agent run timed out for message: #{String.slice(content, 0, 50)}...")
-        {:error, "Request timed out. The task may be too complex or the AI is taking too long."}
-      :exit, reason ->
-        Logger.error("Agent run failed: #{inspect(reason)}")
-        {:error, "Agent error: #{inspect(reason)}"}
     end
   end
 
@@ -182,6 +168,21 @@ defmodule ClawdEx.Sessions.SessionWorker do
     {:reply, response, state}
   end
 
+  # Wrapper to catch timeout and other errors, preventing SessionWorker crash
+  defp safe_run_agent(loop_pid, content, opts) do
+    try do
+      AgentLoop.run(loop_pid, content, opts)
+    catch
+      :exit, {:timeout, _} ->
+        Logger.warning("Agent run timed out for message: #{String.slice(content, 0, 50)}...")
+        {:error, "Request timed out. The task may be too complex or the AI is taking too long."}
+
+      :exit, reason ->
+        Logger.error("Agent run failed: #{inspect(reason)}")
+        {:error, "Agent error: #{inspect(reason)}"}
+    end
+  end
+
   @impl true
   def handle_cast(:stop_run, state) do
     AgentLoop.stop_run(state.loop_pid)
@@ -193,14 +194,14 @@ defmodule ClawdEx.Sessions.SessionWorker do
     # 异步处理：启动 Task 来运行 agent，结果通过 PubSub 发送
     session_key = state.session_key
     loop_pid = state.loop_pid
-    
+
     # 更新最后活动时间
     update_last_activity(state.session_id)
-    
+
     # 在后台 Task 中运行 agent
     Task.start(fn ->
       result = safe_run_agent(loop_pid, content, opts)
-      
+
       # 通过 PubSub 广播结果
       Phoenix.PubSub.broadcast(
         ClawdEx.PubSub,
@@ -208,7 +209,7 @@ defmodule ClawdEx.Sessions.SessionWorker do
         {:agent_result, result}
       )
     end)
-    
+
     {:noreply, state}
   end
 
