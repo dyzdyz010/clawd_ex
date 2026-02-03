@@ -103,3 +103,32 @@
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
 /* This file is for your main application CSS */
+
+/* Custom button styles for ClawdEx */
+.btn-primary {
+  padding: 0.5rem 1rem;
+  background-color: rgb(37 99 235); /* blue-600 */
+  color: white;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  transition: background-color 0.15s;
+  display: inline-block;
+  text-align: center;
+}
+.btn-primary:hover {
+  background-color: rgb(29 78 216); /* blue-700 */
+}
+
+.btn-secondary {
+  padding: 0.5rem 1rem;
+  background-color: rgb(55 65 81); /* gray-700 */
+  color: white;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  transition: background-color 0.15s;
+  display: inline-block;
+  text-align: center;
+}
+.btn-secondary:hover {
+  background-color: rgb(75 85 99); /* gray-600 */
+}

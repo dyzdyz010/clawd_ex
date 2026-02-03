@@ -67,21 +67,35 @@ defmodule ClawdExWeb.SessionsLive do
   end
 
   defp load_sessions(socket) do
-    query = from(s in Session, preload: [:agent], order_by: [desc: s.last_activity_at])
+    alias ClawdEx.Sessions.Message
+
+    query =
+      from(s in Session,
+        left_join: m in Message, on: m.session_id == s.id,
+        left_join: a in assoc(s, :agent),
+        group_by: [s.id, a.id],
+        select: %{session: s, agent: a, message_count: count(m.id)},
+        order_by: [desc: s.last_activity_at, desc: s.updated_at]
+      )
 
     query =
       case socket.assigns.filter_state do
         "all" -> query
-        state -> from(s in query, where: s.state == ^String.to_existing_atom(state))
+        state -> from([s, m, a] in query, where: s.state == ^String.to_existing_atom(state))
       end
 
     query =
       case socket.assigns.search do
         "" -> query
-        search -> from(s in query, where: ilike(s.session_key, ^"%#{search}%"))
+        search -> from([s, m, a] in query, where: ilike(s.session_key, ^"%#{search}%"))
       end
 
-    sessions = Repo.all(query)
+    results = Repo.all(query)
+    # 将 agent 嵌入 session 结构，添加实际消息数
+    sessions = Enum.map(results, fn %{session: s, agent: a, message_count: mc} ->
+      %{s | agent: a, message_count: mc}
+    end)
+
     assign(socket, :sessions, sessions)
   end
 
@@ -158,7 +172,7 @@ defmodule ClawdExWeb.SessionsLive do
                   </td>
                   <td class="px-4 py-3">
                     <span class="text-sm text-gray-400">
-                      <%= format_time(session.last_activity_at) %>
+                      <%= format_time(session.last_activity_at || session.updated_at) %>
                     </span>
                   </td>
                   <td class="px-4 py-3">

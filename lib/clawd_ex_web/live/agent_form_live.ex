@@ -27,7 +27,7 @@ defmodule ClawdExWeb.AgentFormLive do
       |> assign(:page_title, title)
       |> assign(:agent, agent)
       |> assign(:changeset, changeset)
-      |> assign(:available_models, Models.all() |> Enum.map(& &1.id))
+      |> assign(:available_models, Models.all() |> Map.keys() |> Enum.sort())
 
     {:ok, socket}
   end
