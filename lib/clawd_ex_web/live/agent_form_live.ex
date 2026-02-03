@@ -26,7 +26,7 @@ defmodule ClawdExWeb.AgentFormLive do
       socket
       |> assign(:page_title, title)
       |> assign(:agent, agent)
-      |> assign(:changeset, changeset)
+      |> assign(:form, to_form(changeset))
       |> assign(:available_models, Models.all() |> Map.keys() |> Enum.sort())
 
     {:ok, socket}
@@ -39,7 +39,7 @@ defmodule ClawdExWeb.AgentFormLive do
       |> Agent.changeset(params)
       |> Map.put(:action, :validate)
 
-    {:noreply, assign(socket, :changeset, changeset)}
+    {:noreply, assign(socket, :form, to_form(changeset))}
   end
 
   @impl true
@@ -82,7 +82,7 @@ defmodule ClawdExWeb.AgentFormLive do
 
         <div class="bg-gray-800 rounded-lg p-6">
           <.form
-            for={@changeset}
+            for={@form}
             phx-change="validate"
             phx-submit="save"
             class="space-y-6"
@@ -93,7 +93,7 @@ defmodule ClawdExWeb.AgentFormLive do
                 Name <span class="text-red-400">*</span>
               </label>
               <.form_input
-                field={@changeset[:name]}
+                field={@form[:name]}
                 type="text"
                 placeholder="My Agent"
                 class="w-full bg-gray-700 border-gray-600 rounded-lg px-4 py-2 text-white"
@@ -104,7 +104,7 @@ defmodule ClawdExWeb.AgentFormLive do
             <div>
               <label class="block text-sm font-medium mb-2">Default Model</label>
               <.form_input
-                field={@changeset[:default_model]}
+                field={@form[:default_model]}
                 type="select"
                 options={model_options(@available_models)}
                 class="w-full bg-gray-700 border-gray-600 rounded-lg px-4 py-2 text-white"
@@ -118,7 +118,7 @@ defmodule ClawdExWeb.AgentFormLive do
             <div>
               <label class="block text-sm font-medium mb-2">Workspace Path</label>
               <.form_input
-                field={@changeset[:workspace_path]}
+                field={@form[:workspace_path]}
                 type="text"
                 placeholder="/path/to/workspace"
                 class="w-full bg-gray-700 border-gray-600 rounded-lg px-4 py-2 text-white font-mono text-sm"
@@ -132,7 +132,7 @@ defmodule ClawdExWeb.AgentFormLive do
             <div>
               <label class="block text-sm font-medium mb-2">System Prompt</label>
               <.form_input
-                field={@changeset[:system_prompt]}
+                field={@form[:system_prompt]}
                 type="textarea"
                 rows="8"
                 placeholder="You are a helpful assistant..."
@@ -147,11 +147,11 @@ defmodule ClawdExWeb.AgentFormLive do
             <div>
               <label class="block text-sm font-medium mb-2">Config (JSON)</label>
               <.form_input
-                field={@changeset[:config]}
+                field={@form[:config]}
                 type="textarea"
                 rows="4"
                 placeholder="{}"
-                value={Jason.encode!(@changeset.data.config || %{}, pretty: true)}
+                value={Jason.encode!(@agent.config || %{}, pretty: true)}
                 class="w-full bg-gray-700 border-gray-600 rounded-lg px-4 py-2 text-white font-mono text-sm"
               />
               <p class="text-xs text-gray-400 mt-1">
@@ -162,7 +162,7 @@ defmodule ClawdExWeb.AgentFormLive do
             <!-- Active -->
             <div class="flex items-center gap-3">
               <.form_input
-                field={@changeset[:active]}
+                field={@form[:active]}
                 type="checkbox"
                 class="w-5 h-5 bg-gray-700 border-gray-600 rounded"
               />
