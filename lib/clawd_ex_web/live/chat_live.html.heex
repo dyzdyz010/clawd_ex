@@ -43,7 +43,7 @@
             message.role == "assistant" && "bg-white text-gray-900",
             message.role == "error" && "bg-red-100 text-red-800"
           ]}>
-            <div class="whitespace-pre-wrap break-words">{message.content}</div>
+            <div class="whitespace-pre-wrap break-words"><%= ClawdExWeb.ContentRenderer.render_content(message.content) %></div>
             <div class={[
               "text-xs mt-1 opacity-70",
               message.role == "user" && "text-right"
@@ -59,7 +59,7 @@
     <%= if @streaming_content && @streaming_content != "" do %>
       <div class="flex justify-start">
         <div class="max-w-[80%] rounded-2xl px-4 py-2 shadow-sm bg-white text-gray-900">
-          <div class="whitespace-pre-wrap break-words">{@streaming_content}</div>
+          <div class="whitespace-pre-wrap break-words"><%= ClawdExWeb.ContentRenderer.render_content(@streaming_content) %></div>
           <div class="flex items-center gap-1 mt-1">
             <span class="w-1.5 h-1.5 bg-indigo-600 rounded-full animate-bounce"></span>
             <span
