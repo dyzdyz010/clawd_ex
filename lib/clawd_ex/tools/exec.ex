@@ -104,7 +104,7 @@ defmodule ClawdEx.Tools.Exec do
       if yield_ms >= timeout do
         # 总 timeout 已到，杀死进程
         Port.close(port)
-        {:error, "Command timed out after #{div(timeout, 1000)} seconds\n\n#{output}"}
+        {:error, "Command timed out after #{div(timeout, 1000)} seconds\n\n#{sanitize_output(output)}"}
       else
         # 转为后台模式
         Logger.info("Command running longer than #{yield_ms}ms, backgrounding...")
@@ -140,10 +140,11 @@ defmodule ClawdEx.Tools.Exec do
           collect_port_output(port, output <> data, deadline, timeout, yield_ms, agent_id, command)
           
         {^port, {:exit_status, exit_code}} ->
+          clean_output = sanitize_output(output)
           if exit_code == 0 do
-            {:ok, output}
+            {:ok, clean_output}
           else
-            {:error, "Command exited with code #{exit_code}\n\n#{output}"}
+            {:error, "Command exited with code #{exit_code}\n\n#{clean_output}"}
           end
       after
         remaining ->
@@ -245,4 +246,22 @@ defmodule ClawdEx.Tools.Exec do
       true -> Path.expand(path)
     end
   end
+
+  # Sanitize output to ensure valid UTF-8 (replace invalid bytes)
+  defp sanitize_output(output) when is_binary(output) do
+    if String.valid?(output) do
+      output
+    else
+      # Replace invalid UTF-8 bytes with replacement character
+      output
+      |> :unicode.characters_to_binary(:utf8, :utf8)
+      |> case do
+        {:error, valid, _rest} -> valid <> "�[invalid bytes truncated]"
+        {:incomplete, valid, _rest} -> valid <> "�[incomplete sequence]"
+        valid when is_binary(valid) -> valid
+      end
+    end
+  end
+
+  defp sanitize_output(other), do: other
 end
