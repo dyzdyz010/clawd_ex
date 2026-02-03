@@ -230,6 +230,11 @@ defmodule ClawdExWeb.ChatLive do
     assign(socket, :run_status, {:inferring, details})
   end
 
+  defp handle_status_update(socket, :tools_start, %{tools: _tools, count: _count}) do
+    # 多工具批量开始，清空之前的历史
+    assign(socket, :tool_executions, [])
+  end
+
   defp handle_status_update(socket, :tool_start, %{tool: tool_name} = details) do
     # 工具开始执行，添加到执行历史
     execution = %{tool: tool_name, status: :running, started_at: DateTime.utc_now()}
@@ -238,17 +243,20 @@ defmodule ClawdExWeb.ChatLive do
     |> assign(:run_status, {:tool_start, details})
   end
 
-  defp handle_status_update(socket, :tool_done, %{tool: tool_name, result: result} = details) do
+  defp handle_status_update(socket, :tool_done, %{tool: tool_name} = details) do
     # 工具执行完成，更新执行历史
+    success = Map.get(details, :success, true)
     socket
     |> update(:tool_executions, fn execs ->
-      Enum.map(execs, fn exec ->
-        if exec.tool == tool_name and exec.status == :running do
-          %{exec | status: :done, result: summarize_result(result)}
+      # 找到最后一个匹配的 running 状态工具并更新
+      {updated, _} = Enum.map_reduce(Enum.reverse(execs), false, fn exec, found ->
+        if not found and exec.tool == tool_name and exec.status == :running do
+          {%{exec | status: if(success, do: :done, else: :error)}, true}
         else
-          exec
+          {exec, found}
         end
       end)
+      Enum.reverse(updated)
     end)
     |> assign(:run_status, {:tool_done, details})
   end
