@@ -15,9 +15,9 @@ defmodule ClawdExWeb.ChatLive do
   # ============================================================================
 
   @impl true
-  def mount(_params, session, socket) do
-    # 生成或恢复会话 key
-    session_key = session["session_key"] || generate_session_key()
+  def mount(params, session, socket) do
+    # 优先使用 URL 参数中的 session key，否则从 session 中恢复，最后生成新的
+    session_key = params["session"] || session["session_key"] || generate_session_key()
 
     socket =
       socket
@@ -381,14 +381,18 @@ defmodule ClawdExWeb.ChatLive do
 
   defp load_messages(session_key) do
     try do
-      case SessionWorker.get_history(session_key, limit: 50) do
+      case SessionWorker.get_history(session_key, limit: 100) do
         messages when is_list(messages) ->
           Enum.map(messages, fn m ->
+            role = m.role || m[:role]
+            # 确保 role 是 string（数据库可能返回 atom）
+            role_str = if is_atom(role), do: Atom.to_string(role), else: role
+
             %{
               id: System.unique_integer([:positive]),
-              role: m.role || m[:role],
-              content: m.content || m[:content],
-              timestamp: m[:inserted_at] || DateTime.utc_now()
+              role: role_str,
+              content: m.content || m[:content] || "",
+              timestamp: m[:inserted_at] || m.inserted_at || DateTime.utc_now()
             }
           end)
 
@@ -396,9 +400,13 @@ defmodule ClawdExWeb.ChatLive do
           []
       end
     rescue
-      _ -> []
+      e ->
+        Logger.warning("Failed to load messages: #{inspect(e)}")
+        []
     catch
-      :exit, _ -> []
+      :exit, reason ->
+        Logger.warning("Failed to load messages (exit): #{inspect(reason)}")
+        []
     end
   end
 
