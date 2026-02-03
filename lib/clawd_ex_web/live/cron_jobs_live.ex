@@ -46,10 +46,18 @@ defmodule ClawdExWeb.CronJobsLive do
 
     case Automation.run_job_now(job) do
       {:ok, _run} ->
-        {:noreply, put_flash(socket, :info, "Job started")}
+        # 等待任务完成后刷新数据
+        Process.sleep(200)
+        jobs = load_jobs(socket.assigns.filter)
+        stats = Automation.get_stats()
 
-      {:error, _} ->
-        {:noreply, put_flash(socket, :error, "Failed to run job")}
+        {:noreply,
+         socket
+         |> put_flash(:info, "Job executed successfully")
+         |> assign(jobs: jobs, stats: stats)}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to run job: #{inspect(reason)}")}
     end
   end
 
