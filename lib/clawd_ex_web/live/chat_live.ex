@@ -236,8 +236,15 @@ defmodule ClawdExWeb.ChatLive do
   end
 
   defp handle_status_update(socket, :tool_start, %{tool: tool_name} = details) do
-    # 工具开始执行，添加到执行历史
-    execution = %{tool: tool_name, status: :running, started_at: DateTime.utc_now()}
+    # 工具开始执行，添加到执行历史（包含参数摘要）
+    params = Map.get(details, :params, %{})
+    params_summary = summarize_params(params)
+    execution = %{
+      tool: tool_name, 
+      status: :running, 
+      params: params_summary,
+      started_at: DateTime.utc_now()
+    }
     socket
     |> update(:tool_executions, &(&1 ++ [execution]))
     |> assign(:run_status, {:tool_start, details})
@@ -292,6 +299,33 @@ defmodule ClawdExWeb.ChatLive do
     end
   end
   defp summarize_result(result), do: inspect(result, limit: 3)
+
+  # 简化工具参数用于显示
+  defp summarize_params(params) when is_map(params) do
+    # 提取关键参数显示
+    cond do
+      Map.has_key?(params, "command") ->
+        cmd = params["command"] |> String.split("\n") |> hd() |> String.slice(0, 60)
+        if String.length(params["command"]) > 60, do: cmd <> "...", else: cmd
+      
+      Map.has_key?(params, "path") ->
+        Path.basename(params["path"])
+      
+      Map.has_key?(params, "url") ->
+        URI.parse(params["url"]).host || params["url"]
+      
+      Map.has_key?(params, "query") ->
+        "\"#{String.slice(params["query"], 0, 40)}#{if String.length(params["query"] || "") > 40, do: "...", else: ""}\""
+      
+      Map.has_key?(params, "action") ->
+        params["action"]
+      
+      true ->
+        keys = Map.keys(params) |> Enum.take(2) |> Enum.join(", ")
+        if keys != "", do: "(#{keys})", else: nil
+    end
+  end
+  defp summarize_params(_), do: nil
 
   def handle_info(_msg, socket) do
     {:noreply, socket}
