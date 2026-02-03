@@ -28,6 +28,7 @@ defmodule ClawdExWeb.ChatLive do
       |> assign(:streaming_content, nil)
       |> assign(:session_started, false)
       |> assign(:run_status, nil)  # 当前运行状态 {status, details}
+      |> assign(:tool_executions, [])  # 工具执行历史 [{tool_name, status, result}]
 
     # 在连接后再启动会话（避免测试时的问题）
     if connected?(socket) do
@@ -161,10 +162,15 @@ defmodule ClawdExWeb.ChatLive do
   def handle_info({:message_result, result}, socket) do
     case result do
       {:ok, response} ->
+        # 优先使用 streaming_content（如果有的话），否则用最终 response
+        # 这样避免重复显示
+        streaming = socket.assigns.streaming_content
+        final_content = if streaming && streaming != "", do: streaming, else: response
+
         assistant_message = %{
           id: System.unique_integer([:positive]),
           role: "assistant",
-          content: response,
+          content: final_content,
           timestamp: DateTime.utc_now()
         }
 
@@ -174,11 +180,15 @@ defmodule ClawdExWeb.ChatLive do
           |> assign(:sending, false)
           |> assign(:streaming_content, nil)
           |> assign(:run_status, nil)
+          |> assign(:tool_executions, [])
 
         {:noreply, socket}
 
       {:error, reason} ->
         Logger.error("Failed to send message: #{inspect(reason)}")
+
+        # 如果有 streaming 内容，也保存它（可能是部分响应）
+        socket = maybe_save_streaming_as_message(socket)
 
         error_message = %{
           id: System.unique_integer([:positive]),
@@ -193,6 +203,7 @@ defmodule ClawdExWeb.ChatLive do
           |> assign(:sending, false)
           |> assign(:streaming_content, nil)
           |> assign(:run_status, nil)
+          |> assign(:tool_executions, [])
 
         {:noreply, socket}
     end
@@ -213,11 +224,74 @@ defmodule ClawdExWeb.ChatLive do
   # 处理运行状态更新
   def handle_info({:agent_status, _run_id, status, details}, socket) do
     if socket.assigns.sending do
-      {:noreply, assign(socket, :run_status, {status, details})}
+      socket = handle_status_update(socket, status, details)
+      {:noreply, socket}
     else
       {:noreply, socket}
     end
   end
+
+  # 处理不同状态的更新
+  defp handle_status_update(socket, :inferring, details) do
+    # 新一轮推理开始，如果有未保存的 streaming 内容，先保存为消息
+    socket = maybe_save_streaming_as_message(socket)
+    assign(socket, :run_status, {:inferring, details})
+  end
+
+  defp handle_status_update(socket, :tool_start, %{tool: tool_name} = details) do
+    # 工具开始执行，添加到执行历史
+    execution = %{tool: tool_name, status: :running, started_at: DateTime.utc_now()}
+    socket
+    |> update(:tool_executions, &(&1 ++ [execution]))
+    |> assign(:run_status, {:tool_start, details})
+  end
+
+  defp handle_status_update(socket, :tool_done, %{tool: tool_name, result: result} = details) do
+    # 工具执行完成，更新执行历史
+    socket
+    |> update(:tool_executions, fn execs ->
+      Enum.map(execs, fn exec ->
+        if exec.tool == tool_name and exec.status == :running do
+          %{exec | status: :done, result: summarize_result(result)}
+        else
+          exec
+        end
+      end)
+    end)
+    |> assign(:run_status, {:tool_done, details})
+  end
+
+  defp handle_status_update(socket, status, details) do
+    assign(socket, :run_status, {status, details})
+  end
+
+  # 如果有 streaming 内容，保存为消息
+  defp maybe_save_streaming_as_message(socket) do
+    content = socket.assigns.streaming_content
+    if content && content != "" do
+      message = %{
+        id: System.unique_integer([:positive]),
+        role: "assistant",
+        content: content,
+        timestamp: DateTime.utc_now()
+      }
+      socket
+      |> update(:messages, &(&1 ++ [message]))
+      |> assign(:streaming_content, nil)
+    else
+      socket
+    end
+  end
+
+  # 简化工具结果用于显示
+  defp summarize_result(result) when is_binary(result) do
+    if String.length(result) > 100 do
+      String.slice(result, 0, 100) <> "..."
+    else
+      result
+    end
+  end
+  defp summarize_result(result), do: inspect(result, limit: 3)
 
   def handle_info(_msg, socket) do
     {:noreply, socket}

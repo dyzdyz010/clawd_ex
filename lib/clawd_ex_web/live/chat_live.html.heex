@@ -77,8 +77,32 @@
       </div>
     <% end %>
     
-<!-- Run Status -->
-    <%= if @run_status do %>
+<!-- Tool Executions History -->
+    <%= if @tool_executions != [] do %>
+      <div class="flex justify-start">
+        <div class="max-w-[80%] rounded-2xl px-3 py-2 shadow-sm bg-gray-50 text-gray-700 border border-gray-200 space-y-1">
+          <%= for exec <- @tool_executions do %>
+            <div class="flex items-center gap-2 text-xs">
+              <%= if exec.status == :running do %>
+                <svg class="animate-spin h-3 w-3 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                </svg>
+              <% else %>
+                <span class="text-green-600">✓</span>
+              <% end %>
+              <span class="font-mono"><%= exec.tool %></span>
+              <%= if exec[:result] do %>
+                <span class="text-gray-400 truncate max-w-[200px]"><%= exec.result %></span>
+              <% end %>
+            </div>
+          <% end %>
+        </div>
+      </div>
+    <% end %>
+
+    <!-- Current Status (inferring/etc) -->
+    <%= if @run_status && elem(@run_status, 0) == :inferring do %>
       <div class="flex justify-start">
         <div class="max-w-[80%] rounded-2xl px-4 py-2 shadow-sm bg-indigo-50 text-indigo-800 border border-indigo-200">
           <div class="flex items-center gap-2">
@@ -86,7 +110,7 @@
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
             </svg>
-            <span class="text-sm font-medium"><%= format_status(@run_status) %></span>
+            <span class="text-sm font-medium">思考中...</span>
           </div>
         </div>
       </div>
