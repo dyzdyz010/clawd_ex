@@ -11,6 +11,7 @@ defmodule ClawdEx.Agent.Prompt do
 
   alias ClawdEx.Repo
   alias ClawdEx.Agents.Agent
+  alias ClawdEx.Agent.Loop
 
   @base_prompt """
   You are a helpful AI assistant powered by ClawdEx.
@@ -28,6 +29,9 @@ defmodule ClawdEx.Agent.Prompt do
   - Use tools when needed to accomplish tasks
   - Ask for clarification when requests are ambiguous
   - Respect user privacy and security
+
+  ## Limits
+  - **Tool calls per turn:** Maximum #{Loop.max_tool_iterations()} tool calls per user message. Plan efficiently and batch operations when possible.
   """
 
   @doc """
