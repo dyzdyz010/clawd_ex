@@ -75,7 +75,11 @@ defmodule ClawdEx.AI.Chat do
 
         case Req.post("https://api.anthropic.com/v1/messages",
                json: body,
-               headers: anthropic_auth_headers(api_key)
+               headers: anthropic_auth_headers(api_key),
+               retry: :transient,
+               retry_delay: fn attempt -> attempt * 1000 end,
+               max_retries: 3,
+               receive_timeout: 120_000
              ) do
           {:ok, %{status: 200, body: body}} ->
             {:ok, parse_anthropic_response(body)}
@@ -111,7 +115,11 @@ defmodule ClawdEx.AI.Chat do
 
       case Req.post("https://api.openai.com/v1/chat/completions",
              json: body,
-             headers: [{"Authorization", "Bearer #{api_key}"}]
+             headers: [{"Authorization", "Bearer #{api_key}"}],
+             retry: :transient,
+             retry_delay: fn attempt -> attempt * 1000 end,
+             max_retries: 3,
+             receive_timeout: 120_000
            ) do
         {:ok, %{status: 200, body: body}} ->
           {:ok, parse_openai_response(body)}

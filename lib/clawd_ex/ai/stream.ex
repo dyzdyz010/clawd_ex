@@ -224,7 +224,7 @@ defmodule ClawdEx.AI.Stream do
       stop_reason: nil
     }
 
-    # 使用 Req 发送请求
+    # 使用 Req 发送请求，带重试机制
     request =
       Req.new(
         url: url,
@@ -232,6 +232,10 @@ defmodule ClawdEx.AI.Stream do
         json: body,
         headers: headers,
         receive_timeout: 120_000,
+        connect_options: [timeout: 30_000],
+        retry: :transient,
+        retry_delay: fn attempt -> attempt * 1000 end,  # 指数退避: 1s, 2s, 3s
+        max_retries: 3,
         into: :self
       )
 

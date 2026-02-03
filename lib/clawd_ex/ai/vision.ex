@@ -162,7 +162,10 @@ defmodule ClawdEx.AI.Vision do
         case Req.post("https://api.anthropic.com/v1/messages",
                json: body,
                headers: headers,
-               receive_timeout: timeout
+               receive_timeout: timeout,
+               retry: :transient,
+               retry_delay: fn attempt -> attempt * 1000 end,
+               max_retries: 3
              ) do
           {:ok, %{status: 200, body: %{"content" => [%{"text" => text} | _]}}} ->
             {:ok, text}
@@ -232,7 +235,10 @@ defmodule ClawdEx.AI.Vision do
                {"authorization", "Bearer #{api_key}"},
                {"content-type", "application/json"}
              ],
-             receive_timeout: timeout
+             receive_timeout: timeout,
+             retry: :transient,
+             retry_delay: fn attempt -> attempt * 1000 end,
+             max_retries: 3
            ) do
         {:ok, %{status: 200, body: %{"choices" => [%{"message" => %{"content" => text}} | _]}}} ->
           {:ok, text}
