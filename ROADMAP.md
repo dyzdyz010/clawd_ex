@@ -122,18 +122,37 @@
 - **WebChat**: 完整的 LiveView 管理界面
 - **稳定性**: 重试/超时/异步处理
 
-### 📋 可选工作
-- `apply_patch` - 多文件补丁 (按需)
-- 更多 AI 提供商 (Ollama 本地模型等)
-- 性能优化
-- 更多渠道支持
+### 📋 待开发 (按优先级)
+
+**P0 - 核心体验:**
+- [ ] CLI 基础命令 (status/health/configure)
+- [ ] Gateway 状态面板 + 健康检查
+- [ ] 日志查看器 (Web UI)
+- [ ] Cron 管理界面
+- [ ] 配置编辑器 (Web UI)
+
+**P1 - 重要功能:**
+- [ ] TUI 终端界面
+- [ ] 子代理完整功能 (cleanup/label)
+- [ ] WhatsApp/Signal 渠道
+- [ ] Sandbox 安全模式
+
+**P2 - 增强功能:**
+- [ ] 更多 AI 提供商 (Ollama/Groq/Qwen)
+- [ ] 插件系统
+- [ ] Skills 系统
+- [ ] Hooks/Webhooks
+
+详细功能对比见 [docs/FEATURES.md](docs/FEATURES.md)
 
 ### 📊 统计
-- **工具数量**: 21+ 个
+- **整体完成度**: ~39% (71/181 功能)
+- **工具数量**: 22/24 个
 - **测试用例**: 377 个
-- **渠道数量**: 3 个 (Telegram/Discord/WebChat)
-- **AI 提供商**: 4 个 (Anthropic/OpenAI/Gemini/OpenRouter)
-- **LiveView 页面**: 5 个
+- **渠道数量**: 3/11 个
+- **AI 提供商**: 5/10 个
+- **LiveView 页面**: 5/17 个
+- **CLI 命令**: 0/24 个
 
 ---
 
