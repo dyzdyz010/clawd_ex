@@ -81,6 +81,57 @@ defmodule ClawdEx.Channels.Telegram do
   end
 
   @doc """
+  发送图片到 Telegram
+  支持文件路径或 URL
+  """
+  def send_photo(chat_id, photo_path, opts \\ []) do
+    token = get_token()
+
+    if token do
+      do_send_photo(token, chat_id, photo_path, opts)
+    else
+      {:error, "Telegram bot not configured"}
+    end
+  end
+
+  defp do_send_photo(token, chat_id, photo_path, opts) do
+    chat_id = ensure_integer(chat_id)
+    caption = Keyword.get(opts, :caption)
+    reply_to = Keyword.get(opts, :reply_to)
+
+    # 判断是文件路径还是 URL
+    photo_param =
+      if String.starts_with?(photo_path, "http") do
+        # URL 直接发送
+        photo_path
+      else
+        # 文件路径，使用 multipart 上传
+        {:file, photo_path}
+      end
+
+    params =
+      [chat_id: chat_id, photo: photo_param]
+      |> maybe_add_caption(caption)
+      |> maybe_add_reply_params(reply_to)
+
+    case Telegram.Api.request(token, "sendPhoto", params) do
+      {:ok, message} ->
+        {:ok, format_message(message)}
+
+      {:error, %{"description" => description}} ->
+        Logger.error("Telegram send photo failed: #{description}")
+        {:error, description}
+
+      {:error, reason} ->
+        Logger.error("Telegram send photo failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp maybe_add_caption(params, nil), do: params
+  defp maybe_add_caption(params, caption), do: Keyword.put(params, :caption, caption)
+
+  @doc """
   发送聊天动作（如 typing 状态）
   """
   def send_chat_action(chat_id, action \\ "typing") do
@@ -150,16 +201,50 @@ defmodule ClawdEx.Channels.Telegram do
     case result do
       {:ok, response} when is_binary(response) ->
         Logger.info("Sending Telegram response to #{chat_id}: #{String.slice(response, 0, 50)}...")
-        case send_message(chat_id, response, reply_to: message.id) do
-          {:ok, _} -> Logger.info("Telegram message sent successfully")
-          {:error, err} -> Logger.error("Telegram send failed: #{inspect(err)}")
-        end
+        send_response_with_media(chat_id, response, reply_to: message.id)
         :ok
 
       {:error, reason} ->
         Logger.error("Session error: #{inspect(reason)}")
         send_message(chat_id, "抱歉，处理消息时出错了。")
         {:error, reason}
+    end
+  end
+
+  # 解析响应并发送，支持文本和媒体混合
+  defp send_response_with_media(chat_id, response, opts) do
+    # 解析 MEDIA: 标记的图片路径
+    # 格式: MEDIA: /path/to/image.png 或 MEDIA: https://...
+    media_regex = ~r/MEDIA:\s*(\S+\.(?:png|jpg|jpeg|gif|webp))/i
+
+    case Regex.scan(media_regex, response) do
+      [] ->
+        # 没有媒体，直接发送文本
+        case send_message(chat_id, response, opts) do
+          {:ok, _} -> Logger.info("Telegram message sent successfully")
+          {:error, err} -> Logger.error("Telegram send failed: #{inspect(err)}")
+        end
+
+      media_matches ->
+        # 有媒体文件，分别处理
+        # 先发送去除 MEDIA 标记的文本（如果有的话）
+        text_content = Regex.replace(media_regex, response, "") |> String.trim()
+
+        if text_content != "" do
+          case send_message(chat_id, text_content, opts) do
+            {:ok, _} -> Logger.info("Telegram text message sent")
+            {:error, err} -> Logger.error("Telegram text send failed: #{inspect(err)}")
+          end
+        end
+
+        # 发送所有媒体文件
+        Enum.each(media_matches, fn [_full_match, path] ->
+          Logger.info("Sending media: #{path}")
+          case send_photo(chat_id, path, opts) do
+            {:ok, _} -> Logger.info("Telegram photo sent successfully: #{path}")
+            {:error, err} -> Logger.error("Telegram photo send failed: #{inspect(err)}")
+          end
+        end)
     end
   end
 
