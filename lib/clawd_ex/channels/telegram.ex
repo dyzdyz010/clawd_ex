@@ -94,6 +94,32 @@ defmodule ClawdEx.Channels.Telegram do
     end
   end
 
+  @doc """
+  启动持续的 typing 指示器，返回停止函数
+  Telegram typing 状态约 5 秒后过期，所以每 4 秒发送一次
+  """
+  def start_typing_indicator(chat_id) do
+    parent = self()
+    ref = make_ref()
+
+    pid = spawn(fn ->
+      typing_loop(chat_id, parent, ref)
+    end)
+
+    # 返回停止函数
+    fn -> send(pid, {:stop, ref}) end
+  end
+
+  defp typing_loop(chat_id, parent, ref) do
+    send_chat_action(chat_id, "typing")
+
+    receive do
+      {:stop, ^ref} -> :ok
+    after
+      4_000 -> typing_loop(chat_id, parent, ref)
+    end
+  end
+
   @impl ClawdEx.Channels.Channel
   def handle_message(message) do
     chat_id = message.channel_id
@@ -112,11 +138,16 @@ defmodule ClawdEx.Channels.Telegram do
         :error
     end
 
-    # 发送 typing 状态
-    send_chat_action(chat_id, "typing")
+    # 启动持续的 typing 指示器
+    stop_typing = start_typing_indicator(chat_id)
 
     # 发送消息到会话
-    case SessionWorker.send_message(session_key, message.content) do
+    result = SessionWorker.send_message(session_key, message.content)
+
+    # 停止 typing 指示器
+    stop_typing.()
+
+    case result do
       {:ok, response} when is_binary(response) ->
         Logger.info("Sending Telegram response to #{chat_id}: #{String.slice(response, 0, 50)}...")
         case send_message(chat_id, response, reply_to: message.id) do
