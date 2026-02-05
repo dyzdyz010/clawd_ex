@@ -33,9 +33,18 @@ defmodule ClawdEx.Channels.Telegram do
   获取当前 bot token
   """
   def get_token do
-    GenServer.call(__MODULE__, :get_token)
+    # 优先从 GenServer 获取，失败则从 Application config 获取
+    case GenServer.call(__MODULE__, :get_token) do
+      nil -> get_token_from_config()
+      token -> token
+    end
   catch
-    :exit, _ -> nil
+    :exit, _ -> get_token_from_config()
+  end
+
+  defp get_token_from_config do
+    Application.get_env(:clawd_ex, :telegram_bot_token) ||
+      System.get_env("TELEGRAM_BOT_TOKEN")
   end
 
   @impl ClawdEx.Channels.Channel
@@ -77,17 +86,26 @@ defmodule ClawdEx.Channels.Telegram do
     session_key = "telegram:#{chat_id}"
 
     # 启动或获取会话
-    {:ok, _pid} =
-      SessionManager.start_session(
-        session_key: session_key,
-        agent_id: nil,
-        channel: "telegram"
-      )
+    case SessionManager.start_session(
+           session_key: session_key,
+           agent_id: nil,
+           channel: "telegram"
+         ) do
+      {:ok, _pid} -> :ok
+      {:error, {:already_started, _pid}} -> :ok
+      {:error, reason} ->
+        Logger.error("Failed to start session: #{inspect(reason)}")
+        :error
+    end
 
     # 发送消息到会话
     case SessionWorker.send_message(session_key, message.content) do
       {:ok, response} when is_binary(response) ->
-        send_message(chat_id, response, reply_to: message.id)
+        Logger.info("Sending Telegram response to #{chat_id}: #{String.slice(response, 0, 50)}...")
+        case send_message(chat_id, response, reply_to: message.id) do
+          {:ok, _} -> Logger.info("Telegram message sent successfully")
+          {:error, err} -> Logger.error("Telegram send failed: #{inspect(err)}")
+        end
         :ok
 
       {:error, reason} ->
