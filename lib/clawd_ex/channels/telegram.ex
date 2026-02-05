@@ -86,8 +86,8 @@ defmodule ClawdEx.Channels.Telegram do
 
     # 发送消息到会话
     case SessionWorker.send_message(session_key, message.content) do
-      {:ok, response} ->
-        send_message(chat_id, response.content, reply_to: message.id)
+      {:ok, response} when is_binary(response) ->
+        send_message(chat_id, response, reply_to: message.id)
         :ok
 
       {:error, reason} ->
