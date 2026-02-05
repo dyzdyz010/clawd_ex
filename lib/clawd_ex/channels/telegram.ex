@@ -213,11 +213,13 @@ defmodule ClawdEx.Channels.Telegram do
 
   # 解析响应并发送，支持文本和媒体混合
   defp send_response_with_media(chat_id, response, opts) do
-    # 解析 MEDIA: 标记的图片路径
-    # 格式: MEDIA: /path/to/image.png 或 MEDIA: https://...
-    media_regex = ~r/MEDIA:\s*(\S+\.(?:png|jpg|jpeg|gif|webp))/i
+    # 查找所有图片路径：
+    # 1. MEDIA: 标记的路径
+    # 2. 绝对路径 /path/to/image.png
+    # 3. URL https://...image.png
+    media_paths = extract_media_paths(response)
 
-    case Regex.scan(media_regex, response) do
+    case media_paths do
       [] ->
         # 没有媒体，直接发送文本
         case send_message(chat_id, response, opts) do
@@ -225,10 +227,10 @@ defmodule ClawdEx.Channels.Telegram do
           {:error, err} -> Logger.error("Telegram send failed: #{inspect(err)}")
         end
 
-      media_matches ->
+      paths ->
         # 有媒体文件，分别处理
-        # 先发送去除 MEDIA 标记的文本（如果有的话）
-        text_content = Regex.replace(media_regex, response, "") |> String.trim()
+        # 先发送去除媒体路径的文本（如果有的话）
+        text_content = remove_media_paths(response, paths) |> String.trim()
 
         if text_content != "" do
           case send_message(chat_id, text_content, opts) do
@@ -237,15 +239,56 @@ defmodule ClawdEx.Channels.Telegram do
           end
         end
 
-        # 发送所有媒体文件
-        Enum.each(media_matches, fn [_full_match, path] ->
-          Logger.info("Sending media: #{path}")
-          case send_photo(chat_id, path, opts) do
-            {:ok, _} -> Logger.info("Telegram photo sent successfully: #{path}")
-            {:error, err} -> Logger.error("Telegram photo send failed: #{inspect(err)}")
+        # 发送所有媒体文件（只发送存在的文件）
+        Enum.each(paths, fn path ->
+          if File.exists?(path) or String.starts_with?(path, "http") do
+            Logger.info("Sending media: #{path}")
+            case send_photo(chat_id, path, opts) do
+              {:ok, _} -> Logger.info("Telegram photo sent successfully: #{path}")
+              {:error, err} -> Logger.error("Telegram photo send failed: #{inspect(err)}")
+            end
+          else
+            Logger.warning("Media file not found: #{path}")
           end
         end)
     end
+  end
+
+  # 提取响应中的所有图片路径
+  defp extract_media_paths(response) do
+    # 匹配模式：
+    # 1. MEDIA: /path/to/file.png
+    # 2. 绝对路径 /xxx/xxx.png (不在代码块内)
+    # 3. URL https://xxx.png
+    patterns = [
+      # MEDIA: 标记
+      ~r/MEDIA:\s*(\S+\.(?:png|jpg|jpeg|gif|webp))/i,
+      # 绝对路径（以 / 开头，包含图片扩展名）
+      ~r/(?:^|[\s\n])(\/[\w\-\.\/]+\.(?:png|jpg|jpeg|gif|webp))(?:[\s\n,\)]|$)/im,
+      # HTTP(S) URL
+      ~r/(https?:\/\/\S+\.(?:png|jpg|jpeg|gif|webp))/i
+    ]
+
+    patterns
+    |> Enum.flat_map(fn pattern ->
+      Regex.scan(pattern, response)
+      |> Enum.map(fn
+        [_, path] -> path
+        [path] -> path
+      end)
+    end)
+    |> Enum.uniq()
+  end
+
+  # 从响应中移除媒体路径（避免显示原始路径）
+  defp remove_media_paths(response, paths) do
+    Enum.reduce(paths, response, fn path, acc ->
+      # 移除 MEDIA: path 格式
+      acc = Regex.replace(~r/MEDIA:\s*#{Regex.escape(path)}/i, acc, "")
+      # 移除 "文件路径: path" 格式
+      acc = Regex.replace(~r/文件路径[：:]\s*#{Regex.escape(path)}/i, acc, "[已发送图片]")
+      acc
+    end)
   end
 
   # Server Callbacks
