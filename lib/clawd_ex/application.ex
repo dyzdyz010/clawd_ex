@@ -31,6 +31,8 @@ defmodule ClawdEx.Application do
       ClawdEx.Sessions.SessionManager,
       # Discord channel (optional, starts if configured)
       ClawdEx.Channels.DiscordSupervisor,
+      # Telegram channel (optional, starts if configured)
+      ClawdEx.Channels.TelegramSupervisor,
       # Start to serve requests, typically the last entry
       ClawdExWeb.Endpoint
     ]

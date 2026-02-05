@@ -35,6 +35,11 @@ if discord_token = System.get_env("DISCORD_BOT_TOKEN") do
     num_shards: :auto
 end
 
+# Telegram configuration
+if telegram_token = System.get_env("TELEGRAM_BOT_TOKEN") do
+  config :clawd_ex, telegram_bot_token: telegram_token
+end
+
 config :clawd_ex, ClawdExWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
