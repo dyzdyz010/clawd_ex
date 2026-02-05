@@ -27,10 +27,22 @@ defmodule ClawdExWeb.Endpoint do
     only: ClawdExWeb.static_paths(),
     raise_on_missing_only: code_reloading?
 
-  # Serve browser screenshots and other media
+  # Serve browser screenshots
   plug Plug.Static,
     at: "/media/screenshots",
     from: {:clawd_ex, "priv/browser/screenshots"},
+    gzip: false
+
+  # Serve TTS audio files
+  plug Plug.Static,
+    at: "/media/tts",
+    from: {:clawd_ex, "priv/tts"},
+    gzip: false
+
+  # Serve general media files (uploads, generated content, etc.)
+  plug Plug.Static,
+    at: "/media/files",
+    from: {:clawd_ex, "priv/media"},
     gzip: false
 
   # Code reloading can be explicitly enabled under the

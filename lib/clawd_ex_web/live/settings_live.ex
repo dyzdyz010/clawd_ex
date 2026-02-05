@@ -1,7 +1,7 @@
 defmodule ClawdExWeb.SettingsLive do
   use ClawdExWeb, :live_view
 
-  @config_file "config/runtime.exs"
+  # @config_file "config/runtime.exs"
   @env_file ".env"
 
   @impl true
@@ -58,10 +58,10 @@ defmodule ClawdExWeb.SettingsLive do
       app_name: Application.get_env(:clawd_ex, :app_name, "ClawdEx"),
       environment: Application.get_env(:clawd_ex, :env, Mix.env()),
       port: Application.get_env(:clawd_ex, ClawdExWeb.Endpoint)[:http][:port] || 4000,
-      host:
-        Application.get_env(:clawd_ex, ClawdExWeb.Endpoint)[:url][:host] || "localhost",
+      host: Application.get_env(:clawd_ex, ClawdExWeb.Endpoint)[:url][:host] || "localhost",
       database_url: System.get_env("DATABASE_URL") || "postgresql://localhost/clawd_ex",
-      secret_key_configured: !!Application.get_env(:clawd_ex, ClawdExWeb.Endpoint)[:secret_key_base],
+      secret_key_configured:
+        !!Application.get_env(:clawd_ex, ClawdExWeb.Endpoint)[:secret_key_base],
       ai_providers: get_ai_providers()
     }
   end
@@ -168,8 +168,8 @@ defmodule ClawdExWeb.SettingsLive do
         <h1 class="text-2xl font-bold text-white">Settings</h1>
         <p class="text-gray-400 text-sm mt-1">Application configuration and system info</p>
       </div>
-
-      <!-- Tabs -->
+      
+    <!-- Tabs -->
       <div class="border-b border-gray-700">
         <nav class="flex gap-4">
           <.tab_button active={@active_tab} tab="general" label="General" />
@@ -178,8 +178,8 @@ defmodule ClawdExWeb.SettingsLive do
           <.tab_button active={@active_tab} tab="system" label="System Info" />
         </nav>
       </div>
-
-      <!-- Tab Content -->
+      
+    <!-- Tab Content -->
       <div class="bg-gray-800 rounded-lg p-6">
         <%= case @active_tab do %>
           <% "general" -> %>
@@ -192,8 +192,8 @@ defmodule ClawdExWeb.SettingsLive do
             <.system_tab system_info={@system_info} />
         <% end %>
       </div>
-
-      <!-- Actions -->
+      
+    <!-- Actions -->
       <div class="flex justify-end gap-3">
         <button
           phx-click="restart_app"
@@ -201,7 +201,12 @@ defmodule ClawdExWeb.SettingsLive do
           class="btn-secondary text-yellow-400"
         >
           <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            />
           </svg>
           Restart Application
         </button>
@@ -228,7 +233,7 @@ defmodule ClawdExWeb.SettingsLive do
       phx-value-tab={@tab}
       class={"pb-3 px-1 text-sm font-medium #{@classes}"}
     >
-      <%= @label %>
+      {@label}
     </button>
     """
   end
@@ -265,10 +270,10 @@ defmodule ClawdExWeb.SettingsLive do
             <div class="flex items-center gap-3">
               <div class={"w-3 h-3 rounded-full #{if configured, do: "bg-green-500", else: "bg-gray-500"}"}>
               </div>
-              <span class="text-white"><%= name %></span>
+              <span class="text-white">{name}</span>
             </div>
             <span class={"text-sm #{if configured, do: "text-green-400", else: "text-gray-500"}"}>
-              <%= if configured, do: "Configured", else: "Not configured" %>
+              {if configured, do: "Configured", else: "Not configured"}
             </span>
           </div>
         <% end %>
@@ -302,7 +307,7 @@ defmodule ClawdExWeb.SettingsLive do
               disabled={String.contains?(key, "KEY") || String.contains?(key, "SECRET")}
               class="flex-1 bg-gray-700 border-gray-600 text-white rounded px-3 py-2 font-mono text-sm disabled:opacity-50"
             />
-            <span class="text-gray-400 text-sm w-40 truncate" title={key}><%= key %></span>
+            <span class="text-gray-400 text-sm w-40 truncate" title={key}>{key}</span>
           </div>
         <% end %>
 
@@ -341,8 +346,8 @@ defmodule ClawdExWeb.SettingsLive do
   defp config_item(assigns) do
     ~H"""
     <div>
-      <dt class="text-sm text-gray-400"><%= @label %></dt>
-      <dd class="mt-1 text-white"><%= @value %></dd>
+      <dt class="text-sm text-gray-400">{@label}</dt>
+      <dd class="mt-1 text-white">{@value}</dd>
     </div>
     """
   end

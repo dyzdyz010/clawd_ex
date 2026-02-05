@@ -212,7 +212,7 @@ defmodule ClawdEx.Health do
 
   defp check_network do
     # Simple DNS check
-    case :inet.gethostbyname('google.com') do
+    case :inet.gethostbyname(~c"google.com") do
       {:ok, _} ->
         %{
           status: :ok,
