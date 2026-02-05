@@ -80,6 +80,20 @@ defmodule ClawdEx.Channels.Telegram do
     end
   end
 
+  @doc """
+  发送聊天动作（如 typing 状态）
+  """
+  def send_chat_action(chat_id, action \\ "typing") do
+    token = get_token()
+
+    if token do
+      chat_id = ensure_integer(chat_id)
+      Telegram.Api.request(token, "sendChatAction", chat_id: chat_id, action: action)
+    else
+      {:error, "Telegram bot not configured"}
+    end
+  end
+
   @impl ClawdEx.Channels.Channel
   def handle_message(message) do
     chat_id = message.channel_id
@@ -97,6 +111,9 @@ defmodule ClawdEx.Channels.Telegram do
         Logger.error("Failed to start session: #{inspect(reason)}")
         :error
     end
+
+    # 发送 typing 状态
+    send_chat_action(chat_id, "typing")
 
     # 发送消息到会话
     case SessionWorker.send_message(session_key, message.content) do
