@@ -258,26 +258,30 @@ defmodule ClawdEx.Channels.Telegram do
   defp extract_media_paths(response) do
     # 匹配模式：
     # 1. MEDIA: /path/to/file.png
-    # 2. 绝对路径 /xxx/xxx.png (不在代码块内)
+    # 2. 绝对路径 /xxx/xxx.png (支持各种包裹字符)
     # 3. URL https://xxx.png
     patterns = [
       # MEDIA: 标记
       ~r/MEDIA:\s*(\S+\.(?:png|jpg|jpeg|gif|webp))/i,
       # 绝对路径（以 / 开头，包含图片扩展名）
-      ~r/(?:^|[\s\n])(\/[\w\-\.\/]+\.(?:png|jpg|jpeg|gif|webp))(?:[\s\n,\)]|$)/im,
+      # 支持被空格、反引号、引号、换行等包裹
+      ~r/(?:^|[\s\n`'"*_\[（(])(\/[\w\-\.\/]+\.(?:png|jpg|jpeg|gif|webp))(?:[\s\n`'"*_\]）),]|$)/im,
       # HTTP(S) URL
-      ~r/(https?:\/\/\S+\.(?:png|jpg|jpeg|gif|webp))/i
+      ~r/(https?:\/\/[^\s`'"<>]+\.(?:png|jpg|jpeg|gif|webp))/i
     ]
 
-    patterns
+    paths = patterns
     |> Enum.flat_map(fn pattern ->
       Regex.scan(pattern, response)
       |> Enum.map(fn
-        [_, path] -> path
-        [path] -> path
+        [_, path] -> String.trim(path)
+        [path] -> String.trim(path)
       end)
     end)
     |> Enum.uniq()
+
+    Logger.debug("Extracted media paths: #{inspect(paths)}")
+    paths
   end
 
   # 从响应中移除媒体路径（避免显示原始路径）
