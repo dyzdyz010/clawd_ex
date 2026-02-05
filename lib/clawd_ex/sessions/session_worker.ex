@@ -22,7 +22,11 @@ defmodule ClawdEx.Sessions.SessionWorker do
     :agent_id,
     :channel,
     :loop_pid,
-    :config
+    :config,
+    # 跟踪是否有 agent 正在运行
+    agent_running: false,
+    # 缓存当前流式输出内容（用于页面切换后恢复）
+    streaming_content: ""
   ]
 
   # Client API
@@ -73,6 +77,13 @@ defmodule ClawdEx.Sessions.SessionWorker do
     GenServer.cast(via_tuple(session_key), :stop_run)
   end
 
+  @doc """
+  重置流式内容缓存（当 ChatLive 保存了当前内容后调用）
+  """
+  def reset_streaming_cache(session_key) do
+    GenServer.cast(via_tuple(session_key), :reset_streaming_cache)
+  end
+
   # Server Callbacks
 
   @impl true
@@ -106,6 +117,9 @@ defmodule ClawdEx.Sessions.SessionWorker do
       loop_pid: loop_pid,
       config: config
     }
+
+    # 订阅 agent 事件以缓存 streaming content
+    Phoenix.PubSub.subscribe(ClawdEx.PubSub, "agent:#{session.id}")
 
     Logger.info("Session started: #{session_key}")
     {:ok, state}
@@ -162,7 +176,9 @@ defmodule ClawdEx.Sessions.SessionWorker do
       session_id: state.session_id,
       agent_id: state.agent_id,
       channel: state.channel,
-      loop_state: loop_state
+      loop_state: loop_state,
+      agent_running: state.agent_running,
+      streaming_content: state.streaming_content
     }
 
     {:reply, response, state}
@@ -190,6 +206,11 @@ defmodule ClawdEx.Sessions.SessionWorker do
   end
 
   @impl true
+  def handle_cast(:reset_streaming_cache, state) do
+    {:noreply, %{state | streaming_content: ""}}
+  end
+
+  @impl true
   def handle_cast({:send_message_async, content, opts}, state) do
     # 异步处理：启动 Task 来运行 agent，结果通过 PubSub 发送
     session_key = state.session_key
@@ -197,8 +218,14 @@ defmodule ClawdEx.Sessions.SessionWorker do
 
     # 更新最后活动时间
     update_last_activity(state.session_id)
+    
+    # 标记 agent 正在运行
+    state = %{state | agent_running: true}
 
     # 在后台 Task 中运行 agent
+    # 注意：我们需要捕获 self() 来更新状态
+    worker_pid = self()
+    
     Task.start(fn ->
       result = safe_run_agent(loop_pid, content, opts)
 
@@ -208,8 +235,40 @@ defmodule ClawdEx.Sessions.SessionWorker do
         "session:#{session_key}",
         {:agent_result, result}
       )
+      
+      # 通知 worker agent 运行完成
+      send(worker_pid, :agent_finished)
     end)
 
+    {:noreply, state}
+  end
+  
+  @impl true
+  def handle_info(:agent_finished, state) do
+    # Agent 完成后清空 streaming_content
+    {:noreply, %{state | agent_running: false, streaming_content: ""}}
+  end
+
+  # 缓存流式内容，以便页面切换后恢复
+  @impl true
+  def handle_info({:agent_chunk, _run_id, %{content: content}}, state) do
+    new_content = (state.streaming_content || "") <> content
+    {:noreply, %{state | streaming_content: new_content}}
+  end
+
+  # 新一轮推理开始时 - 不再清空 streaming_content
+  # 让 ChatLive 来决定如何处理（它会保存为消息）
+  # SessionWorker 只在 agent 完成时清空
+  @impl true
+  def handle_info({:agent_status, _run_id, :inferring, _details}, state) do
+    # 保持 streaming_content 不变，让它累积
+    # ChatLive 会在收到 :inferring 时把当前内容保存为消息
+    {:noreply, state}
+  end
+
+  # 忽略其他 agent_status 事件
+  @impl true
+  def handle_info({:agent_status, _run_id, _status, _details}, state) do
     {:noreply, state}
   end
 

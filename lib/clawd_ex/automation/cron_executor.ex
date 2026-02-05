@@ -14,15 +14,29 @@ defmodule ClawdEx.Automation.CronExecutor do
 
   @doc """
   Execute a cron job based on its payload_type.
+  Wrapped in try/catch to ensure run status is always updated.
   """
   def execute(%CronJob{} = job, %CronJobRun{} = run) do
     Logger.info("Executing cron job: #{job.name} (#{job.payload_type})")
 
     result =
-      case job.payload_type do
-        "system_event" -> execute_system_event(job)
-        "agent_turn" -> execute_agent_turn(job)
-        _ -> {:error, "Unknown payload type: #{job.payload_type}"}
+      try do
+        case job.payload_type do
+          "system_event" -> execute_system_event(job)
+          "agent_turn" -> execute_agent_turn(job)
+          _ -> {:error, "Unknown payload type: #{job.payload_type}"}
+        end
+      rescue
+        e ->
+          Logger.error(
+            "Cron job execution crashed: #{Exception.message(e)}\n#{Exception.format_stacktrace(__STACKTRACE__)}"
+          )
+
+          {:error, "Execution crashed: #{Exception.message(e)}"}
+      catch
+        kind, reason ->
+          Logger.error("Cron job execution error: #{kind} - #{inspect(reason)}")
+          {:error, "Execution error: #{kind} - #{inspect(reason)}"}
       end
 
     # Update run status based on result
@@ -57,24 +71,36 @@ defmodule ClawdEx.Automation.CronExecutor do
   # =============================================================================
 
   defp execute_system_event(job) do
+    Logger.debug("Job: #{inspect(job, pretty: true)}")
     session_key = job.session_key || get_default_session_key(job)
 
     if session_key do
-      # Get or start the session
-      opts = [session_key: session_key]
-      opts = if job.agent_id, do: Keyword.put(opts, :agent_id, job.agent_id), else: opts
+      # Get or start the session with existing session_key
+      execute_with_session(job, session_key, _cleanup = false)
+    else
+      # No session_key configured, fall back to creating a temporary session
+      Logger.info("No session_key for system_event mode, creating temporary session")
+      run_id = :crypto.strong_rand_bytes(8) |> Base.url_encode64(padding: false)
+      temp_session_key = "cron:#{job.id}:#{run_id}"
+      execute_with_session(job, temp_session_key, _cleanup = true)
+    end
+  end
 
-      case SessionManager.start_session(opts) do
-        {:ok, pid} ->
-          # Send the command as a message
-          timeout = (job.timeout_seconds || 300) * 1000
+  # Execute job with a given session key
+  defp execute_with_session(job, session_key, cleanup) do
+    opts = [session_key: session_key, channel: "cron"]
+    opts = if job.agent_id, do: Keyword.put(opts, :agent_id, job.agent_id), else: opts
 
+    case SessionManager.start_session(opts) do
+      {:ok, pid} ->
+        # Send the command as a message
+        timeout = (job.timeout_seconds || 300) * 1000
+
+        result =
           try do
-            result = GenServer.call(pid, {:send_message, job.command, []}, timeout)
-
-            case result do
+            case GenServer.call(pid, {:send_message, job.command, []}, timeout) do
               {:ok, response} ->
-                # Optionally deliver to target channel
+                # Deliver to target channel and save to result session
                 maybe_deliver_to_channel(job, response)
                 {:ok, response}
 
@@ -83,14 +109,27 @@ defmodule ClawdEx.Automation.CronExecutor do
             end
           catch
             :exit, {:timeout, _} ->
+              Logger.warning("Cron job timed out after #{job.timeout_seconds}s")
               {:error, "Execution timed out after #{job.timeout_seconds}s"}
+
+            :exit, {:noproc, _} ->
+              Logger.warning("Session worker died during execution")
+              {:error, "Session worker died during execution"}
+
+            :exit, reason ->
+              Logger.warning("GenServer.call exited: #{inspect(reason)}")
+              {:error, "Session call failed: #{inspect(reason)}"}
           end
 
-        {:error, reason} ->
-          {:error, "Failed to get session: #{inspect(reason)}"}
-      end
-    else
-      {:error, "No session_key configured for system_event mode"}
+        # Cleanup temporary session if needed
+        if cleanup do
+          cleanup_session(session_key)
+        end
+
+        result
+
+      {:error, reason} ->
+        {:error, "Failed to get session: #{inspect(reason)}"}
     end
   end
 
@@ -148,20 +187,52 @@ defmodule ClawdEx.Automation.CronExecutor do
   end
 
   # =============================================================================
-  # Channel Delivery
+  # Channel Delivery - New implementation with notify list
   # =============================================================================
 
+  defp maybe_deliver_to_channel(
+         %{notify: notify, result_session_key: result_session_key, name: job_name},
+         response
+       )
+       when is_list(notify) and length(notify) > 0 do
+    Logger.info("Delivering cron result to #{length(notify)} targets")
+
+    message = format_result_message(job_name, response)
+
+    # Send to all notify targets
+    Enum.each(notify, fn
+      %{"channel" => channel, "target" => target} ->
+        deliver_to_target(channel, target, message)
+
+      # Handle atom keys too
+      %{channel: channel, target: target} ->
+        deliver_to_target(to_string(channel), to_string(target), message)
+
+      _ ->
+        :ok
+    end)
+
+    # Also save to result session
+    save_to_result_session(result_session_key, job_name, response)
+  end
+
+  defp maybe_deliver_to_channel(
+         %{result_session_key: result_session_key, name: job_name},
+         response
+       )
+       when is_binary(result_session_key) do
+    # No notify targets, but save to result session
+    save_to_result_session(result_session_key, job_name, response)
+  end
+
+  # Legacy fallback for old jobs without notify field
   defp maybe_deliver_to_channel(%{target_channel: nil}, _response), do: :ok
   defp maybe_deliver_to_channel(%{target_channel: ""}, _response), do: :ok
 
   defp maybe_deliver_to_channel(%{target_channel: channel, name: job_name}, response) do
-    Logger.info("Delivering cron result to channel: #{channel}")
+    Logger.info("Delivering cron result to legacy channel: #{channel}")
 
-    message = """
-    ⏰ **Cron Job Complete: #{job_name}**
-
-    #{truncate_output(response, 2000)}
-    """
+    message = format_result_message(job_name, response)
 
     case channel do
       "telegram" ->
@@ -171,13 +242,103 @@ defmodule ClawdEx.Automation.CronExecutor do
         deliver_to_discord(message)
 
       "webchat" ->
-        # For webchat, just broadcast via PubSub
-        Phoenix.PubSub.broadcast(ClawdEx.PubSub, "cron:results", {:cron_result, job_name, response})
+        Phoenix.PubSub.broadcast(
+          ClawdEx.PubSub,
+          "cron:results",
+          {:cron_result, job_name, response}
+        )
+
         :ok
 
       _ ->
         Logger.warning("Unknown target channel: #{channel}")
         :ok
+    end
+  end
+
+  defp maybe_deliver_to_channel(_, _), do: :ok
+
+  defp format_result_message(job_name, response) do
+    """
+    ⏰ **定时任务完成: #{job_name}**
+
+    #{truncate_output(response, 3500)}
+    """
+  end
+
+  defp deliver_to_target(channel, target, message) do
+    Logger.info("Sending to #{channel}:#{target}")
+
+    case channel do
+      "telegram" ->
+        ClawdEx.Channels.Telegram.send_message(target, message)
+
+      "discord" ->
+        ClawdEx.Channels.Discord.send_message(target, message)
+
+      _ ->
+        Logger.warning("Unknown channel type: #{channel}")
+        :ok
+    end
+  rescue
+    e ->
+      Logger.error("Failed to deliver to #{channel}:#{target}: #{Exception.message(e)}")
+      :ok
+  end
+
+  defp save_to_result_session(nil, _job_name, _response), do: :ok
+  defp save_to_result_session("", _job_name, _response), do: :ok
+
+  defp save_to_result_session(result_session_key, job_name, response) do
+    Logger.info("Saving result to session: #{result_session_key}")
+
+    # Ensure session exists in database
+    session = ensure_result_session(result_session_key)
+
+    # Save the result as an assistant message
+    timestamp = DateTime.utc_now() |> DateTime.to_iso8601()
+
+    result_message = """
+    📋 **#{job_name}** - #{timestamp}
+
+    #{response}
+    """
+
+    # Insert message directly to database
+    %ClawdEx.Sessions.Message{}
+    |> ClawdEx.Sessions.Message.changeset(%{
+      session_id: session.id,
+      role: :assistant,
+      content: result_message
+    })
+    |> Repo.insert()
+    |> case do
+      {:ok, _msg} ->
+        Logger.debug("Result saved to session #{result_session_key}")
+        :ok
+
+      {:error, reason} ->
+        Logger.error("Failed to save result message: #{inspect(reason)}")
+        :ok
+    end
+  end
+
+  defp ensure_result_session(result_session_key) do
+    alias ClawdEx.Sessions.Session
+
+    case Repo.get_by(Session, session_key: result_session_key) do
+      nil ->
+        # Create the result session
+        %Session{}
+        |> Session.changeset(%{
+          session_key: result_session_key,
+          channel: "cron_results",
+          state: :active
+        })
+        |> Repo.insert!()
+
+      session ->
+        session
     end
   end
 
@@ -216,17 +377,37 @@ defmodule ClawdEx.Automation.CronExecutor do
         nil
 
       agent_id ->
-        # Look for the most recent active session
-        import Ecto.Query
+        # Convert string agent_id to integer for Session query
+        # (CronJob stores agent_id as string, Session uses integer foreign key)
+        case parse_agent_id(agent_id) do
+          nil ->
+            Logger.warning("Invalid agent_id format: #{inspect(agent_id)}")
+            nil
 
-        ClawdEx.Sessions.Session
-        |> where([s], s.agent_id == ^agent_id and s.state == :active)
-        |> order_by([s], desc: s.last_activity_at)
-        |> limit(1)
-        |> select([s], s.session_key)
-        |> Repo.one()
+          int_agent_id ->
+            # Look for the most recent active session
+            import Ecto.Query
+
+            ClawdEx.Sessions.Session
+            |> where([s], s.agent_id == ^int_agent_id and s.state == :active)
+            |> order_by([s], desc: s.last_activity_at)
+            |> limit(1)
+            |> select([s], s.session_key)
+            |> Repo.one()
+        end
     end
   end
+
+  defp parse_agent_id(agent_id) when is_integer(agent_id), do: agent_id
+
+  defp parse_agent_id(agent_id) when is_binary(agent_id) do
+    case Integer.parse(agent_id) do
+      {int, ""} -> int
+      _ -> nil
+    end
+  end
+
+  defp parse_agent_id(_), do: nil
 
   defp cleanup_session(session_key) do
     # Archive the session

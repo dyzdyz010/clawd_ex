@@ -193,13 +193,23 @@ defmodule ClawdExWeb.LogsLive do
             class={if @auto_refresh, do: "btn-primary", else: "btn-secondary"}
           >
             <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
             </svg>
-            <%= if @auto_refresh, do: "Auto: ON", else: "Auto: OFF" %>
+            {if @auto_refresh, do: "Auto: ON", else: "Auto: OFF"}
           </button>
           <button phx-click="refresh" class="btn-secondary">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
             </svg>
           </button>
         </div>
@@ -222,7 +232,7 @@ defmodule ClawdExWeb.LogsLive do
                       phx-value-file={file}
                       class={"w-full text-left px-3 py-2 rounded text-sm #{if @selected_file == file, do: "bg-blue-600 text-white", else: "text-gray-300 hover:bg-gray-700"}"}
                     >
-                      <%= file %>
+                      {file}
                     </button>
                   </li>
                 <% end %>
@@ -230,8 +240,8 @@ defmodule ClawdExWeb.LogsLive do
             <% end %>
           </div>
         </div>
-
-        <!-- Log Viewer -->
+        
+    <!-- Log Viewer -->
         <div class="lg:col-span-3">
           <div class="bg-gray-800 rounded-lg overflow-hidden">
             <!-- Filters -->
@@ -245,7 +255,7 @@ defmodule ClawdExWeb.LogsLive do
                 >
                   <%= for level <- ["all", "error", "warn", "info", "debug"] do %>
                     <option value={level} selected={@level == level}>
-                      <%= String.capitalize(level) %>
+                      {String.capitalize(level)}
                     </option>
                   <% end %>
                 </select>
@@ -273,8 +283,8 @@ defmodule ClawdExWeb.LogsLive do
                 </button>
               <% end %>
             </div>
-
-            <!-- Log Content -->
+            
+    <!-- Log Content -->
             <div class="h-[600px] overflow-auto p-4 font-mono text-sm">
               <%= if @selected_file == nil do %>
                 <div class="text-gray-500 text-center py-8">
@@ -289,7 +299,7 @@ defmodule ClawdExWeb.LogsLive do
                   <div class="space-y-0.5">
                     <%= for entry <- @log_content do %>
                       <div class={"py-0.5 #{log_level_class(entry.level)}"}>
-                        <%= entry.text %>
+                        {entry.text}
                       </div>
                     <% end %>
                   </div>

@@ -76,7 +76,7 @@
       <div class="flex justify-between items-center mb-4">
         <h2 class="text-xl font-semibold">System Health</h2>
         <span class={"px-3 py-1 rounded-full text-sm font-medium #{if @health.healthy, do: "bg-green-500/20 text-green-400", else: "bg-red-500/20 text-red-400"}"}>
-          <%= if @health.healthy, do: "✓ Healthy", else: "✗ Issues Detected" %>
+          {if @health.healthy, do: "✓ Healthy", else: "✗ Issues Detected"}
         </span>
       </div>
       <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
@@ -84,14 +84,14 @@
           <div class={"p-3 rounded-lg #{health_check_bg(check.status)}"}>
             <div class="flex items-center gap-2 mb-1">
               <span class={"text-sm #{health_check_color(check.status)}"}>
-                <%= health_check_icon(check.status) %>
+                {health_check_icon(check.status)}
               </span>
               <span class="text-sm font-medium text-white capitalize">
-                <%= name %>
+                {name}
               </span>
             </div>
             <div class="text-xs text-gray-400 truncate" title={check.message}>
-              <%= String.slice(check.message || "", 0, 30) %>
+              {String.slice(check.message || "", 0, 30)}
             </div>
           </div>
         <% end %>

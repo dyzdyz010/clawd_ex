@@ -101,16 +101,19 @@ defmodule ClawdExWeb.CronJobFormLive do
     <div class="max-w-2xl mx-auto">
       <!-- Header -->
       <div class="mb-6">
-        <.link navigate={~p"/cron"} class="text-gray-400 hover:text-white text-sm flex items-center gap-1 mb-2">
+        <.link
+          navigate={~p"/cron"}
+          class="text-gray-400 hover:text-white text-sm flex items-center gap-1 mb-2"
+        >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
           </svg>
           Back to Cron Jobs
         </.link>
-        <h1 class="text-2xl font-bold text-white"><%= @page_title %></h1>
+        <h1 class="text-2xl font-bold text-white">{@page_title}</h1>
       </div>
-
-      <!-- Form -->
+      
+    <!-- Form -->
       <.form for={@form} phx-change="validate" phx-submit="save" class="space-y-6">
         <div class="bg-gray-800 rounded-lg p-6 space-y-6">
           <!-- Name -->
@@ -123,8 +126,8 @@ defmodule ClawdExWeb.CronJobFormLive do
               class="w-full bg-gray-700 border-gray-600 text-white rounded-lg px-4 py-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
-
-          <!-- Description -->
+          
+    <!-- Description -->
           <div>
             <label class="block text-sm font-medium text-gray-300 mb-2">Description</label>
             <.input
@@ -135,10 +138,12 @@ defmodule ClawdExWeb.CronJobFormLive do
               class="w-full bg-gray-700 border-gray-600 text-white rounded-lg px-4 py-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
-
-          <!-- Schedule -->
+          
+    <!-- Schedule -->
           <div>
-            <label class="block text-sm font-medium text-gray-300 mb-2">Schedule (Cron Expression) *</label>
+            <label class="block text-sm font-medium text-gray-300 mb-2">
+              Schedule (Cron Expression) *
+            </label>
             <.input
               field={@form[:schedule]}
               type="text"
@@ -149,8 +154,8 @@ defmodule ClawdExWeb.CronJobFormLive do
               Format: minute hour day month weekday (e.g., "0 9 * * *" = every day at 9:00 AM)
             </p>
           </div>
-
-          <!-- Command -->
+          
+    <!-- Command -->
           <div>
             <label class="block text-sm font-medium text-gray-300 mb-2">Command / Text *</label>
             <.input
@@ -161,8 +166,8 @@ defmodule ClawdExWeb.CronJobFormLive do
               class="w-full bg-gray-700 border-gray-600 text-white rounded-lg px-4 py-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
-
-          <!-- Agent -->
+          
+    <!-- Agent -->
           <div>
             <label class="block text-sm font-medium text-gray-300 mb-2">Agent</label>
             <.input
@@ -172,8 +177,8 @@ defmodule ClawdExWeb.CronJobFormLive do
               class="w-full bg-gray-700 border-gray-600 text-white rounded-lg px-4 py-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
-
-          <!-- Timezone -->
+          
+    <!-- Timezone -->
           <div>
             <label class="block text-sm font-medium text-gray-300 mb-2">Timezone</label>
             <.input
@@ -183,8 +188,8 @@ defmodule ClawdExWeb.CronJobFormLive do
               class="w-full bg-gray-700 border-gray-600 text-white rounded-lg px-4 py-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
-
-          <!-- Enabled -->
+          
+    <!-- Enabled -->
           <div class="flex items-center gap-3">
             <.input
               field={@form[:enabled]}
@@ -194,12 +199,12 @@ defmodule ClawdExWeb.CronJobFormLive do
             <label class="text-sm text-gray-300">Enabled</label>
           </div>
         </div>
-
-        <!-- Execution Settings -->
+        
+    <!-- Execution Settings -->
         <div class="bg-gray-800 rounded-lg p-6 space-y-6">
           <h3 class="text-lg font-medium text-white">Execution Settings</h3>
-
-          <!-- Payload Type -->
+          
+    <!-- Payload Type -->
           <div>
             <label class="block text-sm font-medium text-gray-300 mb-2">Execution Mode</label>
             <.input
@@ -215,10 +220,12 @@ defmodule ClawdExWeb.CronJobFormLive do
               System Event: Sends message to an existing session. Agent Turn: Creates a temporary session.
             </p>
           </div>
-
-          <!-- Session Key (for system_event) -->
+          
+    <!-- Session Key (for system_event) -->
           <div>
-            <label class="block text-sm font-medium text-gray-300 mb-2">Target Session (for System Event)</label>
+            <label class="block text-sm font-medium text-gray-300 mb-2">
+              Target Session (for System Event)
+            </label>
             <.input
               field={@form[:session_key]}
               type="select"
@@ -229,8 +236,8 @@ defmodule ClawdExWeb.CronJobFormLive do
               Select a session to inject the message into. "Auto" will use the most recent active session.
             </p>
           </div>
-
-          <!-- Target Channel -->
+          
+    <!-- Target Channel -->
           <div>
             <label class="block text-sm font-medium text-gray-300 mb-2">Deliver Results To</label>
             <.input
@@ -245,10 +252,12 @@ defmodule ClawdExWeb.CronJobFormLive do
               class="w-full bg-gray-700 border-gray-600 text-white rounded-lg px-4 py-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
-
-          <!-- Cleanup (for agent_turn) -->
+          
+    <!-- Cleanup (for agent_turn) -->
           <div>
-            <label class="block text-sm font-medium text-gray-300 mb-2">Session Cleanup (for Agent Turn)</label>
+            <label class="block text-sm font-medium text-gray-300 mb-2">
+              Session Cleanup (for Agent Turn)
+            </label>
             <.input
               field={@form[:cleanup]}
               type="select"
@@ -259,8 +268,8 @@ defmodule ClawdExWeb.CronJobFormLive do
               class="w-full bg-gray-700 border-gray-600 text-white rounded-lg px-4 py-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
-
-          <!-- Timeout -->
+          
+    <!-- Timeout -->
           <div>
             <label class="block text-sm font-medium text-gray-300 mb-2">Timeout (seconds)</label>
             <.input
@@ -272,19 +281,19 @@ defmodule ClawdExWeb.CronJobFormLive do
             />
           </div>
         </div>
-
-        <!-- Actions -->
+        
+    <!-- Actions -->
         <div class="flex justify-end gap-3">
           <.link navigate={~p"/cron"} class="btn-secondary">
             Cancel
           </.link>
           <button type="submit" class="btn-primary">
-            <%= if @live_action == :new, do: "Create Job", else: "Update Job" %>
+            {if @live_action == :new, do: "Create Job", else: "Update Job"}
           </button>
         </div>
       </.form>
-
-      <!-- Cron Help -->
+      
+    <!-- Cron Help -->
       <div class="mt-8 bg-gray-800 rounded-lg p-6">
         <h3 class="text-lg font-medium text-white mb-4">Cron Expression Help</h3>
         <div class="space-y-2 text-sm">
@@ -308,7 +317,9 @@ defmodule ClawdExWeb.CronJobFormLive do
               <li><code class="text-blue-400">0 9 * * *</code> - Every day at 9:00 AM</li>
               <li><code class="text-blue-400">*/15 * * * *</code> - Every 15 minutes</li>
               <li><code class="text-blue-400">0 0 * * 0</code> - Every Sunday at midnight</li>
-              <li><code class="text-blue-400">0 9 1 * *</code> - First day of every month at 9:00 AM</li>
+              <li>
+                <code class="text-blue-400">0 9 1 * *</code> - First day of every month at 9:00 AM
+              </li>
             </ul>
           </div>
         </div>

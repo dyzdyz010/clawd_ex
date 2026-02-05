@@ -46,9 +46,16 @@ defmodule ClawdEx.CLI.Configure do
       "HOST" => host
     }
 
-    env = if anthropic_key && anthropic_key != "", do: Map.put(env, "ANTHROPIC_API_KEY", anthropic_key), else: env
-    env = if openai_key && openai_key != "", do: Map.put(env, "OPENAI_API_KEY", openai_key), else: env
-    env = if google_key && google_key != "", do: Map.put(env, "GOOGLE_API_KEY", google_key), else: env
+    env =
+      if anthropic_key && anthropic_key != "",
+        do: Map.put(env, "ANTHROPIC_API_KEY", anthropic_key),
+        else: env
+
+    env =
+      if openai_key && openai_key != "", do: Map.put(env, "OPENAI_API_KEY", openai_key), else: env
+
+    env =
+      if google_key && google_key != "", do: Map.put(env, "GOOGLE_API_KEY", google_key), else: env
 
     # Save
     IO.puts("\n--- Summary ---")

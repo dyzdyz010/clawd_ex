@@ -96,8 +96,8 @@ defmodule ClawdExWeb.CronJobsLive do
           New Job
         </.link>
       </div>
-
-      <!-- Stats -->
+      
+    <!-- Stats -->
       <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
         <.stat_card label="Total Jobs" value={@stats.total_jobs} />
         <.stat_card label="Enabled" value={@stats.enabled_jobs} color="green" />
@@ -105,19 +105,29 @@ defmodule ClawdExWeb.CronJobsLive do
         <.stat_card label="Total Runs" value={@stats.total_runs} color="blue" />
         <.stat_card label="Failed Runs" value={@stats.failed_runs} color="red" />
       </div>
-
-      <!-- Filters -->
+      
+    <!-- Filters -->
       <div class="flex gap-2">
         <.filter_button filter={@filter} value="all" label="All" />
         <.filter_button filter={@filter} value="enabled" label="Enabled Only" />
       </div>
-
-      <!-- Jobs List -->
+      
+    <!-- Jobs List -->
       <div class="bg-gray-800 rounded-lg overflow-hidden">
         <%= if Enum.empty?(@jobs) do %>
           <div class="p-8 text-center text-gray-400">
-            <svg class="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <svg
+              class="w-12 h-12 mx-auto mb-4 opacity-50"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
             </svg>
             <p>No cron jobs yet</p>
             <.link navigate={~p"/cron/new"} class="text-blue-400 hover:underline mt-2 inline-block">
@@ -129,38 +139,49 @@ defmodule ClawdExWeb.CronJobsLive do
             <thead class="bg-gray-700/50">
               <tr>
                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Name</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Schedule</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Last Run</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                  Schedule
+                </th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                  Last Run
+                </th>
                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Runs</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Status</th>
-                <th class="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Actions</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                  Status
+                </th>
+                <th class="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-700">
               <%= for job <- @jobs do %>
                 <tr class="hover:bg-gray-700/30">
                   <td class="px-4 py-3">
-                    <.link navigate={~p"/cron/#{job.id}"} class="font-medium text-white hover:text-blue-400">
-                      <%= job.name %>
+                    <.link
+                      navigate={~p"/cron/#{job.id}"}
+                      class="font-medium text-white hover:text-blue-400"
+                    >
+                      {job.name}
                     </.link>
                     <%= if job.description do %>
-                      <p class="text-xs text-gray-500 truncate max-w-xs"><%= job.description %></p>
+                      <p class="text-xs text-gray-500 truncate max-w-xs">{job.description}</p>
                     <% end %>
                   </td>
                   <td class="px-4 py-3">
                     <code class="text-sm text-gray-300 bg-gray-700 px-2 py-1 rounded">
-                      <%= job.schedule %>
+                      {job.schedule}
                     </code>
                   </td>
                   <td class="px-4 py-3 text-sm text-gray-400">
                     <%= if job.last_run_at do %>
-                      <%= format_datetime(job.last_run_at) %>
+                      {format_datetime(job.last_run_at)}
                     <% else %>
                       <span class="text-gray-500">Never</span>
                     <% end %>
                   </td>
                   <td class="px-4 py-3 text-sm text-gray-400">
-                    <%= job.run_count %>
+                    {job.run_count}
                   </td>
                   <td class="px-4 py-3">
                     <.status_badge enabled={job.enabled} />
@@ -174,27 +195,59 @@ defmodule ClawdExWeb.CronJobsLive do
                         title="Run Now"
                       >
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
+                          />
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                          />
                         </svg>
                       </button>
                       <button
                         phx-click="toggle"
                         phx-value-id={job.id}
-                        class={if job.enabled, do: "text-yellow-400 hover:text-yellow-300", else: "text-green-400 hover:text-green-300"}
+                        class={
+                          if job.enabled,
+                            do: "text-yellow-400 hover:text-yellow-300",
+                            else: "text-green-400 hover:text-green-300"
+                        }
                         title={if job.enabled, do: "Disable", else: "Enable"}
                       >
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <%= if job.enabled do %>
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              stroke-width="2"
+                              d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
                           <% else %>
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              stroke-width="2"
+                              d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
+                            />
                           <% end %>
                         </svg>
                       </button>
-                      <.link navigate={~p"/cron/#{job.id}/edit"} class="text-gray-400 hover:text-white">
+                      <.link
+                        navigate={~p"/cron/#{job.id}/edit"}
+                        class="text-gray-400 hover:text-white"
+                      >
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                          />
                         </svg>
                       </.link>
                       <button
@@ -204,7 +257,12 @@ defmodule ClawdExWeb.CronJobsLive do
                         class="text-red-400 hover:text-red-300"
                       >
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                          />
                         </svg>
                       </button>
                     </div>
@@ -233,8 +291,8 @@ defmodule ClawdExWeb.CronJobsLive do
 
     ~H"""
     <div class="bg-gray-800 rounded-lg p-4">
-      <div class={"text-2xl font-bold #{@color_classes}"}><%= @value %></div>
-      <div class="text-xs text-gray-500 mt-1"><%= @label %></div>
+      <div class={"text-2xl font-bold #{@color_classes}"}>{@value}</div>
+      <div class="text-xs text-gray-500 mt-1">{@label}</div>
     </div>
     """
   end
@@ -253,7 +311,7 @@ defmodule ClawdExWeb.CronJobsLive do
 
     ~H"""
     <.link patch={~p"/cron?filter=#{@value}"} class={"px-4 py-2 rounded-lg text-sm #{@classes}"}>
-      <%= @label %>
+      {@label}
     </.link>
     """
   end
@@ -270,7 +328,7 @@ defmodule ClawdExWeb.CronJobsLive do
 
     ~H"""
     <span class={"px-2 py-1 rounded text-xs font-medium #{@classes}"}>
-      <%= @text %>
+      {@text}
     </span>
     """
   end

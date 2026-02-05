@@ -22,7 +22,7 @@
   <main
     class="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin"
     id="messages-container"
-    phx-hook="ScrollBottom"
+    phx-hook="MessageContainer"
   >
     <%= if @messages == [] do %>
       <div class="flex flex-col items-center justify-center h-full text-gray-400">
@@ -32,28 +32,36 @@
       </div>
     <% else %>
       <%= for message <- @messages do %>
-        <div class={[
-          "flex",
-          message.role == "user" && "justify-end",
-          message.role != "user" && "justify-start"
-        ]}>
+        <%= if message.role == "tools" do %>
+          <%!-- 工具调用消息（已保存的历史） --%>
+          <.tools_bubble tools={message.content} collapsed={true} />
+        <% else %>
           <div class={[
-            "max-w-[80%] rounded-2xl px-4 py-2 shadow-sm",
-            message.role == "user" && "bg-blue-600 text-white",
-            message.role == "assistant" && "bg-gray-700 text-gray-100",
-            message.role == "error" && "bg-red-900/50 text-red-200 border border-red-700"
+            "flex",
+            message.role == "user" && "justify-end",
+            message.role != "user" && "justify-start"
           ]}>
-            <div class="break-words">
-              {ClawdExWeb.ContentRenderer.render_content(message.content)}
-            </div>
             <div class={[
-              "text-xs mt-1 opacity-70",
-              message.role == "user" && "text-right"
+              "max-w-[80%] rounded-2xl px-4 py-2 shadow-sm",
+              message.role == "user" && "bg-blue-600 text-white",
+              message.role == "assistant" && "bg-gray-700 text-gray-100",
+              message.role == "error" && "bg-red-900/50 text-red-200 border border-red-700"
             ]}>
-              {Calendar.strftime(message.timestamp, "%H:%M")}
+              <div class={[
+                "break-words",
+                message.role == "assistant" && "message-content"
+              ]}>
+                {ClawdExWeb.ContentRenderer.render_content(message.content)}
+              </div>
+              <div class={[
+                "text-xs mt-1 opacity-70",
+                message.role == "user" && "text-right"
+              ]}>
+                {Calendar.strftime(message.timestamp, "%H:%M")}
+              </div>
             </div>
           </div>
-        </div>
+        <% end %>
       <% end %>
     <% end %>
     
@@ -61,7 +69,7 @@
     <%= if @streaming_content && @streaming_content != "" do %>
       <div class="flex justify-start">
         <div class="max-w-[80%] rounded-2xl px-4 py-2 shadow-sm bg-gray-700 text-gray-100">
-          <div class="whitespace-pre-wrap break-words">
+          <div class="message-content break-words">
             {ClawdExWeb.ContentRenderer.render_content(@streaming_content)}
           </div>
           <div class="flex items-center gap-1 mt-1">
@@ -81,13 +89,33 @@
       </div>
     <% end %>
     
-<!-- Tool Executions History -->
+<!-- Tool Executions History (实时工具调用) -->
     <%= if @tool_executions != [] do %>
       <div class="flex justify-start">
         <div class="max-w-[85%] rounded-2xl px-3 py-2 shadow-sm bg-gray-900 text-gray-300 border border-gray-700">
-          <div class="text-xs text-gray-400 mb-2 font-medium">🔧 工具调用</div>
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-xs text-gray-400 font-medium flex items-center gap-1">
+              <span>🔧</span>
+              <span>工具调用</span>
+              <span class="text-gray-500">({length(@tool_executions)})</span>
+            </div>
+            <%= if length(@tool_executions) > 3 do %>
+              <button
+                phx-click="toggle_tools_modal"
+                class="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+              >
+                查看全部
+              </button>
+            <% end %>
+          </div>
+          <%!-- 只显示最近3个，其余折叠 --%>
           <div class="space-y-2">
-            <%= for {exec, idx} <- Enum.with_index(@tool_executions) do %>
+            <% total = length(@tool_executions) %>
+            <% display_execs =
+              if total > 3, do: Enum.drop(@tool_executions, total - 3), else: @tool_executions %>
+            <% start_idx = if total > 3, do: total - 3, else: 0 %>
+            <%= for {exec, offset} <- Enum.with_index(display_execs) do %>
+              <% idx = start_idx + offset %>
               <div class={[
                 "flex items-start gap-2 text-xs p-2 rounded-lg",
                 exec.status == :running && "bg-blue-900/30 border border-blue-800",
@@ -140,6 +168,11 @@
               </div>
             <% end %>
           </div>
+          <%= if length(@tool_executions) > 3 do %>
+            <div class="text-xs text-gray-500 mt-2 text-center">
+              还有 {length(@tool_executions) - 3} 个工具调用...
+            </div>
+          <% end %>
         </div>
       </div>
     <% end %>
@@ -261,4 +294,94 @@
       </button>
     </form>
   </footer>
+  
+<!-- Tools Modal -->
+  <%= if @tools_expanded && @tool_executions != [] do %>
+    <div
+      class="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+      phx-click="close_tools_modal"
+    >
+      <div
+        class="bg-gray-800 rounded-2xl shadow-xl max-w-lg w-full mx-4 max-h-[80vh] flex flex-col"
+        phx-click-away="close_tools_modal"
+      >
+        <!-- Modal Header -->
+        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-700">
+          <h3 class="text-lg font-semibold text-white flex items-center gap-2">
+            <span>🔧</span>
+            <span>工具调用详情</span>
+            <span class="text-sm text-gray-400">({length(@tool_executions)})</span>
+          </h3>
+          <button
+            phx-click="close_tools_modal"
+            class="text-gray-400 hover:text-white transition-colors p-1"
+          >
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
+            </svg>
+          </button>
+        </div>
+        <!-- Modal Body -->
+        <div class="flex-1 overflow-y-auto p-4 space-y-2">
+          <%= for {exec, idx} <- Enum.with_index(@tool_executions) do %>
+            <div class={[
+              "flex items-start gap-3 text-sm p-3 rounded-lg",
+              exec.status == :running && "bg-blue-900/30 border border-blue-800",
+              exec.status == :done && "bg-green-900/30 border border-green-800",
+              exec.status == :error && "bg-red-900/30 border border-red-800",
+              exec.status not in [:running, :done, :error] && "bg-gray-700"
+            ]}>
+              <!-- 序号和状态 -->
+              <div class="flex items-center gap-2 flex-shrink-0">
+                <span class="text-gray-500 w-5 text-right">{idx + 1}.</span>
+                <%= case exec.status do %>
+                  <% :running -> %>
+                    <svg
+                      class="animate-spin h-4 w-4 text-blue-400"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        class="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        stroke-width="4"
+                      >
+                      </circle>
+                      <path
+                        class="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                      >
+                      </path>
+                    </svg>
+                  <% :done -> %>
+                    <span class="text-green-400 text-base">✓</span>
+                  <% :error -> %>
+                    <span class="text-red-400 text-base">✗</span>
+                  <% _ -> %>
+                    <span class="text-gray-500 text-base">○</span>
+                <% end %>
+              </div>
+              <!-- 工具信息 -->
+              <div class="flex-1 min-w-0">
+                <div class="font-mono font-medium text-gray-200">{exec.tool || "unknown"}</div>
+                <%= if exec[:params] do %>
+                  <div class="text-gray-400 text-xs mt-1 break-all">{exec.params}</div>
+                <% end %>
+              </div>
+            </div>
+          <% end %>
+        </div>
+      </div>
+    </div>
+  <% end %>
 </div>

@@ -25,6 +25,9 @@
             placeholder="My Agent"
             class="w-full bg-gray-700 border-gray-600 rounded-lg px-4 py-2 text-white"
           />
+          <p class="text-xs text-gray-400 mt-1">
+            A unique name for this agent (e.g., "Code Assistant", "Research Bot")
+          </p>
         </div>
 
         <%!-- Default Model --%>
@@ -44,14 +47,41 @@
         <%!-- Workspace Path --%>
         <div>
           <label class="block text-sm font-medium mb-2">Workspace Path</label>
-          <.form_input
-            field={@form[:workspace_path]}
-            type="text"
-            placeholder="/path/to/workspace"
-            class="w-full bg-gray-700 border-gray-600 rounded-lg px-4 py-2 text-white font-mono text-sm"
-          />
+          <div class="relative">
+            <.form_input
+              field={@form[:workspace_path]}
+              type="text"
+              placeholder="~/clawd/agents/my-agent"
+              class="w-full bg-gray-700 border-gray-600 rounded-lg px-4 py-2 text-white font-mono text-sm pr-24"
+              phx-focus="workspace_manual_edit"
+            />
+            <%= if @is_new and @suggested_workspace && @form[:workspace_path].value != @suggested_workspace do %>
+              <button
+                type="button"
+                phx-click="use_suggested_workspace"
+                class="absolute right-2 top-1/2 -translate-y-1/2 text-xs bg-blue-600 hover:bg-blue-500 px-2 py-1 rounded text-white"
+                title={"Use suggested: #{@suggested_workspace}"}
+              >
+                Auto-fill
+              </button>
+            <% end %>
+          </div>
+          <%= if @is_new do %>
+            <div class="flex items-center gap-2 mt-1">
+              <%= if @workspace_auto_generated do %>
+                <span class="inline-flex items-center gap-1 text-xs text-green-400">
+                  <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                  </svg>
+                  Auto-generated from name
+                </span>
+              <% else %>
+                <span class="text-xs text-gray-500">Manual mode</span>
+              <% end %>
+            </div>
+          <% end %>
           <p class="text-xs text-gray-400 mt-1">
-            Local directory for the agent's file operations
+            Local directory for the agent's file operations. Will be created if it doesn't exist.
           </p>
         </div>
 
@@ -62,17 +92,69 @@
             field={@form[:system_prompt]}
             type="textarea"
             rows="8"
-            placeholder="You are a helpful assistant..."
+            placeholder="You are a helpful assistant specialized in..."
             class="w-full bg-gray-700 border-gray-600 rounded-lg px-4 py-2 text-white font-mono text-sm"
           />
-          <p class="text-xs text-gray-400 mt-1">
-            Instructions that define the agent's behavior and personality
-          </p>
+          <div class="flex items-center justify-between mt-1">
+            <p class="text-xs text-gray-400">
+              Instructions that define the agent's behavior and personality
+            </p>
+            <span class="text-xs text-gray-500">
+              {String.length(@form[:system_prompt].value || "")} chars
+            </span>
+          </div>
         </div>
 
-        <%!-- Config (JSON) --%>
+        <%!-- Config (JSON) with Quick Settings --%>
         <div>
           <label class="block text-sm font-medium mb-2">Config (JSON)</label>
+          
+          <%!-- Quick Settings Toggles --%>
+          <div class="bg-gray-700/50 rounded-lg p-3 mb-3 border border-gray-600">
+            <p class="text-xs text-gray-400 mb-2">Quick Settings:</p>
+            <div class="flex flex-wrap gap-3">
+              <label class="inline-flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  class="w-4 h-4 bg-gray-700 border-gray-600 rounded"
+                  id="config_tools_enabled"
+                  checked={get_config_value(@agent.config, "tools_enabled", true)}
+                  phx-click="toggle_config"
+                  phx-value-key="tools_enabled"
+                  disabled
+                />
+                <span class="text-gray-300">Tools Enabled</span>
+              </label>
+              <label class="inline-flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  class="w-4 h-4 bg-gray-700 border-gray-600 rounded"
+                  id="config_memory_enabled"
+                  checked={get_config_value(@agent.config, "memory_enabled", true)}
+                  phx-click="toggle_config"
+                  phx-value-key="memory_enabled"
+                  disabled
+                />
+                <span class="text-gray-300">Memory</span>
+              </label>
+              <label class="inline-flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  class="w-4 h-4 bg-gray-700 border-gray-600 rounded"
+                  id="config_web_search"
+                  checked={get_config_value(@agent.config, "web_search", true)}
+                  phx-click="toggle_config"
+                  phx-value-key="web_search"
+                  disabled
+                />
+                <span class="text-gray-300">Web Search</span>
+              </label>
+            </div>
+            <p class="text-xs text-gray-500 mt-2">
+              (Edit JSON below for advanced config)
+            </p>
+          </div>
+          
           <textarea
             name="agent[config]"
             id="agent_config"
@@ -81,33 +163,60 @@
             class="w-full bg-gray-700 border-gray-600 rounded-lg px-4 py-2 text-white font-mono text-sm"
           >{Jason.encode!(@agent.config || %{}, pretty: true)}</textarea>
           <p class="text-xs text-gray-400 mt-1">
-            Additional configuration in JSON format
+            Additional configuration in JSON format (e.g., rate limits, allowed tools, etc.)
           </p>
         </div>
 
         <%!-- Active --%>
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-3 p-4 bg-gray-700/50 rounded-lg border border-gray-600">
           <.form_input
             field={@form[:active]}
             type="checkbox"
             class="w-5 h-5 bg-gray-700 border-gray-600 rounded"
           />
-          <label class="text-sm font-medium">Active</label>
-          <span class="text-xs text-gray-400">
-            Inactive agents won't process new messages
-          </span>
+          <div>
+            <label class="text-sm font-medium">Active</label>
+            <p class="text-xs text-gray-400">
+              Inactive agents won't process new messages
+            </p>
+          </div>
         </div>
 
         <%!-- Actions --%>
         <div class="flex gap-4 pt-4 border-t border-gray-700">
           <button type="submit" class="btn-primary flex-1">
-            {if @agent.id, do: "Update Agent", else: "Create Agent"}
+            <%= if @agent.id do %>
+              <span class="flex items-center justify-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                </svg>
+                Update Agent
+              </span>
+            <% else %>
+              <span class="flex items-center justify-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                </svg>
+                Create Agent
+              </span>
+            <% end %>
           </button>
           <.link navigate={~p"/agents"} class="btn-secondary">
             Cancel
           </.link>
         </div>
       </.form>
+    </div>
+
+    <%!-- Help Section --%>
+    <div class="mt-6 p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+      <h3 class="text-sm font-medium text-gray-300 mb-2">💡 Tips</h3>
+      <ul class="text-xs text-gray-400 space-y-1">
+        <li>• <strong>Name</strong>: Choose a descriptive name. The workspace path will be auto-generated from it.</li>
+        <li>• <strong>System Prompt</strong>: Define the agent's role, capabilities, and constraints here.</li>
+        <li>• <strong>Workspace</strong>: Each agent should have its own workspace to avoid file conflicts.</li>
+        <li>• <strong>Config</strong>: Use JSON for advanced settings like rate limits, tool restrictions, etc.</li>
+      </ul>
     </div>
   </div>
 </Layouts.app>

@@ -3,6 +3,7 @@ defmodule ClawdEx.Automation do
   Automation context - Cron jobs management
   """
 
+  require Logger
   import Ecto.Query
   alias ClawdEx.Repo
   alias ClawdEx.Automation.{CronJob, CronJobRun}
@@ -164,9 +165,30 @@ defmodule ClawdEx.Automation do
              status: "running"
            }) do
       if async do
-        # Execute in background (for web UI, real cron scheduler)
+        # Execute in background with error handling
+        # Wrap in try/catch to ensure run status is updated even on crashes
         Task.start(fn ->
-          execute_job(job, run)
+          try do
+            execute_job(job, run)
+          rescue
+            e ->
+              Logger.error("Cron job task crashed: #{Exception.message(e)}")
+
+              complete_run(run, %{
+                status: "failed",
+                exit_code: 1,
+                error: "Task crashed: #{Exception.message(e)}"
+              })
+          catch
+            kind, reason ->
+              Logger.error("Cron job task error: #{kind} - #{inspect(reason)}")
+
+              complete_run(run, %{
+                status: "failed",
+                exit_code: 1,
+                error: "Task error: #{kind} - #{inspect(reason)}"
+              })
+          end
         end)
 
         {:ok, run}

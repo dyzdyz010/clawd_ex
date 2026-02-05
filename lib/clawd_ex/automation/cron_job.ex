@@ -35,6 +35,12 @@ defmodule ClawdEx.Automation.CronJob do
     # Timeout in seconds
     field :timeout_seconds, :integer, default: 300
 
+    # Notification targets: list of %{channel, target, auto}
+    # e.g., [%{channel: "telegram", target: "123456", auto: true}]
+    field :notify, {:array, :map}, default: []
+    # Dedicated session key for storing results (especially for webchat)
+    field :result_session_key, :string
+
     has_many :runs, ClawdEx.Automation.CronJobRun, foreign_key: :job_id
 
     timestamps(type: :utc_datetime_usec)
@@ -68,7 +74,9 @@ defmodule ClawdEx.Automation.CronJob do
       :target_channel,
       :session_key,
       :cleanup,
-      :timeout_seconds
+      :timeout_seconds,
+      :notify,
+      :result_session_key
     ])
     |> validate_required([:name, :schedule, :command])
     |> validate_inclusion(:payload_type, ["system_event", "agent_turn"])

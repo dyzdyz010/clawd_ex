@@ -73,33 +73,50 @@ defmodule ClawdExWeb.CronJobDetailLive do
       <!-- Header -->
       <div class="flex items-start justify-between">
         <div>
-          <.link navigate={~p"/cron"} class="text-gray-400 hover:text-white text-sm flex items-center gap-1 mb-2">
+          <.link
+            navigate={~p"/cron"}
+            class="text-gray-400 hover:text-white text-sm flex items-center gap-1 mb-2"
+          >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M15 19l-7-7 7-7"
+              />
             </svg>
             Back to Cron Jobs
           </.link>
           <div class="flex items-center gap-3">
-            <h1 class="text-2xl font-bold text-white"><%= @job.name %></h1>
+            <h1 class="text-2xl font-bold text-white">{@job.name}</h1>
             <.status_badge enabled={@job.enabled} />
           </div>
           <%= if @job.description do %>
-            <p class="text-gray-400 mt-1"><%= @job.description %></p>
+            <p class="text-gray-400 mt-1">{@job.description}</p>
           <% end %>
         </div>
 
         <div class="flex items-center gap-2">
           <button phx-click="run_now" class="btn-primary">
             <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
+              />
             </svg>
             Run Now
           </button>
           <button
             phx-click="toggle"
-            class={if @job.enabled, do: "btn-secondary text-yellow-400", else: "btn-secondary text-green-400"}
+            class={
+              if @job.enabled,
+                do: "btn-secondary text-yellow-400",
+                else: "btn-secondary text-green-400"
+            }
           >
-            <%= if @job.enabled, do: "Disable", else: "Enable" %>
+            {if @job.enabled, do: "Disable", else: "Enable"}
           </button>
           <.link navigate={~p"/cron/#{@job.id}/edit"} class="btn-secondary">
             Edit
@@ -113,8 +130,8 @@ defmodule ClawdExWeb.CronJobDetailLive do
           </button>
         </div>
       </div>
-
-      <!-- Job Info -->
+      
+    <!-- Job Info -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div class="bg-gray-800 rounded-lg p-6">
           <h3 class="text-lg font-medium text-white mb-4">Configuration</h3>
@@ -123,17 +140,17 @@ defmodule ClawdExWeb.CronJobDetailLive do
               <dt class="text-sm text-gray-400">Schedule</dt>
               <dd class="mt-1">
                 <code class="text-lg text-white bg-gray-700 px-3 py-1 rounded font-mono">
-                  <%= @job.schedule %>
+                  {@job.schedule}
                 </code>
               </dd>
             </div>
             <div>
               <dt class="text-sm text-gray-400">Timezone</dt>
-              <dd class="text-white"><%= @job.timezone %></dd>
+              <dd class="text-white">{@job.timezone}</dd>
             </div>
             <div>
               <dt class="text-sm text-gray-400">Agent</dt>
-              <dd class="text-white"><%= @job.agent_id || "None" %></dd>
+              <dd class="text-white">{@job.agent_id || "None"}</dd>
             </div>
           </dl>
         </div>
@@ -143,27 +160,27 @@ defmodule ClawdExWeb.CronJobDetailLive do
           <dl class="space-y-4">
             <div>
               <dt class="text-sm text-gray-400">Total Runs</dt>
-              <dd class="text-2xl font-bold text-white"><%= @job.run_count %></dd>
+              <dd class="text-2xl font-bold text-white">{@job.run_count}</dd>
             </div>
             <div>
               <dt class="text-sm text-gray-400">Last Run</dt>
-              <dd class="text-white"><%= format_datetime(@job.last_run_at) %></dd>
+              <dd class="text-white">{format_datetime(@job.last_run_at)}</dd>
             </div>
             <div>
               <dt class="text-sm text-gray-400">Next Run</dt>
-              <dd class="text-white"><%= format_datetime(@job.next_run_at) %></dd>
+              <dd class="text-white">{format_datetime(@job.next_run_at)}</dd>
             </div>
           </dl>
         </div>
       </div>
-
-      <!-- Command -->
+      
+    <!-- Command -->
       <div class="bg-gray-800 rounded-lg p-6">
         <h3 class="text-lg font-medium text-white mb-4">Command</h3>
         <pre class="bg-gray-900 rounded-lg p-4 overflow-x-auto text-sm text-gray-300"><%= @job.command %></pre>
       </div>
-
-      <!-- Run History -->
+      
+    <!-- Run History -->
       <div class="bg-gray-800 rounded-lg overflow-hidden">
         <div class="px-6 py-4 border-b border-gray-700">
           <h3 class="text-lg font-medium text-white">Run History</h3>
@@ -180,20 +197,28 @@ defmodule ClawdExWeb.CronJobDetailLive do
           <table class="w-full">
             <thead class="bg-gray-700/50">
               <tr>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Started</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Duration</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Status</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Output</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                  Started
+                </th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                  Duration
+                </th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                  Status
+                </th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
+                  Output
+                </th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-700">
               <%= for run <- @runs do %>
                 <tr class="hover:bg-gray-700/30">
                   <td class="px-4 py-3 text-sm text-gray-300">
-                    <%= format_datetime(run.started_at) %>
+                    {format_datetime(run.started_at)}
                   </td>
                   <td class="px-4 py-3 text-sm text-gray-400">
-                    <%= format_duration(run.duration_ms) %>
+                    {format_duration(run.duration_ms)}
                   </td>
                   <td class="px-4 py-3">
                     <.run_status_badge status={run.status} />
@@ -201,11 +226,11 @@ defmodule ClawdExWeb.CronJobDetailLive do
                   <td class="px-4 py-3 text-sm text-gray-400">
                     <%= if run.error do %>
                       <span class="text-red-400 truncate block max-w-xs" title={run.error}>
-                        <%= String.slice(run.error || "", 0, 50) %>...
+                        {String.slice(run.error || "", 0, 50)}...
                       </span>
                     <% else %>
                       <span class="truncate block max-w-xs" title={run.output}>
-                        <%= String.slice(run.output || "", 0, 50) %>
+                        {String.slice(run.output || "", 0, 50)}
                       </span>
                     <% end %>
                   </td>
@@ -231,7 +256,7 @@ defmodule ClawdExWeb.CronJobDetailLive do
 
     ~H"""
     <span class={"px-2 py-1 rounded text-xs font-medium #{@classes}"}>
-      <%= @text %>
+      {@text}
     </span>
     """
   end
@@ -250,7 +275,7 @@ defmodule ClawdExWeb.CronJobDetailLive do
 
     ~H"""
     <span class={"px-2 py-1 rounded text-xs font-medium #{@classes}"}>
-      <%= @text %>
+      {@text}
     </span>
     """
   end

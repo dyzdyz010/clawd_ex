@@ -132,3 +132,369 @@
 .btn-secondary:hover {
   background-color: rgb(75 85 99); /* gray-600 */
 }
+
+/* ============================================================================
+   Markdown Content Styles (for chat messages)
+   ============================================================================ */
+
+/* Message content container */
+.message-content {
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+/* Headings in messages */
+.message-content h1,
+.message-content h2,
+.message-content h3,
+.message-content h4,
+.message-content h5,
+.message-content h6 {
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.message-content h1 { font-size: 1.5rem; }
+.message-content h2 { font-size: 1.25rem; }
+.message-content h3 { font-size: 1.125rem; }
+.message-content h4,
+.message-content h5,
+.message-content h6 { font-size: 1rem; }
+
+/* Paragraphs */
+.message-content p {
+  margin-bottom: 0.75rem;
+}
+
+.message-content p:last-child {
+  margin-bottom: 0;
+}
+
+/* Lists */
+.message-content ul,
+.message-content ol {
+  margin-left: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.message-content ul {
+  list-style-type: disc;
+}
+
+.message-content ol {
+  list-style-type: decimal;
+}
+
+.message-content li {
+  margin-bottom: 0.25rem;
+}
+
+/* Task lists (checkboxes) */
+.message-content ul.contains-task-list {
+  list-style-type: none;
+  margin-left: 0;
+}
+
+.message-content li.task-list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.message-content li.task-list-item input[type="checkbox"] {
+  margin-top: 0.25rem;
+  accent-color: rgb(59 130 246); /* blue-500 */
+}
+
+/* Blockquotes */
+.message-content blockquote {
+  border-left: 3px solid rgb(59 130 246); /* blue-500 */
+  padding-left: 1rem;
+  margin: 0.75rem 0;
+  color: rgb(156 163 175); /* gray-400 */
+  font-style: italic;
+}
+
+/* Horizontal rules */
+.message-content hr {
+  border: none;
+  border-top: 1px solid rgb(75 85 99); /* gray-600 */
+  margin: 1rem 0;
+}
+
+/* Tables */
+.message-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  font-size: 0.875rem;
+}
+
+.message-content th,
+.message-content td {
+  border: 1px solid rgb(75 85 99); /* gray-600 */
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+
+.message-content th {
+  background-color: rgb(55 65 81); /* gray-700 */
+  font-weight: 600;
+}
+
+.message-content tr:nth-child(even) {
+  background-color: rgba(55, 65, 81, 0.3);
+}
+
+/* Inline code */
+.message-content code:not(pre code) {
+  background-color: rgb(55 65 81); /* gray-700 */
+  color: rgb(236 72 153); /* pink-500 */
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.875em;
+}
+
+/* Code blocks */
+.message-content pre {
+  background-color: rgb(31 41 55); /* gray-800 */
+  border-radius: 0.5rem;
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 0.75rem 0;
+}
+
+.message-content pre code {
+  background: none;
+  color: inherit;
+  padding: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+/* Code block wrapper with copy button */
+.code-block-wrapper {
+  position: relative;
+}
+
+.code-block-wrapper pre {
+  margin: 0;
+}
+
+/* Images in messages */
+.message-content img,
+.media-image {
+  max-width: 100%;
+  max-height: 24rem;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+
+.message-content img:hover,
+.media-image:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transform: scale(1.01);
+}
+
+/* Media blocks (video, audio, file) */
+.media-block {
+  margin: 0.5rem 0;
+}
+
+.media-block video {
+  max-width: 100%;
+  max-height: 24rem;
+  border-radius: 0.5rem;
+  background-color: rgb(17 24 39); /* gray-900 */
+}
+
+.media-block audio {
+  width: 100%;
+  max-width: 400px;
+}
+
+/* Links */
+.message-content a {
+  color: rgb(96 165 250); /* blue-400 */
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.message-content a:hover {
+  color: rgb(147 197 253); /* blue-300 */
+  text-decoration: underline;
+}
+
+/* Strong and emphasis */
+.message-content strong {
+  font-weight: 600;
+}
+
+.message-content em {
+  font-style: italic;
+}
+
+/* Strikethrough */
+.message-content del {
+  text-decoration: line-through;
+  color: rgb(156 163 175); /* gray-400 */
+}
+
+/* Superscript and subscript */
+.message-content sup {
+  font-size: 0.75em;
+  vertical-align: super;
+}
+
+.message-content sub {
+  font-size: 0.75em;
+  vertical-align: sub;
+}
+
+/* Footnotes */
+.message-content .footnote-ref {
+  font-size: 0.75em;
+  vertical-align: super;
+  color: rgb(96 165 250); /* blue-400 */
+}
+
+.message-content .footnotes {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgb(75 85 99); /* gray-600 */
+  font-size: 0.875rem;
+  color: rgb(156 163 175); /* gray-400 */
+}
+
+/* ============================================================================
+   Syntax Highlighting (OneDark theme - integrated with MDEx)
+   ============================================================================ */
+
+/* OneDark color palette */
+.highlight {
+  background-color: #282c34;
+  color: #abb2bf;
+}
+
+/* Comments */
+.highlight .c,
+.highlight .cm,
+.highlight .c1,
+.highlight .cs {
+  color: #5c6370;
+  font-style: italic;
+}
+
+/* Keywords */
+.highlight .k,
+.highlight .kc,
+.highlight .kd,
+.highlight .kn,
+.highlight .kp,
+.highlight .kr,
+.highlight .kt {
+  color: #c678dd;
+}
+
+/* Strings */
+.highlight .s,
+.highlight .s1,
+.highlight .s2,
+.highlight .sb,
+.highlight .sc,
+.highlight .sd,
+.highlight .se,
+.highlight .sh,
+.highlight .si,
+.highlight .sx,
+.highlight .sr,
+.highlight .ss {
+  color: #98c379;
+}
+
+/* Numbers */
+.highlight .m,
+.highlight .mf,
+.highlight .mh,
+.highlight .mi,
+.highlight .mo,
+.highlight .il {
+  color: #d19a66;
+}
+
+/* Functions */
+.highlight .nf,
+.highlight .fm {
+  color: #61afef;
+}
+
+/* Classes */
+.highlight .nc,
+.highlight .nn {
+  color: #e5c07b;
+}
+
+/* Variables */
+.highlight .n,
+.highlight .na,
+.highlight .nb,
+.highlight .ni,
+.highlight .nl,
+.highlight .no,
+.highlight .nv,
+.highlight .vc,
+.highlight .vg,
+.highlight .vi {
+  color: #e06c75;
+}
+
+/* Operators */
+.highlight .o,
+.highlight .ow {
+  color: #56b6c2;
+}
+
+/* Punctuation */
+.highlight .p {
+  color: #abb2bf;
+}
+
+/* ============================================================================
+   Scrollbar Styling (for code blocks)
+   ============================================================================ */
+
+.message-content pre::-webkit-scrollbar {
+  height: 8px;
+}
+
+.message-content pre::-webkit-scrollbar-track {
+  background: rgb(31 41 55);
+  border-radius: 4px;
+}
+
+.message-content pre::-webkit-scrollbar-thumb {
+  background: rgb(75 85 99);
+  border-radius: 4px;
+}
+
+.message-content pre::-webkit-scrollbar-thumb:hover {
+  background: rgb(107 114 128);
+}
+
+/* ============================================================================
+   Animation for copy button success
+   ============================================================================ */
+
+@keyframes copy-success {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+.copy-success {
+  animation: copy-success 0.3s ease;
+}

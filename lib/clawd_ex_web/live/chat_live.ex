@@ -32,6 +32,10 @@ defmodule ClawdExWeb.ChatLive do
       |> assign(:run_status, nil)
       # 工具执行历史 [{tool_name, status, result}]
       |> assign(:tool_executions, [])
+      # 工具调用气泡是否展开
+      |> assign(:tools_expanded, false)
+      # 跟踪最后一条消息的 ID，用于重连后同步
+      |> assign(:last_message_id, nil)
 
     # 在连接后再启动会话（避免测试时的问题）
     if connected?(socket) do
@@ -105,10 +109,34 @@ defmodule ClawdExWeb.ChatLive do
       |> assign(:sending, false)
       |> assign(:streaming_content, nil)
       |> assign(:session_started, false)
+      |> assign(:tool_executions, [])
+      |> assign(:tools_expanded, false)
 
     # 延迟启动新会话
     send(self(), :init_session)
 
+    {:noreply, socket}
+  end
+
+  def handle_event("toggle_tools_modal", _params, socket) do
+    {:noreply, assign(socket, :tools_expanded, !socket.assigns.tools_expanded)}
+  end
+
+  def handle_event("close_tools_modal", _params, socket) do
+    {:noreply, assign(socket, :tools_expanded, false)}
+  end
+  
+  # 处理页面可见性变化 - 当用户切换回来时重新同步消息
+  def handle_event("visibility_changed", %{"visible" => true}, socket) do
+    # 用户切换回来了，重新同步消息
+    Logger.debug("[ChatLive] User returned to page, syncing messages...")
+    send(self(), :sync_messages)
+    {:noreply, socket}
+  end
+  
+  def handle_event("visibility_changed", %{"visible" => false}, socket) do
+    # 用户离开了页面，记录当前状态以便后续恢复
+    Logger.debug("[ChatLive] User left page")
     {:noreply, socket}
   end
 
@@ -132,11 +160,17 @@ defmodule ClawdExWeb.ChatLive do
 
         # 加载历史消息
         messages = load_messages(session_key)
+        
+        # 计算最后一条消息的 ID（用于后续同步）
+        last_id = if messages != [], do: List.last(messages).id, else: nil
 
         socket =
           socket
           |> assign(:messages, messages)
           |> assign(:session_started, true)
+          |> assign(:last_message_id, last_id)
+          # 检查是否有正在进行的 agent 运行，恢复 sending 状态
+          |> maybe_restore_sending_state()
 
         {:noreply, socket}
 
@@ -144,6 +178,34 @@ defmodule ClawdExWeb.ChatLive do
         Logger.warning("Failed to start session: #{inspect(reason)}")
         {:noreply, assign(socket, :session_started, false)}
     end
+  end
+  
+  # 处理页面可见性变化 - 当用户切换回来时重新同步
+  def handle_info(:sync_messages, socket) do
+    session_key = socket.assigns.session_key
+    Logger.debug("[ChatLive] Syncing messages for session: #{session_key}")
+    
+    # 确保 PubSub 订阅仍然有效
+    socket = ensure_subscriptions(socket)
+    
+    # 重新加载消息
+    messages = load_messages(session_key)
+    last_id = if messages != [], do: List.last(messages).id, else: nil
+    
+    # 计算新消息数量（用于调试）
+    old_count = length(socket.assigns.messages)
+    new_count = length(messages)
+    if new_count > old_count do
+      Logger.info("[ChatLive] Found #{new_count - old_count} new messages after sync")
+    end
+    
+    socket =
+      socket
+      |> assign(:messages, messages)
+      |> assign(:last_message_id, last_id)
+      |> maybe_restore_sending_state()
+    
+    {:noreply, socket}
   end
 
   def handle_info({:send_message, content}, socket) do
@@ -158,35 +220,42 @@ defmodule ClawdExWeb.ChatLive do
 
   # 接收异步结果（通过 PubSub）
   def handle_info({:agent_result, result}, socket) do
+    session_key = socket.assigns.session_key
+    
     case result do
-      {:ok, response} ->
-        # 优先使用 streaming_content（如果有的话），否则用最终 response
-        # 这样避免重复显示
-        streaming = socket.assigns.streaming_content
-        final_content = if streaming && streaming != "", do: streaming, else: response
+      {:ok, _response} ->
+        # 先保存工具调用历史（如果有）
+        socket = maybe_save_tools_as_message(socket)
 
-        assistant_message = %{
-          id: System.unique_integer([:positive]),
-          role: "assistant",
-          content: final_content,
-          timestamp: DateTime.utc_now()
-        }
+        # 重要：重置 SessionWorker 的流式缓存
+        SessionWorker.reset_streaming_cache(session_key)
+
+        # 重新加载消息（包含刚保存的助手消息）
+        # 不手动添加，避免重复
+        messages = load_messages(session_key)
 
         socket =
           socket
-          |> update(:messages, &(&1 ++ [assistant_message]))
-          |> assign(:sending, false)
           |> assign(:streaming_content, nil)
+          |> assign(:sending, false)
+          |> assign(:messages, messages)
           |> assign(:run_status, nil)
           |> assign(:tool_executions, [])
+          |> assign(:tools_expanded, false)
 
         {:noreply, socket}
 
       {:error, reason} ->
         Logger.error("Failed to send message: #{inspect(reason)}")
 
+        # 先保存工具调用历史（如果有）
+        socket = maybe_save_tools_as_message(socket)
+
         # 如果有 streaming 内容，也保存它（可能是部分响应）
         socket = maybe_save_streaming_as_message(socket)
+
+        # 重置 SessionWorker 的流式缓存
+        SessionWorker.reset_streaming_cache(session_key)
 
         error_message = %{
           id: System.unique_integer([:positive]),
@@ -197,22 +266,39 @@ defmodule ClawdExWeb.ChatLive do
 
         socket =
           socket
+          |> assign(:streaming_content, nil)
           |> update(:messages, &(&1 ++ [error_message]))
           |> assign(:sending, false)
-          |> assign(:streaming_content, nil)
           |> assign(:run_status, nil)
           |> assign(:tool_executions, [])
+          |> assign(:tools_expanded, false)
 
         {:noreply, socket}
     end
   end
 
   # 处理流式响应
-  # 只在 sending 状态时处理 chunks，避免与同步响应竞态
-  def handle_info({:agent_chunk, _run_id, %{content: content}}, socket) do
+  # 从 SessionWorker 获取完整的累积内容，而不是自己累积 chunks
+  # 这样可以避免页面切换后内容重复的问题
+  def handle_info({:agent_chunk, _run_id, %{content: _content}}, socket) do
     if socket.assigns.sending do
-      current = socket.assigns.streaming_content || ""
-      {:noreply, assign(socket, :streaming_content, current <> content)}
+      # 从 SessionWorker 获取完整的累积内容
+      # SessionWorker 负责累积所有 chunks，ChatLive 只负责显示
+      session_key = socket.assigns.session_key
+      
+      cached_content = 
+        try do
+          case ClawdEx.Sessions.SessionWorker.get_state(session_key) do
+            %{streaming_content: content} when is_binary(content) -> content
+            _ -> socket.assigns.streaming_content || ""
+          end
+        rescue
+          _ -> socket.assigns.streaming_content || ""
+        catch
+          :exit, _ -> socket.assigns.streaming_content || ""
+        end
+      
+      {:noreply, assign(socket, :streaming_content, cached_content)}
     else
       # 忽略在 send_message 完成后到达的 chunks
       {:noreply, socket}
@@ -235,9 +321,16 @@ defmodule ClawdExWeb.ChatLive do
 
   # 处理不同状态的更新
   defp handle_status_update(socket, :inferring, details) do
-    # 新一轮推理开始，如果有未保存的 streaming 内容，先保存为消息
+    # 新一轮推理开始
+    # 1. 如果有工具调用历史，先保存为工具调用消息
+    socket = maybe_save_tools_as_message(socket)
+    # 2. 如果有未保存的 streaming 内容，保存为消息
     socket = maybe_save_streaming_as_message(socket)
-    assign(socket, :run_status, {:inferring, details})
+    # 3. 重置工具执行状态
+    socket
+    |> assign(:tool_executions, [])
+    |> assign(:tools_expanded, false)
+    |> assign(:run_status, {:inferring, details})
   end
 
   defp handle_status_update(socket, :tools_start, %{tools: _tools, count: _count}) do
@@ -300,9 +393,33 @@ defmodule ClawdExWeb.ChatLive do
         timestamp: DateTime.utc_now()
       }
 
+      # 通知 SessionWorker 重置流式缓存，避免重复内容
+      session_key = socket.assigns.session_key
+      SessionWorker.reset_streaming_cache(session_key)
+
       socket
       |> update(:messages, &(&1 ++ [message]))
       |> assign(:streaming_content, nil)
+    else
+      socket
+    end
+  end
+
+  # 如果有工具执行历史，保存为工具调用消息
+  defp maybe_save_tools_as_message(socket) do
+    tools = socket.assigns.tool_executions
+
+    if tools != [] do
+      message = %{
+        id: System.unique_integer([:positive]),
+        role: "tools",
+        content: tools,
+        timestamp: DateTime.utc_now()
+      }
+
+      socket
+      |> update(:messages, &(&1 ++ [message]))
+      |> assign(:tool_executions, [])
     else
       socket
     end
@@ -342,6 +459,60 @@ defmodule ClawdExWeb.ChatLive do
 
   defp generate_session_key do
     "web:" <> (:crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower))
+  end
+  
+  # 确保 PubSub 订阅仍然有效
+  defp ensure_subscriptions(socket) do
+    session_key = socket.assigns.session_key
+    
+    # 重新订阅（Phoenix.PubSub.subscribe 是幂等的）
+    if session_id = get_session_id(session_key) do
+      Phoenix.PubSub.subscribe(ClawdEx.PubSub, "agent:#{session_id}")
+    end
+    Phoenix.PubSub.subscribe(ClawdEx.PubSub, "session:#{session_key}")
+    
+    socket
+  end
+  
+  # 检查 session 是否有正在进行的 agent 运行，恢复 sending 状态和 streaming_content
+  defp maybe_restore_sending_state(socket) do
+    session_key = socket.assigns.session_key
+    
+    try do
+      case SessionWorker.get_state(session_key) do
+        %{agent_running: true, streaming_content: cached_content} when is_binary(cached_content) and cached_content != "" ->
+          # Agent 正在运行且有缓存内容，恢复完整的流式内容
+          Logger.info("[ChatLive] Restoring streaming state with #{String.length(cached_content)} chars from cache")
+          socket
+          |> assign(:sending, true)
+          |> assign(:streaming_content, cached_content)
+          
+        %{agent_running: true} ->
+          # Agent 正在运行但没有缓存内容（刚开始或被清空）
+          # 保持当前的 streaming_content（可能从 PubSub 接收了部分内容）
+          Logger.debug("[ChatLive] Agent running but no cached content, keeping current state")
+          current_streaming = socket.assigns.streaming_content
+          socket
+          |> assign(:sending, true)
+          |> assign(:streaming_content, current_streaming || "")
+          
+        _ ->
+          # 没有正在运行的 agent，确保 sending 为 false
+          # 同时清空 streaming_content（因为响应已完成）
+          Logger.debug("[ChatLive] Agent not running, clearing streaming state")
+          socket
+          |> assign(:sending, false)
+          |> assign(:streaming_content, nil)
+      end
+    rescue
+      e -> 
+        Logger.warning("[ChatLive] Error restoring state: #{inspect(e)}")
+        socket
+    catch
+      :exit, reason -> 
+        Logger.warning("[ChatLive] Exit restoring state: #{inspect(reason)}")
+        socket
+    end
   end
 
   # 查找可复用的空 web session（消息数为 0），或创建新的
@@ -440,4 +611,59 @@ defmodule ClawdExWeb.ChatLive do
   defp format_error({:noproc, _}), do: "会话服务不可用"
   defp format_error(:noproc), do: "会话服务不可用"
   defp format_error(reason), do: inspect(reason)
+
+  # ============================================================================
+  # Components
+  # ============================================================================
+
+  @doc """
+  工具调用气泡组件，用于显示历史工具调用记录
+  """
+  attr :tools, :list, required: true
+  attr :collapsed, :boolean, default: true
+
+  def tools_bubble(assigns) do
+    ~H"""
+    <div class="flex justify-start">
+      <div class="max-w-[85%] rounded-2xl px-3 py-2 shadow-sm bg-gray-900/70 text-gray-400 border border-gray-700/50">
+        <div class="text-xs text-gray-500 mb-1 font-medium flex items-center gap-1">
+          <span>🔧</span>
+          <span>工具调用 ({length(@tools)})</span>
+        </div>
+        <%= if @collapsed do %>
+          <div class="text-xs text-gray-500">
+            {Enum.map_join(@tools, ", ", fn t -> t.tool || t[:tool] || "unknown" end)}
+          </div>
+        <% else %>
+          <div class="space-y-1">
+            <%= for {exec, idx} <- Enum.with_index(@tools) do %>
+              <div class={[
+                "flex items-center gap-2 text-xs p-1.5 rounded",
+                (exec.status || exec[:status]) == :done && "bg-green-900/20",
+                (exec.status || exec[:status]) == :error && "bg-red-900/20",
+                (exec.status || exec[:status]) not in [:done, :error] && "bg-gray-800/50"
+              ]}>
+                <span class="text-gray-600 w-3">{idx + 1}.</span>
+                <%= case exec.status || exec[:status] do %>
+                  <% :done -> %>
+                    <span class="text-green-500">✓</span>
+                  <% :error -> %>
+                    <span class="text-red-500">✗</span>
+                  <% _ -> %>
+                    <span class="text-gray-500">○</span>
+                <% end %>
+                <span class="font-mono text-gray-400">{exec.tool || exec[:tool] || "unknown"}</span>
+                <%= if exec[:params] || exec.params do %>
+                  <span class="text-gray-600 truncate max-w-[200px]">
+                    {exec[:params] || exec.params}
+                  </span>
+                <% end %>
+              </div>
+            <% end %>
+          </div>
+        <% end %>
+      </div>
+    </div>
+    """
+  end
 end

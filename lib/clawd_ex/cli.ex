@@ -1,7 +1,7 @@
 defmodule ClawdEx.CLI do
   @moduledoc """
   CLI entry point for ClawdEx commands.
-  
+
   Usage:
     clawd_ex status    - Show application status
     clawd_ex health    - Run health checks
@@ -41,7 +41,9 @@ defmodule ClawdEx.CLI do
   defp run_command(["stop" | _rest], _opts), do: stop_app()
   defp run_command(["version" | _rest], _opts), do: print_version()
   defp run_command([], _opts), do: print_help()
-  defp run_command([cmd | _], _opts), do: IO.puts("Unknown command: #{cmd}\n\nRun 'clawd_ex --help' for usage.")
+
+  defp run_command([cmd | _], _opts),
+    do: IO.puts("Unknown command: #{cmd}\n\nRun 'clawd_ex --help' for usage.")
 
   defp print_help do
     IO.puts("""
