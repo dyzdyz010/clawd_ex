@@ -44,6 +44,22 @@ defmodule ClawdEx.AI.Models do
       max_tokens: 64_000,
       aliases: ["haiku", "haiku-4.5", "claude-haiku"]
     },
+    "anthropic/claude-opus-4-6" => %{
+      provider: :anthropic,
+      api_model: "claude-opus-4-6",
+      capabilities: [:chat, :vision, :tools, :reasoning],
+      context_window: 200_000,
+      max_tokens: 64_000,
+      aliases: ["opus-4.6", "claude-4.6"]
+    },
+    "anthropic/claude-sonnet-4-6" => %{
+      provider: :anthropic,
+      api_model: "claude-sonnet-4-6",
+      capabilities: [:chat, :vision, :tools],
+      context_window: 200_000,
+      max_tokens: 64_000,
+      aliases: ["sonnet-4.6"]
+    },
 
     # OpenAI GPT (latest models)
     "openai/gpt-5.2" => %{
@@ -76,7 +92,15 @@ defmodule ClawdEx.AI.Models do
       capabilities: [:chat, :tools, :reasoning],
       context_window: 400_000,
       max_tokens: 128_000,
-      aliases: ["codex", "gpt-codex"]
+      aliases: ["codex-5.1"]
+    },
+    "openai/gpt-5.3-codex" => %{
+      provider: :openai,
+      api_model: "gpt-5.3-codex",
+      capabilities: [:chat, :tools, :reasoning],
+      context_window: 500_000,
+      max_tokens: 200_000,
+      aliases: ["codex", "gpt-codex", "codex-5.3"]
     },
 
     # Google Gemini (latest models)

@@ -186,7 +186,7 @@ defmodule ClawdEx.Agent.Loop do
     save_message(data.session_id, :user, content)
 
     # 4. 构建系统提示
-    system_prompt = Prompt.build(data.agent_id, data.config)
+    system_prompt = Prompt.build(data.agent_id, Map.put(data.config, :model, data.model))
 
     # 5. 加载可用工具
     tools = load_tools(data.config)
