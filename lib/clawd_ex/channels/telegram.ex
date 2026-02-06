@@ -153,9 +153,10 @@ defmodule ClawdEx.Channels.Telegram do
     parent = self()
     ref = make_ref()
 
-    pid = spawn(fn ->
-      typing_loop(chat_id, parent, ref)
-    end)
+    pid =
+      spawn(fn ->
+        typing_loop(chat_id, parent, ref)
+      end)
 
     # 返回停止函数
     fn -> send(pid, {:stop, ref}) end
@@ -182,8 +183,12 @@ defmodule ClawdEx.Channels.Telegram do
            agent_id: nil,
            channel: "telegram"
          ) do
-      {:ok, _pid} -> :ok
-      {:error, {:already_started, _pid}} -> :ok
+      {:ok, _pid} ->
+        :ok
+
+      {:error, {:already_started, _pid}} ->
+        :ok
+
       {:error, reason} ->
         Logger.error("Failed to start session: #{inspect(reason)}")
         :error
@@ -200,7 +205,10 @@ defmodule ClawdEx.Channels.Telegram do
 
     case result do
       {:ok, response} when is_binary(response) ->
-        Logger.info("Sending Telegram response to #{chat_id}: #{String.slice(response, 0, 50)}...")
+        Logger.info(
+          "Sending Telegram response to #{chat_id}: #{String.slice(response, 0, 50)}..."
+        )
+
         send_response_with_media(chat_id, response, reply_to: message.id)
         :ok
 
@@ -243,6 +251,7 @@ defmodule ClawdEx.Channels.Telegram do
         Enum.each(paths, fn path ->
           if File.exists?(path) or String.starts_with?(path, "http") do
             Logger.info("Sending media: #{path}")
+
             case send_photo(chat_id, path, opts) do
               {:ok, _} -> Logger.info("Telegram photo sent successfully: #{path}")
               {:error, err} -> Logger.error("Telegram photo send failed: #{inspect(err)}")
@@ -270,15 +279,16 @@ defmodule ClawdEx.Channels.Telegram do
       ~r/(https?:\/\/[^\s`'"<>]+\.(?:png|jpg|jpeg|gif|webp))/i
     ]
 
-    paths = patterns
-    |> Enum.flat_map(fn pattern ->
-      Regex.scan(pattern, response)
-      |> Enum.map(fn
-        [_, path] -> String.trim(path)
-        [path] -> String.trim(path)
+    paths =
+      patterns
+      |> Enum.flat_map(fn pattern ->
+        Regex.scan(pattern, response)
+        |> Enum.map(fn
+          [_, path] -> String.trim(path)
+          [path] -> String.trim(path)
+        end)
       end)
-    end)
-    |> Enum.uniq()
+      |> Enum.uniq()
 
     Logger.debug("Extracted media paths: #{inspect(paths)}")
     paths

@@ -191,8 +191,10 @@ defmodule ClawdExWeb.AgentFormLive do
   end
 
   defp get_config_value(nil, _key, default), do: default
+
   defp get_config_value(config, key, default) when is_map(config) do
     Map.get(config, key, Map.get(config, to_string(key), default))
   end
+
   defp get_config_value(_config, _key, default), do: default
 end

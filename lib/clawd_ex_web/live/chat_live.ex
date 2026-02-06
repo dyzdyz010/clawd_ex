@@ -7,6 +7,8 @@ defmodule ClawdExWeb.ChatLive do
   use ClawdExWeb, :live_view
 
   alias ClawdEx.Sessions.{SessionManager, SessionWorker}
+  alias ClawdEx.Agents.Agent
+  alias ClawdEx.Repo
 
   require Logger
 
@@ -16,13 +18,32 @@ defmodule ClawdExWeb.ChatLive do
 
   @impl true
   def mount(params, session, socket) do
+    # 加载可用的 agents
+    agents = load_agents()
+
+    # URL 参数中的 agent_id
+    url_agent_id = params["agent_id"] && String.to_integer(params["agent_id"])
+
+    # 检查是否需要显示 agent 选择器（新对话模式）
+    show_agent_picker = params["new"] == "true" && is_nil(params["session"])
+
     # 优先使用 URL 参数中的 session key，否则从 session 中恢复
-    # 最后尝试复用空的 web session，或生成新的
-    session_key = params["session"] || session["session_key"] || find_or_create_session_key()
+    # 如果是新对话模式，生成新的 session key
+    session_key =
+      cond do
+        # 等待用户选择 agent
+        show_agent_picker -> nil
+        params["session"] -> params["session"]
+        session["session_key"] -> session["session_key"]
+        true -> find_or_create_session_key()
+      end
 
     socket =
       socket
       |> assign(:session_key, session_key)
+      |> assign(:agent_id, url_agent_id)
+      |> assign(:agents, agents)
+      |> assign(:show_agent_picker, show_agent_picker)
       |> assign(:messages, [])
       |> assign(:input, "")
       |> assign(:sending, false)
@@ -38,11 +59,22 @@ defmodule ClawdExWeb.ChatLive do
       |> assign(:last_message_id, nil)
 
     # 在连接后再启动会话（避免测试时的问题）
-    if connected?(socket) do
+    # 仅当有 session_key 时才初始化
+    if connected?(socket) && session_key do
       send(self(), :init_session)
     end
 
     {:ok, socket}
+  end
+
+  defp load_agents do
+    import Ecto.Query
+
+    from(a in Agent,
+      where: a.active == true,
+      order_by: [asc: a.name]
+    )
+    |> Repo.all()
   end
 
   # ============================================================================
@@ -98,12 +130,33 @@ defmodule ClawdExWeb.ChatLive do
   end
 
   def handle_event("new_chat", _params, socket) do
-    # 创建新会话
+    # 显示 agent 选择器
+    socket =
+      socket
+      |> assign(:show_agent_picker, true)
+      |> assign(:session_key, nil)
+      |> assign(:agent_id, nil)
+      |> assign(:messages, [])
+      |> assign(:input, "")
+      |> assign(:sending, false)
+      |> assign(:streaming_content, nil)
+      |> assign(:session_started, false)
+      |> assign(:tool_executions, [])
+      |> assign(:tools_expanded, false)
+
+    {:noreply, socket}
+  end
+
+  def handle_event("select_agent", %{"agent_id" => agent_id}, socket) do
+    # 用户选择了 agent，创建新会话
+    agent_id = if agent_id == "", do: nil, else: String.to_integer(agent_id)
     new_session_key = generate_session_key()
 
     socket =
       socket
+      |> assign(:show_agent_picker, false)
       |> assign(:session_key, new_session_key)
+      |> assign(:agent_id, agent_id)
       |> assign(:messages, [])
       |> assign(:input, "")
       |> assign(:sending, false)
@@ -125,7 +178,7 @@ defmodule ClawdExWeb.ChatLive do
   def handle_event("close_tools_modal", _params, socket) do
     {:noreply, assign(socket, :tools_expanded, false)}
   end
-  
+
   # 处理页面可见性变化 - 当用户切换回来时重新同步消息
   def handle_event("visibility_changed", %{"visible" => true}, socket) do
     # 用户切换回来了，重新同步消息
@@ -133,7 +186,7 @@ defmodule ClawdExWeb.ChatLive do
     send(self(), :sync_messages)
     {:noreply, socket}
   end
-  
+
   def handle_event("visibility_changed", %{"visible" => false}, socket) do
     # 用户离开了页面，记录当前状态以便后续恢复
     Logger.debug("[ChatLive] User left page")
@@ -160,7 +213,7 @@ defmodule ClawdExWeb.ChatLive do
 
         # 加载历史消息
         messages = load_messages(session_key)
-        
+
         # 计算最后一条消息的 ID（用于后续同步）
         last_id = if messages != [], do: List.last(messages).id, else: nil
 
@@ -179,32 +232,33 @@ defmodule ClawdExWeb.ChatLive do
         {:noreply, assign(socket, :session_started, false)}
     end
   end
-  
+
   # 处理页面可见性变化 - 当用户切换回来时重新同步
   def handle_info(:sync_messages, socket) do
     session_key = socket.assigns.session_key
     Logger.debug("[ChatLive] Syncing messages for session: #{session_key}")
-    
+
     # 确保 PubSub 订阅仍然有效
     socket = ensure_subscriptions(socket)
-    
+
     # 重新加载消息
     messages = load_messages(session_key)
     last_id = if messages != [], do: List.last(messages).id, else: nil
-    
+
     # 计算新消息数量（用于调试）
     old_count = length(socket.assigns.messages)
     new_count = length(messages)
+
     if new_count > old_count do
       Logger.info("[ChatLive] Found #{new_count - old_count} new messages after sync")
     end
-    
+
     socket =
       socket
       |> assign(:messages, messages)
       |> assign(:last_message_id, last_id)
       |> maybe_restore_sending_state()
-    
+
     {:noreply, socket}
   end
 
@@ -221,7 +275,7 @@ defmodule ClawdExWeb.ChatLive do
   # 接收异步结果（通过 PubSub）
   def handle_info({:agent_result, result}, socket) do
     session_key = socket.assigns.session_key
-    
+
     case result do
       {:ok, _response} ->
         # 先保存工具调用历史（如果有）
@@ -285,8 +339,8 @@ defmodule ClawdExWeb.ChatLive do
       # 从 SessionWorker 获取完整的累积内容
       # SessionWorker 负责累积所有 chunks，ChatLive 只负责显示
       session_key = socket.assigns.session_key
-      
-      cached_content = 
+
+      cached_content =
         try do
           case ClawdEx.Sessions.SessionWorker.get_state(session_key) do
             %{streaming_content: content} when is_binary(content) -> content
@@ -297,7 +351,7 @@ defmodule ClawdExWeb.ChatLive do
         catch
           :exit, _ -> socket.assigns.streaming_content || ""
         end
-      
+
       {:noreply, assign(socket, :streaming_content, cached_content)}
     else
       # 忽略在 send_message 完成后到达的 chunks
@@ -460,56 +514,63 @@ defmodule ClawdExWeb.ChatLive do
   defp generate_session_key do
     "web:" <> (:crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower))
   end
-  
+
   # 确保 PubSub 订阅仍然有效
   defp ensure_subscriptions(socket) do
     session_key = socket.assigns.session_key
-    
+
     # 重新订阅（Phoenix.PubSub.subscribe 是幂等的）
     if session_id = get_session_id(session_key) do
       Phoenix.PubSub.subscribe(ClawdEx.PubSub, "agent:#{session_id}")
     end
+
     Phoenix.PubSub.subscribe(ClawdEx.PubSub, "session:#{session_key}")
-    
+
     socket
   end
-  
+
   # 检查 session 是否有正在进行的 agent 运行，恢复 sending 状态和 streaming_content
   defp maybe_restore_sending_state(socket) do
     session_key = socket.assigns.session_key
-    
+
     try do
       case SessionWorker.get_state(session_key) do
-        %{agent_running: true, streaming_content: cached_content} when is_binary(cached_content) and cached_content != "" ->
+        %{agent_running: true, streaming_content: cached_content}
+        when is_binary(cached_content) and cached_content != "" ->
           # Agent 正在运行且有缓存内容，恢复完整的流式内容
-          Logger.info("[ChatLive] Restoring streaming state with #{String.length(cached_content)} chars from cache")
+          Logger.info(
+            "[ChatLive] Restoring streaming state with #{String.length(cached_content)} chars from cache"
+          )
+
           socket
           |> assign(:sending, true)
           |> assign(:streaming_content, cached_content)
-          
+
         %{agent_running: true} ->
           # Agent 正在运行但没有缓存内容（刚开始或被清空）
           # 保持当前的 streaming_content（可能从 PubSub 接收了部分内容）
           Logger.debug("[ChatLive] Agent running but no cached content, keeping current state")
           current_streaming = socket.assigns.streaming_content
+
           socket
           |> assign(:sending, true)
           |> assign(:streaming_content, current_streaming || "")
-          
+
         _ ->
           # 没有正在运行的 agent，确保 sending 为 false
           # 同时清空 streaming_content（因为响应已完成）
           Logger.debug("[ChatLive] Agent not running, clearing streaming state")
+
           socket
           |> assign(:sending, false)
           |> assign(:streaming_content, nil)
       end
     rescue
-      e -> 
+      e ->
         Logger.warning("[ChatLive] Error restoring state: #{inspect(e)}")
         socket
     catch
-      :exit, reason -> 
+      :exit, reason ->
         Logger.warning("[ChatLive] Exit restoring state: #{inspect(reason)}")
         socket
     end

@@ -218,14 +218,14 @@ defmodule ClawdEx.Sessions.SessionWorker do
 
     # 更新最后活动时间
     update_last_activity(state.session_id)
-    
+
     # 标记 agent 正在运行
     state = %{state | agent_running: true}
 
     # 在后台 Task 中运行 agent
     # 注意：我们需要捕获 self() 来更新状态
     worker_pid = self()
-    
+
     Task.start(fn ->
       result = safe_run_agent(loop_pid, content, opts)
 
@@ -235,14 +235,14 @@ defmodule ClawdEx.Sessions.SessionWorker do
         "session:#{session_key}",
         {:agent_result, result}
       )
-      
+
       # 通知 worker agent 运行完成
       send(worker_pid, :agent_finished)
     end)
 
     {:noreply, state}
   end
-  
+
   @impl true
   def handle_info(:agent_finished, state) do
     # Agent 完成后清空 streaming_content
