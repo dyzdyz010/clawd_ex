@@ -352,20 +352,39 @@ defmodule ClawdEx.Sessions.SessionWorker do
   end
 
   defp load_or_create_session(session_key, agent_id, channel) do
+    # 先尝试查找已存在的 session
     case Repo.get_by(Session, session_key: session_key) do
       nil ->
-        agent_id = agent_id || get_or_create_default_agent_id()
+        # 不存在，创建新的
+        create_new_session(session_key, agent_id, channel)
 
-        %Session{}
-        |> Session.changeset(%{
-          session_key: session_key,
-          channel: channel,
-          agent_id: agent_id
-        })
-        |> Repo.insert!()
+      %{state: :archived} = session ->
+        # 存在但已归档，重新激活它
+        session
+        |> Session.changeset(%{state: :active})
+        |> Repo.update!()
 
       session ->
+        # 存在且活跃，直接返回
         session
+    end
+  end
+
+  defp create_new_session(session_key, agent_id, channel) do
+    agent_id = agent_id || get_or_create_default_agent_id()
+
+    try do
+      %Session{}
+      |> Session.changeset(%{
+        session_key: session_key,
+        channel: channel,
+        agent_id: agent_id
+      })
+      |> Repo.insert!()
+    rescue
+      Ecto.ConstraintError ->
+        # 竞态条件：另一个进程创建了它，获取现有的
+        Repo.get_by!(Session, session_key: session_key)
     end
   end
 

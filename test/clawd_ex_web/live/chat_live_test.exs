@@ -94,6 +94,7 @@ defmodule ClawdExWeb.ChatLiveTest do
 
       # Get initial session key
       initial_html = render(view)
+      [_, initial_key] = Regex.run(~r/Session: (web:[a-f0-9]+)/, initial_html)
 
       # Click new chat button
       view
@@ -102,9 +103,6 @@ defmodule ClawdExWeb.ChatLiveTest do
 
       # Session key should change
       new_html = render(view)
-
-      # Extract session keys for comparison
-      [_, initial_key] = Regex.run(~r/Session: (web:[a-f0-9]+)/, initial_html)
       [_, new_key] = Regex.run(~r/Session: (web:[a-f0-9]+)/, new_html)
 
       assert initial_key != new_key

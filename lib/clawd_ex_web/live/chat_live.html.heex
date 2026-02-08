@@ -7,7 +7,7 @@
       </div>
       <div>
         <h1 class="font-semibold text-white">Chat</h1>
-        <p class="text-xs text-gray-400">Session: {String.slice(@session_key, 0..15)}...</p>
+        <p class="text-xs text-gray-400">Session: {String.slice(@session_key || "", 0..15)}...</p>
       </div>
     </div>
     <button

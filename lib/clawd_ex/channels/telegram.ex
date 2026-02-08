@@ -58,10 +58,33 @@ defmodule ClawdEx.Channels.Telegram do
     end
   end
 
+  # Telegram 消息长度限制
+  @max_message_length 4000
+
   defp do_send_message(token, chat_id, content, opts) do
     chat_id = ensure_integer(chat_id)
     reply_to = Keyword.get(opts, :reply_to)
 
+    # 分割长消息
+    chunks = split_message(content, @max_message_length)
+
+    # 发送每个分块
+    results =
+      Enum.with_index(chunks)
+      |> Enum.map(fn {chunk, index} ->
+        # 只有第一个分块使用 reply_to
+        chunk_reply_to = if index == 0, do: reply_to, else: nil
+        send_single_message(token, chat_id, chunk, chunk_reply_to)
+      end)
+
+    # 返回最后一个成功的结果，或第一个错误
+    case Enum.find(results, &match?({:error, _}, &1)) do
+      nil -> List.last(results)
+      error -> error
+    end
+  end
+
+  defp send_single_message(token, chat_id, content, reply_to) do
     params =
       [chat_id: chat_id, text: content, parse_mode: "Markdown"]
       |> maybe_add_reply_params(reply_to)
@@ -70,14 +93,86 @@ defmodule ClawdEx.Channels.Telegram do
       {:ok, message} ->
         {:ok, format_message(message)}
 
+      {:error, description} when is_binary(description) ->
+        # 如果是 Markdown 解析错误或消息太长，回退到纯文本
+        if String.contains?(description, "entities") or
+             String.contains?(description, "parse") or
+             String.contains?(description, "too long") do
+          Logger.warning("Markdown/length error, retrying as plain text: #{description}")
+          send_plain_text(token, chat_id, content, reply_to)
+        else
+          Logger.error("Telegram send failed: #{description}")
+          {:error, description}
+        end
+
       {:error, %{"description" => description}} ->
-        Logger.error("Telegram send failed: #{description}")
-        {:error, description}
+        # 处理 map 格式的错误（兼容性）
+        if String.contains?(description, "entities") or
+             String.contains?(description, "parse") or
+             String.contains?(description, "too long") do
+          Logger.warning("Markdown/length error, retrying as plain text: #{description}")
+          send_plain_text(token, chat_id, content, reply_to)
+        else
+          Logger.error("Telegram send failed: #{description}")
+          {:error, description}
+        end
 
       {:error, reason} ->
         Logger.error("Telegram send failed: #{inspect(reason)}")
         {:error, reason}
     end
+  end
+
+  defp send_plain_text(token, chat_id, content, reply_to) do
+    params =
+      [chat_id: chat_id, text: content]
+      |> maybe_add_reply_params(reply_to)
+
+    case Telegram.Api.request(token, "sendMessage", params) do
+      {:ok, message} ->
+        {:ok, format_message(message)}
+
+      {:error, %{"description" => description}} ->
+        Logger.error("Telegram plain text send failed: #{description}")
+        {:error, description}
+
+      {:error, reason} ->
+        Logger.error("Telegram plain text send failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  # 分割长消息，尽量在段落边界分割
+  defp split_message(content, max_length) when byte_size(content) <= max_length do
+    [content]
+  end
+
+  defp split_message(content, max_length) do
+    do_split_message(content, max_length, [])
+  end
+
+  defp do_split_message("", _max_length, acc), do: Enum.reverse(acc)
+
+  defp do_split_message(content, max_length, acc) when byte_size(content) <= max_length do
+    Enum.reverse([content | acc])
+  end
+
+  defp do_split_message(content, max_length, acc) do
+    # 尝试在换行符处分割
+    chunk = String.slice(content, 0, max_length)
+
+    # 找到最后一个换行符位置
+    split_pos =
+      case :binary.match(String.reverse(chunk), "\n") do
+        {pos, _} -> max_length - pos - 1
+        :nomatch -> max_length
+      end
+
+    # 确保至少分割一些内容
+    split_pos = max(split_pos, div(max_length, 2))
+
+    {first, rest} = String.split_at(content, split_pos)
+    do_split_message(String.trim_leading(rest), max_length, [String.trim_trailing(first) | acc])
   end
 
   @doc """
@@ -176,6 +271,7 @@ defmodule ClawdEx.Channels.Telegram do
   def handle_message(message) do
     chat_id = message.channel_id
     session_key = "telegram:#{chat_id}"
+    reply_to = message.id
 
     # 启动或获取会话
     case SessionManager.start_session(
@@ -194,28 +290,125 @@ defmodule ClawdEx.Channels.Telegram do
         :error
     end
 
+    # 获取 session_id 用于订阅 PubSub
+    session_id = get_session_id(session_key)
+
+    # 订阅 agent 事件（接收中间消息段）
+    if session_id do
+      Phoenix.PubSub.subscribe(ClawdEx.PubSub, "agent:#{session_id}")
+    end
+
     # 启动持续的 typing 指示器
     stop_typing = start_typing_indicator(chat_id)
 
-    # 发送消息到会话
-    result = SessionWorker.send_message(session_key, message.content)
+    # 在后台 Task 中处理消息，以便能接收 PubSub 事件
+    parent = self()
+    ref = make_ref()
 
-    # 停止 typing 指示器
+    task =
+      Task.async(fn ->
+        result = SessionWorker.send_message(session_key, message.content)
+        send(parent, {:result, ref, result})
+      end)
+
+    # 接收循环：处理中间消息段和最终结果
+    final_result = receive_loop(chat_id, reply_to, ref, nil)
+
+    # 清理
     stop_typing.()
+    Task.shutdown(task, :brutal_kill)
 
-    case result do
+    if session_id do
+      Phoenix.PubSub.unsubscribe(ClawdEx.PubSub, "agent:#{session_id}")
+    end
+
+    case final_result do
       {:ok, response} when is_binary(response) ->
         Logger.info(
-          "Sending Telegram response to #{chat_id}: #{String.slice(response, 0, 50)}..."
+          "Sending Telegram final response to #{chat_id}: #{String.slice(response, 0, 50)}..."
         )
 
-        send_response_with_media(chat_id, response, reply_to: message.id)
+        send_response_with_media(chat_id, response, reply_to: reply_to)
         :ok
 
       {:error, reason} ->
         Logger.error("Session error: #{inspect(reason)}")
         send_message(chat_id, "抱歉，处理消息时出错了。")
         {:error, reason}
+    end
+  end
+
+  # 接收循环：处理中间消息段和等待最终结果
+  # sent_tools_msg: 是否已发送工具执行消息（避免重复发送）
+  defp receive_loop(chat_id, reply_to, ref, state) do
+    state = state || %{sent_segment: false, sent_tools_msg: false}
+
+    receive do
+      # 收到消息段（工具调用前的文本）
+      {:agent_segment, _run_id, content, %{continuing: true}} when content != "" ->
+        # 发送中间消息
+        Logger.info("Sending Telegram segment: #{String.slice(content, 0, 50)}...")
+        send_response_with_media(chat_id, content, reply_to: reply_to)
+        receive_loop(chat_id, reply_to, ref, %{state | sent_segment: true})
+
+      # 收到工具开始执行事件
+      {:agent_status, _run_id, :tools_start, %{tools: tools, count: count}}
+      when not state.sent_tools_msg and not state.sent_segment ->
+        # 只有在没有发送过 segment 时才发送工具状态
+        tool_names = format_tool_names(tools)
+        msg = "🔧 正在执行 #{count} 个工具：#{tool_names}..."
+        Logger.info("Sending Telegram tools status: #{msg}")
+        send_message(chat_id, msg)
+        receive_loop(chat_id, reply_to, ref, %{state | sent_tools_msg: true})
+
+      # 收到最终结果
+      {:result, ^ref, result} ->
+        result
+
+      # 忽略其他 agent 事件
+      {:agent_chunk, _run_id, _chunk} ->
+        receive_loop(chat_id, reply_to, ref, state)
+
+      {:agent_status, _run_id, _status, _details} ->
+        receive_loop(chat_id, reply_to, ref, state)
+
+      {:agent_segment, _run_id, _content, _opts} ->
+        receive_loop(chat_id, reply_to, ref, state)
+    after
+      # 10 分钟超时
+      600_000 ->
+        {:error, :timeout}
+    end
+  end
+
+  # 格式化工具名称列表
+  defp format_tool_names(tools) when is_list(tools) do
+    tools
+    |> Enum.take(3)
+    |> Enum.map(&humanize_tool_name/1)
+    |> Enum.join("、")
+    |> case do
+      names when length(tools) > 3 -> names <> " 等"
+      names -> names
+    end
+  end
+
+  defp format_tool_names(_), do: "工具"
+
+  defp humanize_tool_name("web_search"), do: "网页搜索"
+  defp humanize_tool_name("web_fetch"), do: "网页获取"
+  defp humanize_tool_name("exec"), do: "命令执行"
+  defp humanize_tool_name("Read"), do: "读取文件"
+  defp humanize_tool_name("Write"), do: "写入文件"
+  defp humanize_tool_name("Edit"), do: "编辑文件"
+  defp humanize_tool_name("browser"), do: "浏览器"
+  defp humanize_tool_name("memory_search"), do: "记忆搜索"
+  defp humanize_tool_name(name), do: name
+
+  defp get_session_id(session_key) do
+    case ClawdEx.Repo.get_by(ClawdEx.Sessions.Session, session_key: session_key) do
+      nil -> nil
+      session -> session.id
     end
   end
 
@@ -343,9 +536,18 @@ defmodule ClawdEx.Channels.Telegram do
   end
 
   def handle_info(:poll, state) do
-    new_offset = poll_updates(state)
-    Process.send_after(self(), :poll, 100)
-    {:noreply, %{state | offset: new_offset}}
+    # 同步轮询：完成当前请求后再发起下一次
+    case poll_updates(state) do
+      {:ok, new_offset} ->
+        # 成功时立即发起下一次轮询（getUpdates 本身有 30 秒长轮询）
+        send(self(), :poll)
+        {:noreply, %{state | offset: new_offset}}
+
+      {:error, _reason} ->
+        # 错误时延迟 5 秒重试（不阻塞 GenServer）
+        Process.send_after(self(), :poll, 5000)
+        {:noreply, state}
+    end
   end
 
   # Private Functions
@@ -367,19 +569,22 @@ defmodule ClawdEx.Channels.Telegram do
 
     case Telegram.Api.request(state.token, "getUpdates", params) do
       {:ok, []} ->
-        state.offset
+        {:ok, state.offset}
 
       {:ok, updates} ->
         Enum.each(updates, &process_update/1)
 
-        updates
-        |> List.last()
-        |> Map.get("update_id")
-        |> Kernel.+(1)
+        new_offset =
+          updates
+          |> List.last()
+          |> Map.get("update_id")
+          |> Kernel.+(1)
+
+        {:ok, new_offset}
 
       {:error, reason} ->
         Logger.error("Telegram poll error: #{inspect(reason)}")
-        state.offset
+        {:error, reason}
     end
   end
 

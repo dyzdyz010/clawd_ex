@@ -130,11 +130,13 @@ defmodule ClawdExWeb.ChatLive do
   end
 
   def handle_event("new_chat", _params, socket) do
-    # 显示 agent 选择器
+    # 直接创建新会话
+    new_session_key = generate_session_key()
+
     socket =
       socket
-      |> assign(:show_agent_picker, true)
-      |> assign(:session_key, nil)
+      |> assign(:show_agent_picker, false)
+      |> assign(:session_key, new_session_key)
       |> assign(:agent_id, nil)
       |> assign(:messages, [])
       |> assign(:input, "")

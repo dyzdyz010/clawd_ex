@@ -82,27 +82,27 @@ defmodule ClawdEx.Sessions.Reset do
   end
 
   @doc """
-  重置会话 - 创建新的会话 ID，保留 session_key
+  重置会话 - 清空消息并重置状态，保留 session_key
   """
   @spec reset_session!(Session.t()) :: Session.t()
   def reset_session!(session) do
     Logger.info("Resetting session: #{session.session_key}")
 
-    # 归档旧会话
-    session
-    |> Session.changeset(%{state: :archived})
-    |> Repo.update!()
+    import Ecto.Query
 
-    # 创建新会话
-    %Session{}
+    # 删除该会话的所有消息
+    from(m in ClawdEx.Sessions.Message, where: m.session_id == ^session.id)
+    |> Repo.delete_all()
+
+    # 重置会话状态和计数器
+    session
     |> Session.changeset(%{
-      session_key: session.session_key,
-      channel: session.channel,
-      channel_id: session.channel_id,
-      agent_id: session.agent_id,
-      state: :active
+      state: :active,
+      token_count: 0,
+      message_count: 0,
+      last_activity_at: DateTime.utc_now()
     })
-    |> Repo.insert!()
+    |> Repo.update!()
   end
 
   # ============================================================================

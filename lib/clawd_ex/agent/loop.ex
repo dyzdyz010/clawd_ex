@@ -164,6 +164,32 @@ defmodule ClawdEx.Agent.Loop do
     :keep_state_and_data
   end
 
+  # Ignore stale AI messages that arrive after timeout
+  def idle(:info, {:ai_done, _response}, _data) do
+    Logger.debug("Ignoring stale :ai_done message in idle state")
+    :keep_state_and_data
+  end
+
+  def idle(:info, {:ai_chunk, _chunk}, _data) do
+    :keep_state_and_data
+  end
+
+  def idle(:info, {:ai_error, _reason}, _data) do
+    Logger.debug("Ignoring stale :ai_error message in idle state")
+    :keep_state_and_data
+  end
+
+  # Ignore stale tool results
+  def idle(:info, {:tools_done, _results}, _data) do
+    Logger.debug("Ignoring stale :tools_done message in idle state")
+    :keep_state_and_data
+  end
+
+  # Ignore stale timeout messages
+  def idle(:info, {:run_timeout, _run_id}, _data) do
+    :keep_state_and_data
+  end
+
   # ============================================================================
   # State: PREPARING
   # ============================================================================
@@ -270,10 +296,17 @@ defmodule ClawdEx.Agent.Loop do
     cond do
       # 有工具调用
       response[:tool_calls] && length(response[:tool_calls]) > 0 ->
+        content = response[:content] || ""
+
+        # 如果有文本内容，先广播消息段（让渠道可以立即发送）
+        if content != "" do
+          broadcast_segment(data, content, continuing: true)
+        end
+
         new_data = %{
           data
           | pending_tool_calls: response[:tool_calls],
-            stream_buffer: response[:content] || ""
+            stream_buffer: content
         }
 
         {:next_state, :executing_tools, new_data, [{:next_event, :internal, :execute_tools}]}
@@ -647,6 +680,20 @@ defmodule ClawdEx.Agent.Loop do
     broadcast_status(data, :error, %{
       reason: inspect(reason)
     })
+  end
+
+  # 广播消息段 - 当 AI 输出完整文本段落时（工具调用前）
+  # 这样渠道可以立即发送，而不是等待整个运行完成
+  defp broadcast_segment(data, content, opts \\ []) do
+    Phoenix.PubSub.broadcast(
+      ClawdEx.PubSub,
+      "agent:#{data.session_id}",
+      {:agent_segment, data.run_id, content,
+       %{
+         session_id: data.session_id,
+         continuing: Keyword.get(opts, :continuing, false)
+       }}
+    )
   end
 
   # 清理敏感参数（不广播密码等）
