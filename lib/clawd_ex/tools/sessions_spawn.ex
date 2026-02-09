@@ -6,7 +6,9 @@ defmodule ClawdEx.Tools.SessionsSpawn do
   - 创建新的隔离会话
   - 在新会话中启动 Agent Loop
   - 非阻塞执行，立即返回 childSessionKey
-  - 任务完成后通过 PubSub 通知父会话
+  - 任务完成后通过 PubSub 通知父会话并回报渠道
+  - 支持 cleanup: "delete" | "keep" 控制会话清理
+  - 支持 thinking 参数控制思考级别
 
   session_key 格式: agent:{agent_id}:subagent:{uuid}
   """
@@ -26,9 +28,9 @@ defmodule ClawdEx.Tools.SessionsSpawn do
   @impl true
   def description do
     """
-    Spawn a child agent to execute a task in an isolated session.
+    Spawn a background sub-agent run in an isolated session and announce the result back to the requester chat.
     Non-blocking - returns immediately with childSessionKey.
-    Use sessions_history or sessions_poll to check status and get results.
+    Use sessions_history to check progress or wait for the announcement.
     """
   end
 
@@ -46,24 +48,29 @@ defmodule ClawdEx.Tools.SessionsSpawn do
           description: "Human-readable label for this subagent (optional)"
         },
         agentId: %{
-          type: "integer",
+          type: "string",
           description: "Agent ID to use (defaults to parent's agent)"
         },
         model: %{
           type: "string",
           description: "Model override for this subagent (defaults to agent's default)"
         },
+        thinking: %{
+          type: "string",
+          description: "Thinking level override (e.g., 'low', 'medium', 'high')"
+        },
         runTimeoutSeconds: %{
           type: "integer",
           description: "Timeout in seconds (default: 600, max: 3600)"
         },
-        cleanup: %{
-          type: "boolean",
-          description: "Clean up session after completion (default: false)"
+        timeoutSeconds: %{
+          type: "integer",
+          description: "Legacy alias for runTimeoutSeconds"
         },
-        contextInject: %{
+        cleanup: %{
           type: "string",
-          description: "Additional context to inject into the subagent's system prompt"
+          enum: ["delete", "keep"],
+          description: "Session cleanup after completion: 'delete' removes session, 'keep' preserves it (default: keep)"
         }
       },
       required: ["task"]
@@ -72,23 +79,41 @@ defmodule ClawdEx.Tools.SessionsSpawn do
 
   @impl true
   def execute(params, context) do
-    task = params["task"] || params[:task]
+    # 检查是否从子代理会话调用（禁止）
+    session_key = context[:session_key] || ""
 
-    if is_nil(task) || task == "" do
-      {:error, "task is required"}
+    if is_subagent_session?(session_key) do
+      {:error, "sessions_spawn is not allowed from sub-agent sessions"}
     else
-      spawn_subagent(params, context)
+      task = params["task"] || params[:task]
+
+      if is_nil(task) || task == "" do
+        {:error, "task is required"}
+      else
+        spawn_subagent(params, context)
+      end
     end
   end
 
+  # 检查是否是子代理会话
+  defp is_subagent_session?(session_key) when is_binary(session_key) do
+    String.contains?(session_key, ":subagent:")
+  end
+
+  defp is_subagent_session?(_), do: false
+
   defp spawn_subagent(params, context) do
     task = params["task"] || params[:task]
-    label = params["label"] || params[:label]
-    agent_id = params["agentId"] || params[:agentId] || context[:agent_id]
-    model = params["model"] || params[:model]
+    label = get_string_param(params, "label")
+    agent_id = get_string_param(params, "agentId") || context[:agent_id]
+    model = get_string_param(params, "model")
+    thinking = get_string_param(params, "thinking")
     timeout_seconds = get_timeout(params)
-    cleanup = params["cleanup"] || params[:cleanup] || false
-    context_inject = params["contextInject"] || params[:contextInject]
+    cleanup = normalize_cleanup(params["cleanup"] || params[:cleanup])
+
+    # 获取渠道信息用于结果回报
+    channel = context[:channel]
+    channel_to = context[:channel_to] || context[:to]
 
     # 生成子会话 key
     subagent_id = generate_subagent_id()
@@ -101,22 +126,25 @@ defmodule ClawdEx.Tools.SessionsSpawn do
     Logger.info("Spawning subagent #{label || subagent_id} for task: #{truncate(task, 100)}")
 
     # 构建子代理的配置
-    child_config = build_child_config(context, model, context_inject, parent_session_key)
+    child_config = build_child_config(context, model, thinking, parent_session_key)
 
     # 启动子会话
     case start_child_session(child_session_key, agent_id, child_config) do
       {:ok, _pid} ->
         # 异步执行任务
-        spawn_task_runner(
-          child_session_key,
-          task,
-          model,
-          timeout_seconds,
-          cleanup,
-          parent_session_key,
-          parent_session_id,
-          label
-        )
+        spawn_task_runner(%{
+          child_session_key: child_session_key,
+          task: task,
+          model: model,
+          thinking: thinking,
+          timeout_seconds: timeout_seconds,
+          cleanup: cleanup,
+          parent_session_key: parent_session_key,
+          parent_session_id: parent_session_id,
+          label: label,
+          channel: channel,
+          channel_to: channel_to
+        })
 
         {:ok, format_spawn_response(child_session_key, subagent_id, label)}
 
@@ -124,6 +152,18 @@ defmodule ClawdEx.Tools.SessionsSpawn do
         Logger.error("Failed to spawn subagent: #{inspect(reason)}")
         {:error, "Failed to spawn subagent: #{inspect(reason)}"}
     end
+  end
+
+  # 规范化 cleanup 参数
+  defp normalize_cleanup("delete"), do: :delete
+  defp normalize_cleanup("keep"), do: :keep
+  defp normalize_cleanup(true), do: :delete  # 兼容旧的 boolean 参数
+  defp normalize_cleanup(_), do: :keep
+
+  # 获取字符串参数，处理 atom 和 string key
+  defp get_string_param(params, key) do
+    value = params[key] || params[String.to_atom(key)]
+    if is_binary(value) && String.trim(value) != "", do: String.trim(value), else: nil
   end
 
   defp start_child_session(session_key, agent_id, config) do
@@ -135,23 +175,28 @@ defmodule ClawdEx.Tools.SessionsSpawn do
     )
   end
 
-  defp spawn_task_runner(
-         child_session_key,
-         task,
-         model,
-         timeout_seconds,
-         cleanup,
-         parent_session_key,
-         parent_session_id,
-         label
-       ) do
+  defp spawn_task_runner(opts) do
+    %{
+      child_session_key: child_session_key,
+      task: task,
+      model: model,
+      thinking: thinking,
+      timeout_seconds: timeout_seconds,
+      cleanup: cleanup,
+      parent_session_key: parent_session_key,
+      parent_session_id: parent_session_id,
+      label: label,
+      channel: channel,
+      channel_to: channel_to
+    } = opts
+
     spawn(fn ->
       started_at = DateTime.utc_now()
 
       result =
         try do
-          opts = build_run_opts(model, timeout_seconds)
-          SessionWorker.send_message(child_session_key, task, opts)
+          run_opts = build_run_opts(model, thinking, timeout_seconds)
+          SessionWorker.send_message(child_session_key, task, run_opts)
         rescue
           e ->
             Logger.error("Subagent execution error: #{Exception.message(e)}")
@@ -164,7 +209,7 @@ defmodule ClawdEx.Tools.SessionsSpawn do
 
       duration_ms = DateTime.diff(DateTime.utc_now(), started_at, :millisecond)
 
-      # 通知父会话
+      # 通知父会话 (PubSub)
       announce_completion(
         parent_session_key,
         parent_session_id,
@@ -174,13 +219,56 @@ defmodule ClawdEx.Tools.SessionsSpawn do
         label
       )
 
-      # 可选清理
-      if cleanup do
+      # 向原渠道发送结果通知
+      announce_to_channel(channel, channel_to, label, result, duration_ms)
+
+      # 根据 cleanup 参数决定是否清理
+      if cleanup == :delete do
         Logger.info("Cleaning up subagent session: #{child_session_key}")
         SessionManager.stop_session(child_session_key)
       end
     end)
   end
+
+  # 向原渠道发送结果通知
+  defp announce_to_channel(nil, _to, _label, _result, _duration_ms), do: :ok
+  defp announce_to_channel(_channel, nil, _label, _result, _duration_ms), do: :ok
+
+  defp announce_to_channel(channel, to, label, result, duration_ms) do
+    status_emoji = if match?({:ok, _}, result), do: "✅", else: "❌"
+    task_name = label || "子代理任务"
+    duration_str = format_duration(duration_ms)
+
+    message =
+      case result do
+        {:ok, content} when is_binary(content) ->
+          summary = truncate(content, 500)
+          "#{status_emoji} **#{task_name}** 完成 (#{duration_str})\n\n#{summary}"
+
+        {:ok, _} ->
+          "#{status_emoji} **#{task_name}** 完成 (#{duration_str})"
+
+        {:error, reason} ->
+          "#{status_emoji} **#{task_name}** 失败 (#{duration_str})\n\n错误: #{inspect(reason)}"
+      end
+
+    # 通过渠道发送消息
+    case channel do
+      "telegram" ->
+        ClawdEx.Channels.Telegram.send_message(to, message)
+
+      "discord" ->
+        ClawdEx.Channels.Discord.send_message(to, message)
+
+      _ ->
+        Logger.debug("Unknown channel for announcement: #{channel}")
+        :ok
+    end
+  end
+
+  defp format_duration(ms) when ms < 1000, do: "#{ms}ms"
+  defp format_duration(ms) when ms < 60_000, do: "#{Float.round(ms / 1000, 1)}s"
+  defp format_duration(ms), do: "#{Float.round(ms / 60_000, 1)}m"
 
   defp announce_completion(
          parent_session_key,
@@ -225,7 +313,7 @@ defmodule ClawdEx.Tools.SessionsSpawn do
     end
   end
 
-  defp build_child_config(parent_context, model_override, context_inject, parent_session_key) do
+  defp build_child_config(parent_context, model_override, thinking_override, parent_session_key) do
     parent_config = parent_context[:config] || %{}
 
     config = %{
@@ -235,22 +323,35 @@ defmodule ClawdEx.Tools.SessionsSpawn do
       tools_deny: parent_config[:tools_deny] || [],
       # 子代理特有
       parent_session_key: parent_session_key,
-      is_subagent: true,
-      subagent_context: context_inject
+      is_subagent: true
     }
 
-    if model_override do
-      Map.put(config, :default_model, model_override)
+    config =
+      if model_override do
+        Map.put(config, :default_model, model_override)
+      else
+        Map.put(config, :default_model, parent_config[:default_model])
+      end
+
+    if thinking_override do
+      Map.put(config, :thinking, thinking_override)
     else
-      Map.put(config, :default_model, parent_config[:default_model])
+      config
     end
   end
 
-  defp build_run_opts(model, timeout_seconds) do
+  defp build_run_opts(model, thinking, timeout_seconds) do
     opts = [timeout: timeout_seconds * 1000]
 
-    if model do
-      Keyword.put(opts, :model, model)
+    opts =
+      if model do
+        Keyword.put(opts, :model, model)
+      else
+        opts
+      end
+
+    if thinking do
+      Keyword.put(opts, :thinking, thinking)
     else
       opts
     end

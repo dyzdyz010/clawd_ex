@@ -14,7 +14,7 @@ defmodule ClawdEx.Tools.SessionsSpawnTest do
     test "returns description string" do
       desc = SessionsSpawn.description()
       assert is_binary(desc)
-      assert desc =~ "child agent"
+      assert desc =~ "sub-agent"
     end
   end
 
@@ -170,10 +170,10 @@ defmodule ClawdEx.Tools.SessionsSpawnTest do
       %{context: context, agent: agent}
     end
 
-    test "session persists when cleanup is false", %{context: context, agent: _agent} do
+    test "session persists when cleanup is keep", %{context: context, agent: _agent} do
       params = %{
         "task" => "echo done",
-        "cleanup" => false
+        "cleanup" => "keep"
       }
 
       assert {:ok, result} = SessionsSpawn.execute(params, context)
@@ -186,6 +186,87 @@ defmodule ClawdEx.Tools.SessionsSpawnTest do
       # 注意：由于任务可能已完成，这取决于实际执行情况
       # 这里我们只验证 spawn 成功
       assert is_list(sessions)
+    end
+
+    test "accepts cleanup as delete string", %{context: context} do
+      params = %{
+        "task" => "quick task",
+        "cleanup" => "delete"
+      }
+
+      assert {:ok, _result} = SessionsSpawn.execute(params, context)
+    end
+
+    test "accepts cleanup as boolean for backward compatibility", %{context: context} do
+      params = %{
+        "task" => "quick task",
+        "cleanup" => true
+      }
+
+      # true 应该被转换为 :delete
+      assert {:ok, _result} = SessionsSpawn.execute(params, context)
+    end
+  end
+
+  describe "subagent spawn restriction" do
+    setup do
+      {:ok, agent} =
+        %ClawdEx.Agents.Agent{}
+        |> ClawdEx.Agents.Agent.changeset(%{
+          name: "restriction-test-agent-#{System.unique_integer()}"
+        })
+        |> ClawdEx.Repo.insert()
+
+      %{agent: agent}
+    end
+
+    test "rejects spawn from subagent session", %{agent: agent} do
+      # 模拟从子代理会话调用
+      context = %{
+        agent_id: agent.id,
+        session_key: "agent:#{agent.id}:subagent:abc123"
+      }
+
+      params = %{"task" => "nested task"}
+
+      assert {:error, message} = SessionsSpawn.execute(params, context)
+      assert message =~ "not allowed from sub-agent"
+    end
+
+    test "allows spawn from main session", %{agent: agent} do
+      context = %{
+        agent_id: agent.id,
+        session_key: "agent:#{agent.id}:main"
+      }
+
+      params = %{"task" => "normal task"}
+
+      assert {:ok, result} = SessionsSpawn.execute(params, context)
+      assert result.status == "spawned"
+    end
+  end
+
+  describe "thinking parameter" do
+    setup do
+      {:ok, agent} =
+        %ClawdEx.Agents.Agent{}
+        |> ClawdEx.Agents.Agent.changeset(%{
+          name: "thinking-test-agent-#{System.unique_integer()}"
+        })
+        |> ClawdEx.Repo.insert()
+
+      context = %{agent_id: agent.id, session_key: "parent:main"}
+      %{context: context}
+    end
+
+    test "accepts thinking parameter", %{context: context} do
+      params = %{
+        "task" => "complex task",
+        "thinking" => "high"
+      }
+
+      assert {:ok, result} = SessionsSpawn.execute(params, context)
+      assert result.status == "spawned"
     end
   end
 end
