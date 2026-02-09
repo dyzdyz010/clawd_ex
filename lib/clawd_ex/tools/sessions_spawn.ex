@@ -225,9 +225,40 @@ defmodule ClawdEx.Tools.SessionsSpawn do
       # 根据 cleanup 参数决定是否清理
       if cleanup == :delete do
         Logger.info("Cleaning up subagent session: #{child_session_key}")
+        # 先停止进程
         SessionManager.stop_session(child_session_key)
+        # 再删除数据库记录
+        delete_session_from_db(child_session_key)
       end
     end)
+  end
+
+  # 从数据库中删除会话记录
+  defp delete_session_from_db(session_key) do
+    import Ecto.Query
+
+    case ClawdEx.Repo.get_by(ClawdEx.Sessions.Session, session_key: session_key) do
+      nil ->
+        Logger.debug("Session #{session_key} not found in DB for cleanup")
+        :ok
+
+      session ->
+        # 先删除关联的消息
+        ClawdEx.Repo.delete_all(
+          from(m in ClawdEx.Sessions.Message, where: m.session_id == ^session.id)
+        )
+
+        # 再删除会话
+        case ClawdEx.Repo.delete(session) do
+          {:ok, _} ->
+            Logger.info("Session #{session_key} deleted from DB")
+            :ok
+
+          {:error, reason} ->
+            Logger.error("Failed to delete session #{session_key}: #{inspect(reason)}")
+            {:error, reason}
+        end
+    end
   end
 
   # 向原渠道发送结果通知
