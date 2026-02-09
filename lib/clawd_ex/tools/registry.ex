@@ -22,7 +22,8 @@ defmodule ClawdEx.Tools.Registry do
     # 运行时
     "exec" => ClawdEx.Tools.Exec,
     "process" => ClawdEx.Tools.Process,
-    # 记忆
+    # 记忆（统一接口）
+    "memory" => ClawdEx.Tools.MemoryTool,
     "memory_search" => ClawdEx.Tools.MemorySearch,
     "memory_get" => ClawdEx.Tools.MemoryGet,
     # 会话
@@ -75,6 +76,7 @@ defmodule ClawdEx.Tools.Registry do
     "Browser" => "browser",
     "Canvas" => "canvas",
     "Process" => "process",
+    "Memory" => "memory",
     "MemorySearch" => "memory_search",
     "MemoryGet" => "memory_get",
     "SessionStatus" => "session_status",
