@@ -185,7 +185,7 @@
 ### 📊 统计
 - **整体完成度**: ~42% (76/181 功能)
 - **工具数量**: 22/24 个
-- **测试用例**: 377 个
+- **测试用例**: 387 个
 - **渠道数量**: 3/11 个
 - **AI 提供商**: 5/10 个
 - **LiveView 页面**: 8/17 个 (+3: Cron/Logs/Settings)
@@ -194,6 +194,21 @@
 ---
 
 ## 更新日志
+
+### 2026-02-09 (v0.3.3) - Prompt System & Memory Refactor
+- 🔧 **Prompt 系统重构**
+  - 移植 OpenClaw 风格的 prompt 系统
+  - 添加 "CRITICAL: Use Tools, Don't Pretend" 章节
+  - 修复 Agent Loop 伪工具调用问题
+- 🧠 **记忆系统重构**
+  - 单后端模型 (single-backend-per-agent)
+  - 统一记忆系统多后端支持
+- 📱 **Telegram 增强**
+  - 统一消息段处理
+  - 自动检测图片路径并发送
+  - Markdown 路径包装检测优化
+  - 持续打字指示器
+- ✅ **测试**: 387 tests, 0 failures
 
 ### 2026-02-03 (v0.3.2) - Cron Execution System
 - ⏰ **完整 Cron 执行系统** (`CronExecutor`)
