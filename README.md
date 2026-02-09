@@ -186,7 +186,7 @@ ClawdEx.AI.OAuth.store_credentials(:anthropic, %{
 | Metric | Value |
 |--------|-------|
 | **Completion** | ~42% (76/181 features) |
-| **Tests** | 387 passing |
+| **Tests** | 392 passing |
 | **LiveView Pages** | 8 |
 | **CLI Commands** | 3 |
 | **Tools** | 22/24 |

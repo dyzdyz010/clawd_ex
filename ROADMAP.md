@@ -170,7 +170,7 @@
 
 **P1 - 重要功能:**
 - [ ] TUI 终端界面
-- [ ] 子代理完整功能 (cleanup/label)
+- [x] 子代理完整功能 (cleanup/label/thinking/restriction)
 - [ ] WhatsApp/Signal 渠道
 - [ ] Sandbox 安全模式
 
@@ -185,7 +185,7 @@
 ### 📊 统计
 - **整体完成度**: ~42% (76/181 功能)
 - **工具数量**: 22/24 个
-- **测试用例**: 387 个
+- **测试用例**: 392 个
 - **渠道数量**: 3/11 个
 - **AI 提供商**: 5/10 个
 - **LiveView 页面**: 8/17 个 (+3: Cron/Logs/Settings)
