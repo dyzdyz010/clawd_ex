@@ -49,6 +49,7 @@ defmodule ClawdEx.AI.Stream do
         system_prompt = Keyword.get(opts, :system)
         tools = Keyword.get(opts, :tools, [])
         max_tokens = Keyword.get(opts, :max_tokens, 4096)
+        Logger.debug("AIStream: #{length(tools)} tools, oauth=#{is_oauth}, model=#{model}")
 
         body = %{
           model: model,
@@ -66,9 +67,21 @@ defmodule ClawdEx.AI.Stream do
           end
 
         body =
-          if tools != [],
-            do: Map.put(body, :tools, format_tools_for_oauth(tools, is_oauth)),
-            else: body
+          if tools != [] do
+            # OAuth tokens require Claude Code tool naming (PascalCase)
+            formatted_tools =
+              if is_oauth do
+                AnthropicOAuth.convert_tools_for_oauth(tools)
+              else
+                tools
+              end
+
+            Logger.debug("AIStream tools count: #{length(formatted_tools)}, first: #{inspect(Enum.at(formatted_tools, 0))}")
+            Logger.info("AIStream OAuth: system_prompt=#{inspect(body[:system])}")
+            Map.put(body, :tools, formatted_tools)
+          else
+            body
+          end
 
         # OAuth tokens need Claude Code compatible headers
         # Note: Override accept header for SSE streaming
@@ -89,6 +102,9 @@ defmodule ClawdEx.AI.Stream do
             ]
           end
 
+        # Log full request for debugging OAuth issues
+        Logger.info("AIStream FULL REQUEST:\n  Headers: #{inspect(headers)}\n  Body: #{inspect(body)}")
+
         # 使用 Req 的流式处理
         case stream_request(
                "https://api.anthropic.com/v1/messages",
@@ -104,31 +120,6 @@ defmodule ClawdEx.AI.Stream do
       {:error, reason} ->
         {:error, reason}
     end
-  end
-
-  # Format tools for OAuth (Claude Code naming convention)
-  defp format_tools_for_oauth(tools, true = _is_oauth) do
-    Enum.map(tools, fn tool ->
-      name = tool[:name] || tool["name"]
-
-      %{
-        tool
-        | name: to_claude_code_name(name)
-      }
-    end)
-  end
-
-  defp format_tools_for_oauth(tools, false), do: tools
-
-  # Claude Code tool name mapping
-  @claude_code_tools ~w(Read Write Edit Bash Grep Glob AskUserQuestion EnterPlanMode ExitPlanMode KillShell NotebookEdit Skill Task TaskOutput TodoWrite WebFetch WebSearch)
-
-  defp to_claude_code_name(name) do
-    lower_name = String.downcase(to_string(name))
-
-    Enum.find(@claude_code_tools, name, fn cc_name ->
-      String.downcase(cc_name) == lower_name
-    end)
   end
 
   # ============================================================================
@@ -375,6 +366,7 @@ defmodule ClawdEx.AI.Stream do
   end
 
   defp finalize_response(acc, :anthropic) do
+    Logger.debug("AIStream finalize: #{length(acc.tool_calls)} tool_calls accumulated")
     # Parse accumulated JSON for tool inputs
     finalized_tool_calls =
       Enum.map(acc.tool_calls, fn tc ->
@@ -519,6 +511,7 @@ defmodule ClawdEx.AI.Stream do
          _stream_to,
          :anthropic
        ) do
+    Logger.info("AIStream: Received tool_use block: #{block["name"]}")
     tool_call = %{
       "id" => block["id"],
       "name" => block["name"],

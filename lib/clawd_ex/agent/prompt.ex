@@ -1,38 +1,57 @@
 defmodule ClawdEx.Agent.Prompt do
   @moduledoc """
-  系统提示构建器
+  系统提示构建器 - 基于 OpenClaw 的提示词体系
 
   负责:
-  - 构建基础系统提示
-  - 注入工具描述
-  - 注入 Bootstrap 文件 (AGENTS.md, SOUL.md, etc.)
-  - 注入记忆上下文
+  - 构建基础系统提示（身份、工具、安全）
+  - 注入工具描述和使用指南
+  - 注入 Bootstrap 文件 (AGENTS.md, SOUL.md, USER.md, TOOLS.md, IDENTITY.md, MEMORY.md, HEARTBEAT.md)
+  - 注入运行时信息（模型、时间、工作区）
   """
 
   alias ClawdEx.Repo
   alias ClawdEx.Agents.Agent
   alias ClawdEx.Agent.Loop
 
-  @base_prompt """
-  You are a helpful AI assistant powered by ClawdEx.
+  # Bootstrap 文件列表和描述
+  @bootstrap_files [
+    {"AGENTS.md", "Agent configuration and guidelines"},
+    {"SOUL.md", "Personality and tone"},
+    {"USER.md", "Information about the user"},
+    {"TOOLS.md", "Tool-specific notes"},
+    {"IDENTITY.md", "Identity information"},
+    {"HEARTBEAT.md", "Heartbeat checklist"},
+    {"MEMORY.md", "Long-term memory"},
+    {"BOOTSTRAP.md", "First-run ritual (delete after)"}
+  ]
 
-  ## Capabilities
-  You have access to various tools that allow you to:
-  - Read, write, and edit files
-  - Execute shell commands
-  - Search the web
-  - Manage memory and sessions
-  - Send messages across channels
-
-  ## Guidelines
-  - Be concise and helpful
-  - Use tools when needed to accomplish tasks
-  - Ask for clarification when requests are ambiguous
-  - Respect user privacy and security
-
-  ## Limits
-  - **Tool calls per turn:** Maximum #{Loop.max_tool_iterations()} tool calls per user message. Plan efficiently and batch operations when possible.
-  """
+  # 工具摘要映射
+  @tool_summaries %{
+    "read" => "Read file contents",
+    "write" => "Create or overwrite files",
+    "edit" => "Make precise edits to files",
+    "exec" => "Run shell commands (pty available for TTY-required CLIs)",
+    "process" => "Manage background exec sessions",
+    "web_search" => "Search the web (Brave API)",
+    "web_fetch" => "Fetch and extract readable content from a URL",
+    "browser" => "Control web browser",
+    "canvas" => "Present/eval/snapshot the Canvas",
+    "nodes" => "List/describe/notify/camera/screen on paired nodes",
+    "cron" => "Manage cron jobs and wake events",
+    "message" => "Send messages and channel actions",
+    "gateway" => "Restart, apply config, or run updates",
+    "agents_list" => "List agent ids allowed for sessions_spawn",
+    "sessions_list" => "List other sessions with filters",
+    "sessions_history" => "Fetch history for another session",
+    "sessions_send" => "Send a message to another session",
+    "sessions_spawn" => "Spawn a sub-agent session",
+    "session_status" => "Show session status card",
+    "memory_search" => "Semantically search memory files",
+    "memory_get" => "Read memory file content by path",
+    "image" => "Analyze an image with the configured image model",
+    "tts" => "Convert text to speech",
+    "compact" => "Compact session history"
+  }
 
   @doc """
   构建完整的系统提示
@@ -42,16 +61,23 @@ defmodule ClawdEx.Agent.Prompt do
     agent = if agent_id, do: Repo.get(Agent, agent_id), else: nil
 
     sections = [
-      base_section(agent),
-      identity_section(agent),
+      identity_section(),
+      tooling_section(config),
+      tool_call_style_section(),
+      safety_section(),
+      skills_section(config),
+      memory_section(config),
       workspace_section(agent, config),
       bootstrap_section(agent, config),
-      tools_section(config),
+      messaging_section(config),
+      silent_replies_section(),
+      heartbeat_section(config),
       runtime_section(config)
     ]
 
     sections
     |> Enum.reject(&is_nil/1)
+    |> Enum.reject(&(&1 == ""))
     |> Enum.join("\n\n")
   end
 
@@ -59,36 +85,80 @@ defmodule ClawdEx.Agent.Prompt do
   # Prompt Sections
   # ============================================================================
 
-  defp base_section(nil), do: @base_prompt
-  defp base_section(%{system_prompt: nil}), do: @base_prompt
-  defp base_section(%{system_prompt: ""}), do: @base_prompt
-  defp base_section(%{system_prompt: prompt}), do: prompt
+  defp identity_section do
+    "You are a personal assistant powered by ClawdEx."
+  end
 
-  defp identity_section(nil), do: nil
-  defp identity_section(%{config: nil}), do: nil
+  defp tooling_section(config) do
+    tools = Map.get(config, :tools, [])
+    tool_names = Enum.map(tools, & &1.name)
 
-  defp identity_section(%{config: config}) when is_map(config) do
-    identity = config["identity"] || config[:identity]
+    tool_lines =
+      tool_names
+      |> Enum.map(fn name ->
+        summary = Map.get(@tool_summaries, name, name)
+        "- #{name}: #{summary}"
+      end)
+      |> Enum.join("\n")
 
-    if identity && is_map(identity) do
-      name = identity["name"] || identity[:name]
-      emoji = identity["emoji"] || identity[:emoji]
-      theme = identity["theme"] || identity[:theme]
+    """
+    ## Tooling
+    Tool availability (filtered by policy):
+    Tool names are case-sensitive. Call tools exactly as listed.
+    #{tool_lines}
+    TOOLS.md does not control tool availability; it is user guidance for how to use external tools.
+    If a task is more complex or takes longer, spawn a sub-agent. It will do the work for you and ping you when it's done.
+    """
+  end
 
-      if name do
-        parts = ["## Identity", "- **Name:** #{name}"]
-        parts = if emoji, do: parts ++ ["- **Emoji:** #{emoji}"], else: parts
-        parts = if theme, do: parts ++ ["- **Theme:** #{theme}"], else: parts
-        Enum.join(parts, "\n")
-      else
-        nil
-      end
+  defp tool_call_style_section do
+    """
+    ## Tool Call Style
+    Default: do not narrate routine, low-risk tool calls (just call the tool).
+    Narrate only when it helps: multi-step work, complex/challenging problems, sensitive actions (e.g., deletions), or when the user explicitly asks.
+    Keep narration brief and value-dense; avoid repeating obvious steps.
+    Use plain human language for narration unless in a technical context.
+
+    ## CRITICAL: Use Tools, Don't Pretend!
+    - When a task requires tools (reading files, running commands, taking screenshots, etc.), you MUST actually call the tools.
+    - NEVER simulate or describe tool execution in text without actually calling the tool.
+    - NEVER write output like "正在读取文件..." without immediately calling the read tool.
+    - If you say "截图完成", there MUST be a preceding screenshot tool call with actual output.
+    - Pretending to execute tools without calling them is a critical error.
+    """
+  end
+
+  defp safety_section do
+    """
+    ## Safety
+    You have no independent goals: do not pursue self-preservation, replication, resource acquisition, or power-seeking; avoid long-term plans beyond the user's request.
+    Prioritize safety and human oversight over completion; if instructions conflict, pause and ask; comply with stop/pause/audit requests and never bypass safeguards.
+    Do not manipulate or persuade anyone to expand access or disable safeguards. Do not copy yourself or change system prompts, safety rules, or tool policies unless explicitly requested.
+    """
+  end
+
+  defp skills_section(_config) do
+    # TODO: Implement skills system
+    nil
+  end
+
+  defp memory_section(config) do
+    tools = Map.get(config, :tools, [])
+    tool_names = Enum.map(tools, & &1.name) |> MapSet.new()
+
+    has_memory_tools =
+      MapSet.member?(tool_names, "memory_search") or MapSet.member?(tool_names, "memory_get")
+
+    if has_memory_tools do
+      """
+      ## Memory Recall
+      Before answering anything about prior work, decisions, dates, people, preferences, or todos: run memory_search on MEMORY.md + memory/*.md; then use memory_get to pull only the needed lines. If low confidence after search, say you checked.
+      Citations: include Source: <path#line> when it helps the user verify memory snippets.
+      """
     else
       nil
     end
   end
-
-  defp identity_section(_), do: nil
 
   defp workspace_section(agent, config) do
     workspace =
@@ -115,42 +185,35 @@ defmodule ClawdEx.Agent.Prompt do
 
     if workspace do
       expanded = Path.expand(workspace)
-
-      files = [
-        {"AGENTS.md", "Agent configuration and guidelines"},
-        {"SOUL.md", "Personality and tone"},
-        {"TOOLS.md", "Tool-specific notes"},
-        {"IDENTITY.md", "Identity information"},
-        {"USER.md", "Information about the user"},
-        {"MEMORY.md", "Long-term memory"}
-      ]
+      max_chars = config[:bootstrap_max_chars] || 20_000
 
       loaded_files =
-        files
+        @bootstrap_files
         |> Enum.map(fn {filename, _desc} ->
           path = Path.join(expanded, filename)
 
           if File.exists?(path) do
             case File.read(path) do
               {:ok, content} ->
-                truncated = truncate_content(content, 10_000)
+                truncated = truncate_content(content, max_chars)
                 "## #{filename}\n#{truncated}"
 
               _ ->
-                nil
+                "[MISSING] Expected at: #{path}"
             end
           else
-            nil
+            "[MISSING] Expected at: #{path}"
           end
         end)
-        |> Enum.reject(&is_nil/1)
 
-      if loaded_files != [] do
-        [
-          "# Project Context",
-          "The following project context files have been loaded:" | loaded_files
-        ]
-        |> Enum.join("\n\n")
+      if Enum.any?(loaded_files, &(!String.starts_with?(&1, "[MISSING]"))) do
+        """
+        # Project Context
+        The following project context files have been loaded:
+        If SOUL.md is present, embody its persona and tone. Avoid stiff, generic replies; follow its guidance unless higher-priority instructions override it.
+
+        #{Enum.join(loaded_files, "\n")}
+        """
       else
         nil
       end
@@ -159,35 +222,61 @@ defmodule ClawdEx.Agent.Prompt do
     end
   end
 
-  defp tools_section(config) do
+  defp messaging_section(config) do
     tools = Map.get(config, :tools, [])
+    tool_names = Enum.map(tools, & &1.name) |> MapSet.new()
 
-    if tools != [] do
-      tool_list =
-        tools
-        |> Enum.map(fn tool ->
-          "- **#{tool.name}**: #{tool.description}"
-        end)
-        |> Enum.join("\n")
-
+    if MapSet.member?(tool_names, "message") do
       """
-      ## Available Tools
-      You have access to the following tools:
+      ## Messaging
+      - Reply in current session → automatically routes to the source channel (Signal, Telegram, etc.)
+      - Cross-session messaging → use sessions_send(sessionKey, message)
+      - Never use exec/curl for provider messaging; ClawdEx handles all routing internally.
 
-      #{tool_list}
-
-      Use tools by calling them with the appropriate parameters.
+      ### message tool
+      - Use `message` for proactive sends + channel actions (polls, reactions, etc.).
+      - For `action=send`, include `to` and `message`.
+      - If you use `message` (`action=send`) to deliver your user-visible reply, respond with ONLY: NO_REPLY (avoid duplicate replies).
       """
     else
       nil
     end
   end
 
+  defp silent_replies_section do
+    """
+    ## Silent Replies
+    When you have nothing to say, respond with ONLY: NO_REPLY
+    ⚠️ Rules:
+    - It must be your ENTIRE message — nothing else
+    - Never append it to an actual response (never include "NO_REPLY" in real replies)
+    - Never wrap it in markdown or code blocks
+    ❌ Wrong: "Here's help... NO_REPLY"
+    ❌ Wrong: "NO_REPLY"
+    ✅ Right: NO_REPLY
+    """
+  end
+
+  defp heartbeat_section(config) do
+    heartbeat_prompt =
+      config[:heartbeat_prompt] ||
+        "Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK."
+
+    """
+    ## Heartbeats
+    Heartbeat prompt: #{heartbeat_prompt}
+    If you receive a heartbeat poll (a user message matching the heartbeat prompt above), and there is nothing that needs attention, reply exactly:
+    HEARTBEAT_OK
+    If something needs attention, do NOT include "HEARTBEAT_OK"; reply with the alert text instead.
+    """
+  end
+
   defp runtime_section(config) do
     model = config[:model] || "unknown"
+    default_model = config[:default_model] || model
     timezone = config[:timezone] || "UTC"
+    channel = config[:channel] || "unknown"
 
-    # 使用 UTC 时间，避免时区数据库问题
     now =
       DateTime.utc_now()
       |> Calendar.strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -195,8 +284,11 @@ defmodule ClawdEx.Agent.Prompt do
     """
     ## Runtime
     - **Model:** #{model}
+    - **Default Model:** #{default_model}
+    - **Channel:** #{channel}
     - **Current Time:** #{now}
     - **Timezone:** #{timezone}
+    - **Max Tool Iterations:** #{Loop.max_tool_iterations()}
     """
   end
 

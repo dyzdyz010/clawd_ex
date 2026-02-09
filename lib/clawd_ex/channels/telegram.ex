@@ -361,6 +361,15 @@ defmodule ClawdEx.Channels.Telegram do
         send_message(chat_id, msg)
         receive_loop(chat_id, reply_to, ref, %{state | sent_tools_msg: true})
 
+      # 收到工具执行完成事件 - 发送执行结果摘要
+      {:agent_status, _run_id, :tools_done, %{tools: tools, iteration: iteration}} ->
+        # 格式化工具执行结果
+        msg = format_tools_done_message(tools, iteration)
+        Logger.info("Sending Telegram tools done: #{String.slice(msg, 0, 50)}...")
+        send_message(chat_id, msg)
+        # 重置状态，准备接收下一轮
+        receive_loop(chat_id, reply_to, ref, %{state | sent_tools_msg: false, sent_segment: false})
+
       # 收到最终结果
       {:result, ^ref, result} ->
         result
@@ -404,6 +413,30 @@ defmodule ClawdEx.Channels.Telegram do
   defp humanize_tool_name("browser"), do: "浏览器"
   defp humanize_tool_name("memory_search"), do: "记忆搜索"
   defp humanize_tool_name(name), do: name
+
+  # 格式化工具执行完成消息
+  defp format_tools_done_message(tools, iteration) do
+    tool_results =
+      tools
+      |> Enum.map(fn %{tool: tool, result: result} ->
+        tool_name = humanize_tool_name(tool)
+        # 截断过长的结果
+        short_result =
+          if String.length(result) > 100 do
+            String.slice(result, 0..97) <> "..."
+          else
+            result
+          end
+        "• #{tool_name}: #{short_result}"
+      end)
+      |> Enum.join("\n")
+
+    if iteration > 0 do
+      "✅ 第 #{iteration + 1} 轮工具执行完成:\n#{tool_results}"
+    else
+      "✅ 工具执行完成:\n#{tool_results}"
+    end
+  end
 
   defp get_session_id(session_key) do
     case ClawdEx.Repo.get_by(ClawdEx.Sessions.Session, session_key: session_key) do
@@ -543,8 +576,14 @@ defmodule ClawdEx.Channels.Telegram do
         send(self(), :poll)
         {:noreply, %{state | offset: new_offset}}
 
+      {:error, {:conflict, _}} ->
+        # Conflict 错误需要更长时间等待（其他实例可能还在运行）
+        Logger.warning("Telegram conflict detected, waiting 30s before retry...")
+        Process.send_after(self(), :poll, 30_000)
+        {:noreply, state}
+
       {:error, _reason} ->
-        # 错误时延迟 5 秒重试（不阻塞 GenServer）
+        # 其他错误延迟 5 秒重试
         Process.send_after(self(), :poll, 5000)
         {:noreply, state}
     end
@@ -583,19 +622,184 @@ defmodule ClawdEx.Channels.Telegram do
         {:ok, new_offset}
 
       {:error, reason} ->
-        Logger.error("Telegram poll error: #{inspect(reason)}")
-        {:error, reason}
+        # 检测是否是 Conflict 错误
+        is_conflict =
+          case reason do
+            msg when is_binary(msg) -> String.contains?(msg, "Conflict")
+            %{"description" => desc} -> String.contains?(desc, "Conflict")
+            _ -> false
+          end
+
+        if is_conflict do
+          Logger.warning("Telegram poll conflict: #{inspect(reason)}")
+          {:error, {:conflict, reason}}
+        else
+          Logger.error("Telegram poll error: #{inspect(reason)}")
+          {:error, reason}
+        end
     end
   end
 
   defp process_update(%{"message" => message}) when not is_nil(message) do
-    if message["text"] do
-      formatted = format_message(message)
-      Task.start(fn -> handle_message(formatted) end)
+    cond do
+      # 处理文本消息
+      message["text"] ->
+        formatted = format_message(message)
+        Task.start(fn -> handle_message(formatted) end)
+
+      # 处理文档消息
+      message["document"] ->
+        Task.start(fn -> handle_document_message(message) end)
+
+      # 处理图片消息
+      message["photo"] ->
+        Task.start(fn -> handle_photo_message(message) end)
+
+      true ->
+        :ok
     end
   end
 
   defp process_update(_), do: :ok
+
+  # 处理文档消息（PDF、文本文件等）
+  defp handle_document_message(message) do
+    document = message["document"]
+    file_id = document["file_id"]
+    file_name = document["file_name"] || "unknown"
+    mime_type = document["mime_type"] || "application/octet-stream"
+    caption = message["caption"] || ""
+
+    Logger.info("Received document: #{file_name} (#{mime_type})")
+
+    token = get_token()
+
+    # 获取文件路径
+    case Telegram.Api.request(token, "getFile", file_id: file_id) do
+      {:ok, %{"file_path" => file_path}} ->
+        # 下载文件
+        file_url = "https://api.telegram.org/file/bot#{token}/#{file_path}"
+
+        case download_file(file_url) do
+          {:ok, file_content} ->
+            # 提取文本内容
+            text_content = extract_file_content(file_content, mime_type, file_name)
+
+            # 构建消息内容
+            content =
+              if caption != "" do
+                "#{caption}\n\n[文件: #{file_name}]\n#{text_content}"
+              else
+                "[文件: #{file_name}]\n#{text_content}"
+              end
+
+            formatted = format_message(message) |> Map.put(:content, content)
+            handle_message(formatted)
+
+          {:error, reason} ->
+            Logger.error("Failed to download file: #{inspect(reason)}")
+            chat_id = to_string(message["chat"]["id"])
+            send_message(chat_id, "抱歉，无法下载文件。")
+        end
+
+      {:error, reason} ->
+        Logger.error("Failed to get file path: #{inspect(reason)}")
+        chat_id = to_string(message["chat"]["id"])
+        send_message(chat_id, "抱歉，无法获取文件信息。")
+    end
+  end
+
+  # 处理图片消息
+  defp handle_photo_message(message) do
+    # 获取最大尺寸的图片
+    photos = message["photo"]
+    largest = Enum.max_by(photos, & &1["file_size"])
+    file_id = largest["file_id"]
+    caption = message["caption"] || "请查看这张图片"
+
+    Logger.info("Received photo")
+
+    token = get_token()
+
+    case Telegram.Api.request(token, "getFile", file_id: file_id) do
+      {:ok, %{"file_path" => file_path}} ->
+        file_url = "https://api.telegram.org/file/bot#{token}/#{file_path}"
+
+        # 构建消息，包含图片 URL 供 AI 分析
+        content = "#{caption}\n\n[图片: #{file_url}]"
+
+        formatted = format_message(message) |> Map.put(:content, content)
+        handle_message(formatted)
+
+      {:error, reason} ->
+        Logger.error("Failed to get photo file path: #{inspect(reason)}")
+        chat_id = to_string(message["chat"]["id"])
+        send_message(chat_id, "抱歉，无法获取图片。")
+    end
+  end
+
+  # 下载文件
+  defp download_file(url) do
+    case Req.get(url, receive_timeout: 60_000) do
+      {:ok, %{status: 200, body: body}} ->
+        {:ok, body}
+
+      {:ok, %{status: status}} ->
+        {:error, "HTTP #{status}"}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # 提取文件内容
+  defp extract_file_content(content, mime_type, file_name) do
+    cond do
+      # PDF 文件
+      String.contains?(mime_type, "pdf") or String.ends_with?(file_name, ".pdf") ->
+        extract_pdf_text(content)
+
+      # 文本文件
+      String.starts_with?(mime_type, "text/") or
+        String.ends_with?(file_name, [".txt", ".md", ".json", ".xml", ".csv", ".log"]) ->
+        content
+        |> :unicode.characters_to_binary(:utf8)
+        |> case do
+          {:error, _, _} -> "[无法解码文本内容]"
+          {:incomplete, partial, _} -> partial
+          text when is_binary(text) -> text
+        end
+
+      # 其他文件类型
+      true ->
+        "[不支持的文件类型: #{mime_type}]"
+    end
+  end
+
+  # 使用 pdftotext 提取 PDF 文本
+  defp extract_pdf_text(pdf_content) do
+    # 写入临时文件
+    tmp_path = "/tmp/clawd_ex_pdf_#{:erlang.unique_integer([:positive])}.pdf"
+
+    try do
+      File.write!(tmp_path, pdf_content)
+
+      case System.cmd("pdftotext", [tmp_path, "-"], stderr_to_stdout: true) do
+        {text, 0} ->
+          String.trim(text)
+
+        {error, _code} ->
+          Logger.warning("pdftotext failed: #{error}")
+          "[PDF 文本提取失败]"
+      end
+    rescue
+      e ->
+        Logger.error("PDF extraction error: #{inspect(e)}")
+        "[PDF 处理出错]"
+    after
+      File.rm(tmp_path)
+    end
+  end
 
   defp format_message(message) do
     from = message["from"] || %{}

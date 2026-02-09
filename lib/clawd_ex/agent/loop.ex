@@ -216,6 +216,7 @@ defmodule ClawdEx.Agent.Loop do
 
     # 5. 加载可用工具
     tools = load_tools(data.config)
+    Logger.info("Loaded #{length(tools)} tools for run #{data.run_id}")
 
     new_data = %{data | messages: messages, system_prompt: system_prompt, tools: tools}
 
@@ -420,6 +421,9 @@ defmodule ClawdEx.Agent.Loop do
     Logger.debug("Tools completed for run #{data.run_id}")
 
     new_iterations = data.tool_iterations + 1
+
+    # 广播工具完成事件（让渠道可以发送中间结果）
+    broadcast_tools_done(data, results)
 
     # 构建工具结果消息
     tool_messages =
@@ -680,6 +684,39 @@ defmodule ClawdEx.Agent.Loop do
     broadcast_status(data, :error, %{
       reason: inspect(reason)
     })
+  end
+
+  # 广播工具执行完成事件 - 包含执行结果摘要
+  defp broadcast_tools_done(data, results) do
+    summaries =
+      Enum.map(results, fn {tool_call, result} ->
+        tool_name = tool_call["name"] || get_in(tool_call, ["function", "name"]) || "unknown"
+        result_summary = summarize_tool_result(result)
+        %{tool: tool_name, result: result_summary}
+      end)
+
+    broadcast_status(data, :tools_done, %{
+      tools: summaries,
+      count: length(results),
+      iteration: data.tool_iterations
+    })
+  end
+
+  # 生成工具结果摘要（避免发送过长内容）
+  defp summarize_tool_result({:ok, result}) when is_binary(result) do
+    if String.length(result) > 200 do
+      String.slice(result, 0..197) <> "..."
+    else
+      result
+    end
+  end
+
+  defp summarize_tool_result({:ok, result}) do
+    result |> inspect() |> String.slice(0..200)
+  end
+
+  defp summarize_tool_result({:error, reason}) do
+    "Error: #{inspect(reason)}" |> String.slice(0..200)
   end
 
   # 广播消息段 - 当 AI 输出完整文本段落时（工具调用前）

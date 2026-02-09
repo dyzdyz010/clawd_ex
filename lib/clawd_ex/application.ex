@@ -7,6 +7,9 @@ defmodule ClawdEx.Application do
 
   @impl true
   def start(_type, _args) do
+    # 初始化工作区
+    init_workspace()
+
     children = [
       ClawdExWeb.Telemetry,
       ClawdEx.Repo,
@@ -49,5 +52,22 @@ defmodule ClawdEx.Application do
   def config_change(changed, _new, removed) do
     ClawdExWeb.Endpoint.config_change(changed, removed)
     :ok
+  end
+
+  # Initialize workspace with bootstrap files
+  defp init_workspace do
+    require Logger
+
+    workspace = Application.get_env(:clawd_ex, :workspace) ||
+                System.get_env("CLAWD_WORKSPACE") ||
+                "~/.clawd/workspace"
+
+    case ClawdEx.Agent.Workspace.init(workspace) do
+      {:ok, path} ->
+        Logger.info("Workspace initialized: #{path}")
+
+      {:error, reason} ->
+        Logger.warning("Failed to initialize workspace: #{inspect(reason)}")
+    end
   end
 end

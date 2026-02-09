@@ -64,15 +64,44 @@ defmodule ClawdEx.Tools.Registry do
     |> Enum.reject(&is_nil/1)
   end
 
+  # Claude Code name -> ClawdEx name reverse mapping
+  @claude_code_to_clawd %{
+    "Bash" => "exec",
+    "Read" => "read",
+    "Write" => "write",
+    "Edit" => "edit",
+    "WebFetch" => "web_fetch",
+    "WebSearch" => "web_search",
+    "Browser" => "browser",
+    "Canvas" => "canvas",
+    "Process" => "process",
+    "MemorySearch" => "memory_search",
+    "MemoryGet" => "memory_get",
+    "SessionStatus" => "session_status",
+    "SessionsHistory" => "sessions_history",
+    "SessionsList" => "sessions_list",
+    "SessionsSend" => "sessions_send",
+    "SessionsSpawn" => "sessions_spawn",
+    "AgentsList" => "agents_list",
+    "Cron" => "cron",
+    "Gateway" => "gateway",
+    "Message" => "message",
+    "Nodes" => "nodes",
+    "Image" => "image",
+    "Tts" => "tts",
+    "Compact" => "compact"
+  }
+
   @doc """
   执行工具
   """
   @spec execute(String.t(), map(), map()) :: {:ok, any()} | {:error, term()}
   def execute(tool_name, params, context) do
-    # Try exact match first, then case-insensitive
+    # Try exact match first, then case-insensitive, then Claude Code name mapping
     module =
       Map.get(@tools, tool_name) ||
-        Map.get(@tools, String.downcase(tool_name))
+        Map.get(@tools, String.downcase(tool_name)) ||
+        Map.get(@tools, Map.get(@claude_code_to_clawd, tool_name, ""))
 
     case module do
       nil ->

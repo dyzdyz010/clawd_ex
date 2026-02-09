@@ -171,13 +171,82 @@ defmodule ClawdEx.AI.OAuth.Anthropic do
     ]
   end
 
+  # Claude Code canonical tool names (PascalCase)
+  # Also includes mappings for ClawdEx tools that have different names
+  @claude_code_tools ~w(Read Write Edit Bash Grep Glob AskUserQuestion EnterPlanMode ExitPlanMode KillShell NotebookEdit Skill Task TaskOutput TodoWrite WebFetch WebSearch Browser Canvas Process MemorySearch MemoryGet SessionStatus SessionsHistory SessionsList SessionsSend SessionsSpawn AgentsList Cron Gateway Message Nodes Image Tts Compact)
+
+  # Custom tool name mappings (ClawdEx name -> Claude Code name)
+  @tool_name_mappings %{
+    "exec" => "Bash",
+    "read" => "Read",
+    "write" => "Write",
+    "edit" => "Edit",
+    "web_fetch" => "WebFetch",
+    "web_search" => "WebSearch",
+    "browser" => "Browser",
+    "canvas" => "Canvas",
+    "process" => "Process",
+    "memory_search" => "MemorySearch",
+    "memory_get" => "MemoryGet",
+    "session_status" => "SessionStatus",
+    "sessions_history" => "SessionsHistory",
+    "sessions_list" => "SessionsList",
+    "sessions_send" => "SessionsSend",
+    "sessions_spawn" => "SessionsSpawn",
+    "agents_list" => "AgentsList",
+    "cron" => "Cron",
+    "gateway" => "Gateway",
+    "message" => "Message",
+    "nodes" => "Nodes",
+    "image" => "Image",
+    "tts" => "Tts",
+    "compact" => "Compact"
+  }
+
   @doc """
   Get the required system prompt prefix for OAuth API calls.
-  Claude Code OAuth requires this identity prefix.
+  Claude Code OAuth requires this exact identity string.
   """
   @spec system_prompt_prefix() :: String.t()
   def system_prompt_prefix do
     "You are Claude Code, Anthropic's official CLI for Claude."
+  end
+
+  @doc """
+  Convert tool name to Claude Code canonical casing (PascalCase).
+  First checks custom mappings (e.g., exec -> Bash), then looks for case-insensitive match.
+  """
+  @spec to_claude_code_name(String.t()) :: String.t()
+  def to_claude_code_name(name) do
+    name_str = to_string(name)
+    lower_name = String.downcase(name_str)
+
+    # First check custom mappings (e.g., exec -> Bash)
+    case Map.get(@tool_name_mappings, lower_name) do
+      nil ->
+        # Fall back to case-insensitive matching against known tools
+        Enum.find(@claude_code_tools, name_str, fn cc_name ->
+          String.downcase(cc_name) == lower_name
+        end)
+
+      mapped_name ->
+        mapped_name
+    end
+  end
+
+  @doc """
+  Convert all tool names in a list to Claude Code casing.
+  """
+  @spec convert_tools_for_oauth([map()]) :: [map()]
+  def convert_tools_for_oauth(tools) do
+    Enum.map(tools, fn tool ->
+      name = tool[:name] || tool["name"]
+      converted_name = to_claude_code_name(name)
+
+      tool
+      |> Map.put(:name, converted_name)
+      |> Map.put("name", converted_name)
+    end)
   end
 
   @doc """
