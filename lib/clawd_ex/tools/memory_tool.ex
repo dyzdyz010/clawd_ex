@@ -3,14 +3,14 @@ defmodule ClawdEx.Tools.MemoryTool do
   记忆工具 - 供 Agent 调用的记忆操作
 
   提供三个主要操作：
-  - `memory_search` - 语义搜索记忆
-  - `memory_store` - 存储记忆
-  - `memory_status` - 查看记忆系统状态
+  - `search` - 语义搜索记忆
+  - `store` - 存储记忆
+  - `status` - 查看记忆状态
   """
 
   @behaviour ClawdEx.Tools.Tool
 
-  alias ClawdEx.Memory.{Manager, AgentMemory}
+  alias ClawdEx.Memory
 
   @impl true
   def name, do: "memory"
@@ -68,18 +68,37 @@ defmodule ClawdEx.Tools.MemoryTool do
   end
 
   @impl true
-  def execute(params, _context) do
+  def execute(params, context) do
     action = params["action"]
 
+    # 从 context 获取 memory 实例，或创建默认实例
+    memory = get_memory(context)
+
     case action do
-      "search" -> do_search(params)
-      "store" -> do_store(params)
-      "status" -> do_status()
+      "search" -> do_search(memory, params)
+      "store" -> do_store(memory, params)
+      "status" -> do_status(memory)
       _ -> {:error, "Unknown action: #{action}"}
     end
   end
 
-  defp do_search(params) do
+  defp get_memory(context) do
+    case context[:memory] do
+      nil ->
+        # 没有传入 memory，创建默认实例
+        case Memory.new(:local_file, Memory.Config.local_file()) do
+          {:ok, m} -> m
+          _ -> nil
+        end
+
+      memory ->
+        memory
+    end
+  end
+
+  defp do_search(nil, _params), do: {:error, "Memory not initialized"}
+
+  defp do_search(memory, params) do
     query = params["query"]
 
     if is_nil(query) or query == "" do
@@ -90,7 +109,7 @@ defmodule ClawdEx.Tools.MemoryTool do
         min_score: params["min_score"] || 0.3
       ]
 
-      case AgentMemory.recall(query, opts) do
+      case Memory.search(memory, query, opts) do
         {:ok, memories} ->
           formatted = format_search_results(memories)
           {:ok, formatted}
@@ -101,7 +120,9 @@ defmodule ClawdEx.Tools.MemoryTool do
     end
   end
 
-  defp do_store(params) do
+  defp do_store(nil, _params), do: {:error, "Memory not initialized"}
+
+  defp do_store(memory, params) do
     content = params["content"]
 
     if is_nil(content) or content == "" do
@@ -119,9 +140,9 @@ defmodule ClawdEx.Tools.MemoryTool do
         source: params["source"] || "agent_tool"
       ]
 
-      case Manager.store(content, opts) do
+      case Memory.store(memory, content, opts) do
         {:ok, entry} ->
-          {:ok, "Memory stored successfully (id: #{entry.id}, backend: #{entry[:backend] || "unknown"})"}
+          {:ok, "Memory stored (id: #{entry.id}, backend: #{Memory.backend_name(memory)})"}
 
         {:error, reason} ->
           {:error, "Store failed: #{inspect(reason)}"}
@@ -129,38 +150,24 @@ defmodule ClawdEx.Tools.MemoryTool do
     end
   end
 
-  defp do_status do
-    status = Manager.status()
-    health = Manager.health()
+  defp do_status(nil), do: {:error, "Memory not initialized"}
 
-    backends_info =
-      status.backends
-      |> Enum.map(fn {name, info} ->
-        health_status =
-          case Map.get(health, name) do
-            :ok -> "✓ healthy"
-            {:error, reason} -> "✗ #{inspect(reason)}"
-          end
+  defp do_status(memory) do
+    backend = Memory.backend_name(memory)
+    health = Memory.health(memory)
 
-        "- #{name}: #{info.module} (#{health_status})"
-      end)
-      |> Enum.join("\n")
-
-    routing_info =
-      status.routing
-      |> Enum.map(fn {type, backends} ->
-        "- #{type}: #{Enum.join(backends, " → ")}"
-      end)
-      |> Enum.join("\n")
+    health_str =
+      case health do
+        :ok -> "✓ healthy"
+        {:error, reason} -> "✗ #{inspect(reason)}"
+      end
 
     result = """
-    ## Memory System Status
+    ## Memory Status
 
-    ### Backends
-    #{backends_info}
-
-    ### Routing
-    #{routing_info}
+    - **Backend**: #{backend}
+    - **Health**: #{health_str}
+    - **Available backends**: #{Enum.join(Memory.list_backends(), ", ")}
     """
 
     {:ok, result}

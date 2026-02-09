@@ -1,228 +1,101 @@
 defmodule ClawdEx.Memory.AgentMemory do
   @moduledoc """
-  Agent 专用记忆接口
+  Agent 专用记忆模块
 
-  为 Agent Loop 提供简化的记忆操作，封装了：
-  - 自动记忆检索（每次行动前）
-  - 自动记忆存储（每轮对话后）
-  - 上下文构建（将记忆融入 prompt）
+  为每个 Agent 管理独立的记忆实例。每个 Agent 启动时根据配置
+  选择一个记忆后端，整个生命周期内使用同一个后端。
 
-  ## 记忆流程
-  ```
-  用户消息 → recall() → 获取相关记忆
-      ↓
-  构建上下文 → build_context() → 包含记忆的 system prompt
-      ↓
-  AI 响应 → memorize() → 存储对话和行动
-      ↓
-  下一轮
-  ```
+  ## 使用
 
-  ## 使用示例
   ```elixir
-  # 在 Agent Loop 中
-  def handle_message(message, state) do
-    # 1. 回忆相关记忆
-    {:ok, memories} = AgentMemory.recall(state.agent_id, message)
+  # Agent 初始化时
+  {:ok, memory} = AgentMemory.init(agent_id)
 
-    # 2. 构建包含记忆的上下文
-    context = AgentMemory.build_context(memories)
+  # 处理消息前：回忆
+  context = AgentMemory.recall(memory, user_message)
 
-    # 3. 调用 AI
-    response = call_ai(message, context)
-
-    # 4. 存储本轮对话
-    AgentMemory.memorize(state.agent_id, message, response, state.tool_calls)
-
-    response
-  end
+  # 处理消息后：记忆
+  AgentMemory.memorize(memory, user_input, response, tool_calls: [...])
   ```
   """
 
-  require Logger
+  alias ClawdEx.Memory
 
-  alias ClawdEx.Memory.Manager
+  @doc """
+  为 Agent 初始化记忆实例
 
-  @type memory :: map()
-  @type recall_opts :: [
-          limit: pos_integer(),
-          min_score: float(),
-          include_recent: boolean()
-        ]
-  @type memorize_opts :: [
-          conversation_id: String.t(),
-          tool_calls: [map()],
-          files_modified: [String.t()]
-        ]
+  根据 Agent 配置选择后端。如果配置中没有指定，使用全局默认。
+  """
+  @spec init(term()) :: {:ok, Memory.t()} | {:error, term()}
+  def init(agent_id) do
+    Memory.for_agent(agent_id)
+  end
+
+  @doc """
+  使用指定后端初始化（测试或手动配置用）
+  """
+  @spec init_with_backend(atom(), map()) :: {:ok, Memory.t()} | {:error, term()}
+  def init_with_backend(backend, config \\ %{}) do
+    Memory.new(backend, config)
+  end
 
   @doc """
   回忆相关记忆
 
-  在处理用户消息前调用，获取与当前上下文相关的记忆。
+  根据用户消息搜索相关记忆，返回可插入 system prompt 的上下文文本。
+  如果搜索失败或无结果，返回空字符串。
 
   ## Options
-  - `:limit` - 返回记忆数量（默认 5）
-  - `:min_score` - 最小相关性（默认 0.3）
-  - `:include_recent` - 是否包含最近的对话记忆（默认 true）
+  - `:limit` - 返回数量，默认 5
+  - `:min_score` - 最小相关性，默认 0.3
   """
-  @spec recall(String.t(), keyword()) :: {:ok, [memory()]} | {:error, term()}
-  def recall(query, opts \\ []) do
-    limit = Keyword.get(opts, :limit, 5)
-    min_score = Keyword.get(opts, :min_score, 0.3)
-
-    # 提取查询关键词
-    search_query = extract_keywords(query)
-
-    if String.trim(search_query) == "" do
-      {:ok, []}
-    else
-      Manager.search(search_query, limit: limit, min_score: min_score)
-    end
+  @spec recall(Memory.t(), String.t(), keyword()) :: String.t()
+  def recall(memory, query, opts \\ []) do
+    Memory.recall_context(memory, query, opts)
   end
 
   @doc """
-  存储本轮对话记忆
+  存储本轮对话
 
-  在完成一轮对话后调用，记录：
-  - 用户输入
-  - AI 响应
-  - 工具调用摘要
-  - 文件操作
+  将用户输入和 AI 响应存入记忆。工具调用会作为摘要附加到响应中。
 
   ## Options
-  - `:conversation_id` - 对话 ID（默认自动生成）
   - `:tool_calls` - 本轮工具调用列表
-  - `:files_modified` - 修改的文件列表
+  - `:conversation_id` - 对话 ID
   """
-  @spec memorize(String.t(), String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
-  def memorize(user_input, assistant_response, opts \\ []) do
-    tool_calls = Keyword.get(opts, :tool_calls, [])
-    files_modified = Keyword.get(opts, :files_modified, [])
-    conversation_id = Keyword.get(opts, :conversation_id, generate_conversation_id())
-
-    # 构建消息
-    messages = [
-      %{role: "user", content: user_input},
-      %{role: "assistant", content: build_assistant_content(assistant_response, tool_calls, files_modified)}
-    ]
-
-    Manager.store_conversation(messages, conversation_id: conversation_id)
+  @spec memorize(Memory.t(), String.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  def memorize(memory, user_input, assistant_response, opts \\ []) do
+    Memory.memorize_turn(memory, user_input, assistant_response, opts)
   end
 
   @doc """
-  构建记忆上下文
+  存储重要信息为语义记忆
 
-  将检索到的记忆格式化为可插入 system prompt 的文本。
+  用于保存事实、知识、用户偏好等长期有效的信息。
   """
-  @spec build_context([memory()]) :: String.t()
-  def build_context([]), do: ""
-
-  def build_context(memories) do
-    memory_text =
-      memories
-      |> Enum.map(&format_memory/1)
-      |> Enum.join("\n\n")
-
-    """
-    ## Recalled Memories
-
-    The following memories may be relevant to the current context:
-
-    #{memory_text}
-
-    Use these memories to inform your response, but don't explicitly mention "I remember" unless natural.
-    """
+  @spec store_insight(Memory.t(), String.t(), keyword()) ::
+          {:ok, Memory.Backend.memory_entry()} | {:error, term()}
+  def store_insight(memory, content, opts \\ []) do
+    Memory.store(memory, content, Keyword.put(opts, :type, :semantic))
   end
 
   @doc """
-  提取重要信息并存储为长期记忆
-
-  用于将重要的事实、偏好、决策存储为语义记忆。
+  存储技能/流程为程序记忆
   """
-  @spec store_insight(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def store_insight(content, opts \\ []) do
-    Manager.store(content, Keyword.put(opts, :type, :semantic))
+  @spec store_procedure(Memory.t(), String.t(), keyword()) ::
+          {:ok, Memory.Backend.memory_entry()} | {:error, term()}
+  def store_procedure(memory, content, opts \\ []) do
+    Memory.store(memory, content, Keyword.put(opts, :type, :procedural))
   end
 
   @doc """
-  存储程序性记忆（技能、流程）
+  获取记忆后端信息
   """
-  @spec store_procedure(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def store_procedure(content, opts \\ []) do
-    Manager.store(content, Keyword.put(opts, :type, :procedural))
-  end
-
-  @doc """
-  获取记忆系统状态
-  """
-  @spec status() :: map()
-  def status do
-    Manager.status()
-  end
-
-  # Private helpers
-
-  defp extract_keywords(text) do
-    # 简单的关键词提取：移除停用词，保留有意义的词
-    stop_words = ~w(的 是 在 了 和 与 或 但 如果 那么 这个 那个 什么 怎么 a an the is are was were be been being have has had do does did will would could should may might must)
-
-    text
-    |> String.downcase()
-    |> String.replace(~r/[^\p{L}\p{N}\s]/u, " ")
-    |> String.split()
-    |> Enum.reject(&(&1 in stop_words))
-    |> Enum.take(10)
-    |> Enum.join(" ")
-  end
-
-  defp build_assistant_content(response, [], []) do
-    response
-  end
-
-  defp build_assistant_content(response, tool_calls, files_modified) do
-    tool_part =
-      if tool_calls != [] do
-        tool_summary =
-          tool_calls
-          |> Enum.map(fn tc ->
-            name = tc[:name] || tc["name"] || "unknown"
-            "- #{name}"
-          end)
-          |> Enum.join("\n")
-
-        "\n\n[Tool calls:\n#{tool_summary}]"
-      else
-        ""
-      end
-
-    files_part =
-      if files_modified != [] do
-        files_summary = Enum.join(files_modified, ", ")
-        "\n\n[Files modified: #{files_summary}]"
-      else
-        ""
-      end
-
-    response <> tool_part <> files_part
-  end
-
-  defp format_memory(memory) do
-    score = memory[:score] || memory.score || 0
-    source = memory[:source] || memory.source || "unknown"
-    content = memory[:content] || memory.content || ""
-    backend = memory[:backend] || "unknown"
-
-    score_str = Float.round(score * 100, 1)
-
-    """
-    **[#{source}]** (relevance: #{score_str}%, via #{backend})
-    #{String.slice(content, 0, 500)}#{if String.length(content) > 500, do: "...", else: ""}
-    """
-  end
-
-  defp generate_conversation_id do
-    timestamp = DateTime.utc_now() |> DateTime.to_unix()
-    random = :rand.uniform(10000)
-    "conv_#{timestamp}_#{random}"
+  @spec info(Memory.t()) :: map()
+  def info(memory) do
+    %{
+      backend: Memory.backend_name(memory),
+      health: Memory.health(memory)
+    }
   end
 end

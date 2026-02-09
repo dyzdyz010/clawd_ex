@@ -1,10 +1,12 @@
 defmodule ClawdEx.Tools.MemoryGet do
   @moduledoc """
   读取记忆文件内容工具
+
+  从 workspace 中读取 MEMORY.md 或 memory/*.md 文件。
   """
   @behaviour ClawdEx.Tools.Tool
 
-  alias ClawdEx.Memory
+  alias ClawdEx.Memory.Config
 
   @impl true
   def name, do: "memory_get"
@@ -42,52 +44,44 @@ defmodule ClawdEx.Tools.MemoryGet do
     from_line = params["from"] || params[:from]
     num_lines = params["lines"] || params[:lines]
 
-    agent_id = context[:agent_id]
-
     # 验证路径安全性
     unless valid_memory_path?(path) do
       {:error, "Invalid memory path. Only MEMORY.md and memory/*.md are allowed."}
     else
-      if agent_id do
-        content = Memory.get_content(agent_id, path, from: from_line, lines: num_lines)
+      # 获取 workspace 路径
+      workspace =
+        context[:workspace] ||
+          Config.local_file()[:workspace] ||
+          Path.expand("~/.clawd/workspace")
 
-        if content && content != "" do
-          {:ok, content}
-        else
-          {:error, "Memory file not found or empty: #{path}"}
-        end
-      else
-        # 如果没有 agent_id，尝试直接读取文件
-        workspace = context[:workspace] || "~/clawd"
-        full_path = Path.join(Path.expand(workspace), path)
+      full_path = Path.join(workspace, path)
 
-        case File.read(full_path) do
-          {:ok, content} ->
-            lines = String.split(content, "\n")
+      case File.read(full_path) do
+        {:ok, content} ->
+          lines = String.split(content, "\n")
 
-            selected =
-              cond do
-                from_line && num_lines ->
-                  lines |> Enum.drop(from_line - 1) |> Enum.take(num_lines)
+          selected =
+            cond do
+              from_line && num_lines ->
+                lines |> Enum.drop(from_line - 1) |> Enum.take(num_lines)
 
-                from_line ->
-                  Enum.drop(lines, from_line - 1)
+              from_line ->
+                Enum.drop(lines, from_line - 1)
 
-                num_lines ->
-                  Enum.take(lines, num_lines)
+              num_lines ->
+                Enum.take(lines, num_lines)
 
-                true ->
-                  lines
-              end
+              true ->
+                lines
+            end
 
-            {:ok, Enum.join(selected, "\n")}
+          {:ok, Enum.join(selected, "\n")}
 
-          {:error, :enoent} ->
-            {:error, "Memory file not found: #{path}"}
+        {:error, :enoent} ->
+          {:error, "Memory file not found: #{path}"}
 
-          {:error, reason} ->
-            {:error, "Failed to read memory file: #{reason}"}
-        end
+        {:error, reason} ->
+          {:error, "Failed to read memory file: #{reason}"}
       end
     end
   end
