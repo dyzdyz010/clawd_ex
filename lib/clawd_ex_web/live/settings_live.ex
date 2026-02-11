@@ -13,6 +13,7 @@ defmodule ClawdExWeb.SettingsLive do
        config: load_config(),
        env_vars: load_env_vars(),
        system_info: get_system_info(),
+       skills_config: load_skills_config(),
        editing: false,
        save_status: nil
      )}
@@ -175,6 +176,7 @@ defmodule ClawdExWeb.SettingsLive do
           <.tab_button active={@active_tab} tab="general" label="General" />
           <.tab_button active={@active_tab} tab="ai" label="AI Providers" />
           <.tab_button active={@active_tab} tab="env" label="Environment" />
+          <.tab_button active={@active_tab} tab="skills" label="Skills" />
           <.tab_button active={@active_tab} tab="system" label="System Info" />
         </nav>
       </div>
@@ -188,6 +190,8 @@ defmodule ClawdExWeb.SettingsLive do
             <.ai_tab config={@config} />
           <% "env" -> %>
             <.env_tab env_vars={@env_vars} />
+          <% "skills" -> %>
+            <.skills_tab skills_config={@skills_config} />
           <% "system" -> %>
             <.system_tab system_info={@system_info} />
         <% end %>
@@ -343,6 +347,65 @@ defmodule ClawdExWeb.SettingsLive do
     """
   end
 
+  defp skills_tab(assigns) do
+    ~H"""
+    <div class="space-y-6">
+      <h3 class="text-lg font-medium text-white">Skills Configuration</h3>
+      <p class="text-sm text-gray-400">Per-skill settings and extra skill directories</p>
+
+      <!-- Extra Directories -->
+      <div>
+        <h4 class="text-sm font-medium text-gray-300 mb-2">Extra Skill Directories</h4>
+        <p class="text-xs text-gray-500 mb-2">Additional directories to scan for skills (one per line)</p>
+        <textarea
+          class="w-full bg-gray-700 border-gray-600 text-white rounded px-3 py-2 font-mono text-sm h-20"
+          placeholder="/path/to/custom/skills"
+          disabled
+        ><%= Enum.join(Application.get_env(:clawd_ex, :extra_skill_dirs, []), "\n") %></textarea>
+      </div>
+
+      <!-- Per-Skill Config -->
+      <div>
+        <h4 class="text-sm font-medium text-gray-300 mb-3">Loaded Skills</h4>
+        <div class="space-y-3">
+          <%= for skill_info <- @skills_config do %>
+            <div class="p-4 bg-gray-700/50 rounded-lg">
+              <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2">
+                  <span class="text-white font-medium"><%= skill_info.name %></span>
+                  <span class={"text-xs px-2 py-0.5 rounded-full text-white #{if skill_info.eligible, do: "bg-green-600", else: "bg-gray-600"}"}>
+                    <%= if skill_info.eligible, do: "Eligible", else: "Unavailable" %>
+                  </span>
+                </div>
+                <span class="text-xs text-gray-500"><%= skill_info.source %></span>
+              </div>
+              <p class="text-sm text-gray-400 mb-2"><%= skill_info.description %></p>
+              <%= if skill_info.primary_env do %>
+                <div class="flex items-center gap-2 mt-2">
+                  <span class="text-xs text-gray-400">Primary Env:</span>
+                  <code class="text-xs text-blue-400"><%= skill_info.primary_env %></code>
+                  <span class={"text-xs #{if System.get_env(skill_info.primary_env), do: "text-green-400", else: "text-red-400"}"}>
+                    <%= if System.get_env(skill_info.primary_env), do: "✓ Set", else: "✗ Not set" %>
+                  </span>
+                </div>
+              <% end %>
+            </div>
+          <% end %>
+          <%= if Enum.empty?(@skills_config) do %>
+            <p class="text-gray-500 text-center py-4">No skills loaded</p>
+          <% end %>
+        </div>
+      </div>
+
+      <div class="mt-4">
+        <a href="/skills" class="text-blue-400 hover:text-blue-300 text-sm">
+          → Go to Skills page for detailed management
+        </a>
+      </div>
+    </div>
+    """
+  end
+
   defp config_item(assigns) do
     ~H"""
     <div>
@@ -364,6 +427,28 @@ defmodule ClawdExWeb.SettingsLive do
   end
 
   defp mask_url(url), do: url
+
+  defp load_skills_config do
+    try do
+      ClawdEx.Skills.Registry.list_all_skills()
+      |> Enum.map(fn skill ->
+        primary_env = get_in(skill.metadata, ["openclaw", "primaryEnv"])
+
+        %{
+          name: skill.name,
+          description: skill.description,
+          source: skill.source,
+          eligible: ClawdEx.Skills.Gate.eligible?(skill),
+          primary_env: primary_env
+        }
+      end)
+      |> Enum.sort_by(& &1.name)
+    rescue
+      _ -> []
+    catch
+      :exit, _ -> []
+    end
+  end
 
   defp mask_sensitive(key, value) do
     if String.contains?(key, "KEY") || String.contains?(key, "SECRET") ||

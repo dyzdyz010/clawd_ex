@@ -91,7 +91,11 @@ defmodule ClawdEx.MixProject do
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
       # Markdown rendering (Rust-based, fast)
-      {:mdex, "~> 0.2"}
+      {:mdex, "~> 0.2"},
+      # YAML parsing (for Skills SKILL.md frontmatter)
+      {:yaml_elixir, "~> 2.11"},
+      # File system watching (for Skills hot-reload)
+      {:file_system, "~> 1.0"}
     ]
   end
 

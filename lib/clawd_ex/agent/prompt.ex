@@ -138,8 +138,19 @@ defmodule ClawdEx.Agent.Prompt do
   end
 
   defp skills_section(_config) do
-    # TODO: Implement skills system
-    nil
+    case ClawdEx.Skills.Registry.skills_prompt() do
+      nil -> nil
+      prompt ->
+        """
+        ## Skills
+        Skills extend your capabilities. To use a skill, read its SKILL.md with the read tool.
+
+        #{prompt}
+        """
+    end
+  rescue
+    # Registry might not be started yet
+    _ -> nil
   end
 
   defp memory_section(config) do

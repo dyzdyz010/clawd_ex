@@ -30,6 +30,9 @@ defmodule ClawdEx.Application do
       ClawdEx.Browser.CDP,
       # Browser server (manages Chrome process)
       ClawdEx.Browser.Server,
+      # Skills system
+      ClawdEx.Skills.Registry,
+      ClawdEx.Skills.Watcher,
       # Session Manager (DynamicSupervisor)
       ClawdEx.Sessions.SessionManager,
       # Discord channel (optional, starts if configured)
