@@ -1,6 +1,6 @@
 # ClawdEx 项目状态
 
-> 最后更新: 2026-02-03
+> 最后更新: 2026-03-16
 
 ## 概览
 
@@ -8,9 +8,9 @@ ClawdEx 是 [OpenClaw](https://github.com/openclaw/openclaw) 的 Elixir/Phoenix 
 
 | 指标 | 数值 |
 |------|------|
-| 版本 | v0.3.0 |
-| 工具数量 | 21+ |
-| 测试用例 | 377 ✅ |
+| 版本 | v0.4.0 |
+| 工具数量 | 23+ |
+| 测试用例 | ~492 ✅ |
 | AI 提供商 | 4 (Anthropic, OpenAI, Gemini, OpenRouter) |
 | 消息渠道 | 3 (Telegram, Discord, WebChat) |
 | LiveView 页面 | 5 |
@@ -36,7 +36,7 @@ ClawdEx 是 [OpenClaw](https://github.com/openclaw/openclaw) 的 Elixir/Phoenix 
   - [x] Claude Code 兼容 headers
 - [x] **重试机制** (3次，指数退避)
 
-#### 工具系统 (21+)
+#### 工具系统 (23+)
 | 工具 | 状态 | 说明 |
 |------|------|------|
 | read | ✅ | 文件读取 |
@@ -63,6 +63,34 @@ ClawdEx 是 [OpenClaw](https://github.com/openclaw/openclaw) 的 Elixir/Phoenix 
 | compact | ✅ | 会话压缩 |
 | tts | ✅ | 文本转语音 |
 | image | ✅ | 图像分析 |
+| task | ✅ | 任务管理 (创建/分配/心跳/委派) |
+| a2a | ✅ | Agent-to-Agent 通信 (发现/发送/请求/委托) |
+
+#### Progressive Output (渐进式输出)
+- [x] OutputManager GenServer (段式输出管理)
+- [x] PubSub 段广播 (`output:{session_id}`)
+- [x] 中间段/进度/完成 三类消息
+- [x] 未注册 run 降级回退
+
+#### Task Manager (任务管理器)
+- [x] Task Schema (优先级/状态/心跳/重试)
+- [x] Tasks.Manager GenServer (30s 定期检查)
+- [x] 任务生命周期 (pending → assigned → running → completed/failed)
+- [x] Session 死亡检测 → 自动重新排队
+- [x] 心跳超时检测
+- [x] 待处理任务自动分配
+- [x] 子任务支持 (parent_task_id)
+- [x] 任务委派 (delegate)
+
+#### A2A 通信 (Agent-to-Agent)
+- [x] A2A.Message Schema (request/response/notification/delegation)
+- [x] A2A.Router GenServer (注册/发现/路由)
+- [x] A2A.Mailbox per-agent 收件箱 (Registry + DynamicSupervisor)
+- [x] 异步消息 (fire-and-forget)
+- [x] 同步请求/响应 (带超时)
+- [x] 能力注册与发现
+- [x] TTL 过期清理 (60s 周期)
+- [x] 数据库持久化 (a2a_messages 表)
 
 #### 会话管理
 - [x] SessionManager (DynamicSupervisor)
@@ -129,17 +157,19 @@ ClawdEx 是 [OpenClaw](https://github.com/openclaw/openclaw) 的 Elixir/Phoenix 
 ## 测试覆盖
 
 ```
-377 tests, 0 failures, 3 skipped
-Finished in ~13 seconds
+~492 tests, 0 failures
 ```
 
 ### 测试分布
-- 工具测试: 15+ 文件
+- 工具测试: 17+ 文件 (含 task_tool_test, a2a_test)
 - AI 测试: oauth_test, chat_test, stream_test
 - 浏览器测试: server_test, browser_test
 - 节点测试: registry_test, node_test
 - 会话测试: session_worker_test, compaction_test
 - LiveView 测试: chat_live_test
+- **OutputManager 测试**: output_manager_test (14 cases)
+- **Task Manager 测试**: task_test (19), manager_test (32), task_tool_test (26)
+- **A2A 测试**: router_test (22), mailbox_test (21), a2a_test (20)
 
 ## 依赖
 
@@ -184,7 +214,14 @@ lib/
 │   ├── sessions/
 │   │   └── session_worker.ex # 异步消息 (PubSub)
 │   ├── streaming/
-│   └── tools/                # 21+ 工具
+│   ├── tasks/
+│   │   ├── task.ex          # Task Schema
+│   │   └── manager.ex       # 任务管理器 (30s health check)
+│   ├── a2a/
+│   │   ├── message.ex       # A2A 消息 Schema
+│   │   ├── router.ex        # 路由器 (注册/发现/路由)
+│   │   └── mailbox.ex       # Per-agent 收件箱
+│   └── tools/                # 23+ 工具
 │
 └── clawd_ex_web/             # Phoenix Web 层
     ├── components/
@@ -212,12 +249,16 @@ lib/
 | 2026-01-31 | v0.2.0 | Phase 1-6 完成，核心功能对等 |
 | 2026-01-31 | v0.2.1 | OAuth 支持，闭环验证通过 |
 | 2026-02-03 | v0.3.0 | WebChat UI，异步架构，稳定性增强 |
+| 2026-03-16 | v0.4.0 | Progressive Output, Task Manager, A2A Communication |
 
 ## 完成度
 
-**当前: 约 39%** (71/181 功能)
+**当前: 约 45%** (82/181 功能)
 
-- ✅ 核心工具系统: 22/24 完成
+- ✅ 核心工具系统: 24/24 完成 (+task, a2a)
+- ✅ Progressive Output: 完成
+- ✅ Task Manager: 完成
+- ✅ A2A 通信: 完成
 - ✅ AI 提供商: 5/10 完成
 - ✅ 基础 Web UI: 5/17 完成
 - ⬜ CLI 命令行: 0/24

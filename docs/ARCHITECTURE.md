@@ -350,7 +350,9 @@ defmodule ClawdEx.Tools.Registry do
     ClawdEx.Tools.SessionsHistory,
     ClawdEx.Tools.SessionsSend,
     ClawdEx.Tools.SessionsSpawn,
-    ClawdEx.Tools.SessionStatus
+    ClawdEx.Tools.SessionStatus,
+    ClawdEx.Tools.TaskTool,
+    ClawdEx.Tools.A2A
   ]
   
   def list_tools(opts \\ []) do
@@ -402,6 +404,122 @@ defmodule ClawdEx.Channels.Channel do
     delete_message: 2,
     send_media: 4
   ]
+end
+```
+
+### 6. OutputManager (渐进式输出)
+
+```elixir
+# lib/clawd_ex/agent/output_manager.ex
+defmodule ClawdEx.Agent.OutputManager do
+  @moduledoc """
+  管理 Agent 运行期间的渐进式输出。
+  在 Agent Loop 和 Channels 之间，按段推送中间结果。
+  """
+  use GenServer
+
+  # 注册一次 run
+  def start_run(run_id, session_id)
+
+  # 推送中间段 → PubSub "output:{session_id}"
+  def deliver_segment(run_id, content, metadata)
+
+  # 推送进度摘要
+  def deliver_progress(run_id, summary, metadata)
+
+  # 标记完成并推送最终输出
+  def deliver_complete(run_id, final_content, metadata)
+end
+```
+
+**PubSub 主题:**
+- `"output:{session_id}"` — 段和完成事件
+- `"output:run:{run_id}"` — 降级回退
+
+### 7. Task Manager (任务管理器)
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                     Tasks.Manager (GenServer)                 │
+│                  @check_interval_ms 30_000                    │
+├──────────────────────────────────────────────────────────────┤
+│  Every 30s:                                                   │
+│    1. check_running_tasks()  — 检测死 session，重新排队        │
+│    2. check_stale_heartbeats() — 超时任务标记失败              │
+│    3. auto_assign_pending_tasks() — 分配待处理任务             │
+├──────────────────────────────────────────────────────────────┤
+│  Task Lifecycle:                                              │
+│    pending → assigned → running → completed | failed          │
+│                      → paused → running (resume)              │
+│    PubSub: "tasks:agent:{agent_id}" → {:task_assigned, ...}  │
+└──────────────────────────────────────────────────────────────┘
+```
+
+```elixir
+# lib/clawd_ex/tasks/manager.ex
+defmodule ClawdEx.Tasks.Manager do
+  use GenServer
+
+  def create_task(attrs)
+  def assign_task(task_id, agent_id, session_key)
+  def start_task(task_id)
+  def complete_task(task_id, result)
+  def fail_task(task_id, error_info)
+  def heartbeat(task_id)
+  def delegate_task(task_id, target_agent_id)
+end
+```
+
+### 8. A2A 通信 (Agent-to-Agent)
+
+```
+┌──────────────┐     A2A Bus (PubSub)     ┌──────────────┐
+│   Agent A    │ ◄──────────────────────► │   Agent B    │
+│  (session)   │                           │  (session)   │
+└──────┬───────┘                           └──────┬───────┘
+       │                                          │
+       ▼                                          ▼
+┌──────────────┐                           ┌──────────────┐
+│  A2A Mailbox │                           │  A2A Mailbox │
+│  (GenServer) │                           │  (GenServer) │
+└──────────────┘                           └──────────────┘
+       │                                          │
+       └──────────────┬───────────────────────────┘
+                      ▼
+              ┌──────────────┐
+              │  A2A Router  │
+              │  (GenServer) │
+              └──────┬───────┘
+                     ▼
+              ┌──────────────┐
+              │  PostgreSQL  │
+              │ a2a_messages │
+              └──────────────┘
+```
+
+**消息类型:** request | response | notification | delegation
+
+**PubSub 主题:**
+- `"a2a:{agent_id}"` — Router → Mailbox 投递
+- `"agent_mailbox:{agent_id}"` — Mailbox → Agent Loop 通知
+
+```elixir
+# lib/clawd_ex/a2a/router.ex
+defmodule ClawdEx.A2A.Router do
+  def register(agent_id, capabilities)
+  def discover(opts)
+  def send_message(from_id, to_id, content, opts)  # 异步
+  def request(from_id, to_id, content, opts)        # 同步等待
+  def respond(reply_to_id, from_id, content, opts)
+end
+
+# lib/clawd_ex/a2a/mailbox.ex — per-agent via Registry + DynamicSupervisor
+defmodule ClawdEx.A2A.Mailbox do
+  def ensure_started(agent_id)
+  def peek(agent_id)
+  def pop(agent_id)
+  def ack(agent_id, message_id)
+  def count(agent_id)
 end
 ```
 
@@ -755,7 +873,15 @@ clawd_ex/
 │   │   ├── agent/            # Agent Loop
 │   │   │   ├── loop.ex
 │   │   │   ├── context.ex
-│   │   │   └── prompt.ex
+│   │   │   ├── prompt.ex
+│   │   │   └── output_manager.ex  # 渐进式输出
+│   │   ├── tasks/            # 任务管理器
+│   │   │   ├── task.ex            # Ecto Schema
+│   │   │   └── manager.ex         # GenServer (定期检查)
+│   │   ├── a2a/              # Agent-to-Agent 通信
+│   │   │   ├── message.ex         # 消息 Schema
+│   │   │   ├── router.ex          # 路由器 GenServer
+│   │   │   └── mailbox.ex         # Per-agent 收件箱
 │   │   ├── tools/            # 工具系统
 │   │   │   ├── registry.ex
 │   │   │   ├── supervisor.ex
@@ -772,7 +898,9 @@ clawd_ex/
 │   │   │   ├── message.ex
 │   │   │   ├── cron.ex
 │   │   │   ├── image.ex
-│   │   │   └── tts.ex
+│   │   │   ├── tts.ex
+│   │   │   ├── task_tool.ex       # 任务工具
+│   │   │   └── a2a.ex             # A2A 工具
 │   │   ├── cron/             # 定时任务
 │   │   │   ├── scheduler.ex
 │   │   │   ├── job.ex
@@ -797,7 +925,8 @@ clawd_ex/
 │   └── static/
 ├── test/
 ├── docs/
-│   └── ARCHITECTURE.md       # 本文档
+│   ├── ARCHITECTURE.md       # 本文档
+│   └── NEXT_FEATURES.md      # 功能设计文档
 ├── mix.exs
 └── README.md
 ```

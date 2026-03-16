@@ -152,6 +152,8 @@
 | tts | ✅ | ✅ | |
 | image | ✅ | ✅ | |
 | compact | ✅ | ✅ | |
+| task | ✅ | ✅ | 任务管理 (创建/分配/心跳/委派) |
+| a2a | ✅ | ✅ | Agent-to-Agent 通信 |
 | **apply_patch** | ✅ | ⬜ | 多文件补丁 |
 
 ## 8. Sessions/Subagent
@@ -289,6 +291,47 @@
 | Git hooks | ✅ | ⬜ | |
 | 自定义触发器 | ✅ | ⬜ | |
 
+## 19. Progressive Output (渐进式输出)
+
+| 功能 | OpenClaw | ClawdEx | 说明 |
+|------|----------|---------|------|
+| OutputManager | ✅ | ✅ | 段式输出管理 GenServer |
+| 中间段推送 | ✅ | ✅ | deliver_segment |
+| 进度摘要 | ✅ | ✅ | deliver_progress |
+| 完成通知 | ✅ | ✅ | deliver_complete |
+| PubSub 广播 | ✅ | ✅ | output:{session_id} |
+| 降级回退 | ✅ | ✅ | 未注册 run 走 fallback topic |
+
+## 20. Task Manager (任务管理器)
+
+| 功能 | OpenClaw | ClawdEx | 说明 |
+|------|----------|---------|------|
+| Task Schema | ✅ | ✅ | 优先级/状态/心跳/重试 |
+| 任务创建/查询 | ✅ | ✅ | CRUD |
+| 任务生命周期 | ✅ | ✅ | pending→assigned→running→completed |
+| 定期健康检查 | ✅ | ✅ | 30s 周期 |
+| Session 死亡恢复 | ✅ | ✅ | 自动重新排队 |
+| 心跳超时检测 | ✅ | ✅ | 2x timeout |
+| 自动分配 | ✅ | ✅ | pending → 空闲 agent |
+| 子任务 | ✅ | ✅ | parent_task_id |
+| 任务委派 | ✅ | ✅ | delegate to other agent |
+| task 工具 | ✅ | ✅ | create/list/update/heartbeat/delegate |
+
+## 21. A2A 通信 (Agent-to-Agent)
+
+| 功能 | OpenClaw | ClawdEx | 说明 |
+|------|----------|---------|------|
+| A2A Message Schema | ✅ | ✅ | DB 持久化 |
+| A2A Router | ✅ | ✅ | 注册/发现/路由 |
+| A2A Mailbox | ✅ | ✅ | per-agent 收件箱 |
+| Agent 注册 | ✅ | ✅ | 能力声明 |
+| Agent 发现 | ✅ | ✅ | 按能力过滤 |
+| 异步消息 | ✅ | ✅ | fire-and-forget |
+| 同步请求/响应 | ✅ | ✅ | 带超时 |
+| TTL 过期 | ✅ | ✅ | 60s 周期清理 |
+| 任务委托 | ✅ | ✅ | Task + A2A 联动 |
+| a2a 工具 | ✅ | ✅ | discover/send/request/delegate |
+
 ---
 
 ## 统计总结
@@ -301,7 +344,7 @@
 | Gateway 服务 | 1 | 2 | 8 | 11 |
 | 消息渠道 | 3 | 0 | 8 | 11 |
 | AI 提供商 | 5 | 0 | 5 | 10 |
-| 工具系统 | 22 | 1 | 1 | 24 |
+| 工具系统 | 24 | 1 | 1 | 26 |
 | Sessions/Subagent | 6 | 2 | 2 | 10 |
 | Cron 定时任务 | 6 | 0 | 2 | 8 |
 | 记忆系统 | 5 | 0 | 2 | 7 |
@@ -313,9 +356,12 @@
 | 插件系统 | 0 | 0 | 5 | 5 |
 | Skills 系统 | 0 | 0 | 4 | 4 |
 | Hooks/Webhooks | 0 | 0 | 4 | 4 |
-| **总计** | **71** | **6** | **104** | **181** |
+| Progressive Output | 6 | 0 | 0 | 6 |
+| Task Manager | 10 | 0 | 0 | 10 |
+| A2A 通信 | 10 | 0 | 0 | 10 |
+| **总计** | **99** | **6** | **104** | **209** |
 
-**当前完成度: 约 39% (核心工具已完成，但周边功能大量缺失)**
+**当前完成度: 约 47% (核心工具+输出+任务+A2A 已完成，但周边功能大量缺失)**
 
 ---
 
