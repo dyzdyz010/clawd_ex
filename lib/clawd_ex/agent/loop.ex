@@ -46,6 +46,8 @@ defmodule ClawdEx.Agent.Loop do
     :timeout_ref,
     :config,
     :output_manager_pid,
+    :a2a_message_id,
+    :task_ref,
     tool_iterations: 0
   ]
 
@@ -132,7 +134,9 @@ defmodule ClawdEx.Agent.Loop do
         started_at: nil,
         timeout_ref: nil,
         tool_iterations: 0,
-        output_manager_pid: nil
+        output_manager_pid: nil,
+        a2a_message_id: nil,
+        task_ref: nil
     }
 
     # Check A2A mailbox for pending messages
@@ -211,12 +215,8 @@ defmodule ClawdEx.Agent.Loop do
   end
 
   # Process A2A message as a new run (self-initiated)
+  # Note: message was already pop'd from mailbox; ack happens after successful completion
   def idle(:info, {:a2a_run, msg}, data) do
-    # Pop from mailbox to acknowledge
-    if data.agent_id do
-      A2AMailbox.ack(data.agent_id, msg.message_id)
-    end
-
     run_id = generate_run_id()
     timeout_ms = @default_timeout_ms
 
@@ -233,7 +233,8 @@ defmodule ClawdEx.Agent.Loop do
         reply_to: nil,
         started_at: DateTime.utc_now(),
         timeout_ref: timeout_ref,
-        model: data.config[:default_model] |> Models.resolve()
+        model: data.config[:default_model] |> Models.resolve(),
+        a2a_message_id: msg.message_id
     }
 
     {:next_state, :preparing, new_data, [{:next_event, :internal, {:prepare, content}}]}
@@ -307,29 +308,30 @@ defmodule ClawdEx.Agent.Loop do
     # 广播正在调用 AI
     broadcast_inferring(data)
 
-    # 启动流式 AI 调用
+    # 启动流式 AI 调用 (supervised for cancellation on stop/timeout)
     parent = self()
 
-    Task.start(fn ->
-      result =
-        AIStream.complete(
-          data.model,
-          data.messages,
-          system: data.system_prompt,
-          tools: format_tools(data.tools),
-          stream_to: parent
-        )
+    {:ok, pid} =
+      Task.Supervisor.start_child(ClawdEx.AgentTaskSupervisor, fn ->
+        result =
+          AIStream.complete(
+            data.model,
+            data.messages,
+            system: data.system_prompt,
+            tools: format_tools(data.tools),
+            stream_to: parent
+          )
 
-      case result do
-        {:ok, response} ->
-          send(parent, {:ai_done, response})
+        case result do
+          {:ok, response} ->
+            send(parent, {:ai_done, response})
 
-        {:error, reason} ->
-          send(parent, {:ai_error, reason})
-      end
-    end)
+          {:error, reason} ->
+            send(parent, {:ai_error, reason})
+        end
+      end)
 
-    :keep_state_and_data
+    {:keep_state, %{data | task_ref: pid}}
   end
 
   def inferring(:info, {:ai_chunk, chunk}, data) do
@@ -391,6 +393,7 @@ defmodule ClawdEx.Agent.Loop do
 
   def inferring(:cast, :stop, data) do
     Logger.info("Stopping run #{data.run_id}")
+    cancel_running_task(data)
     reply_error(data.reply_to, :cancelled, data)
     {:next_state, :idle, data}
   end
@@ -401,6 +404,7 @@ defmodule ClawdEx.Agent.Loop do
 
   def inferring(:info, {:run_timeout, run_id}, %{run_id: run_id} = data) do
     Logger.warning("Run #{run_id} timed out during inferring")
+    cancel_running_task(data)
     reply_error(data.reply_to, :timeout, data)
     {:next_state, :idle, data}
   end
@@ -431,8 +435,8 @@ defmodule ClawdEx.Agent.Loop do
 
     broadcast_status(data, :tools_start, %{tools: tool_names, count: length(tool_names)})
 
-    # 在单独的 Task 中并行执行所有工具，避免 Task.async 消息干扰
-    Task.start(fn ->
+    # 在单独的 Task 中并行执行所有工具 (supervised for cancellation)
+    {:ok, pid} = Task.Supervisor.start_child(ClawdEx.AgentTaskSupervisor, fn ->
       results =
         data.pending_tool_calls
         |> Task.async_stream(
@@ -471,7 +475,7 @@ defmodule ClawdEx.Agent.Loop do
       send(parent, {:tools_done, results})
     end)
 
-    :keep_state_and_data
+    {:keep_state, %{data | task_ref: pid}}
   end
 
   def executing_tools(:info, {:tools_done, results}, data) do
@@ -533,6 +537,7 @@ defmodule ClawdEx.Agent.Loop do
 
   def executing_tools(:cast, :stop, data) do
     Logger.info("Stopping run #{data.run_id} during tool execution")
+    cancel_running_task(data)
     reply_error(data.reply_to, :cancelled, data)
     {:next_state, :idle, data}
   end
@@ -543,6 +548,7 @@ defmodule ClawdEx.Agent.Loop do
 
   def executing_tools(:info, {:run_timeout, run_id}, %{run_id: run_id} = data) do
     Logger.warning("Run #{run_id} timed out during tool execution")
+    cancel_running_task(data)
     reply_error(data.reply_to, :timeout, data)
     {:next_state, :idle, data}
   end
@@ -555,6 +561,12 @@ defmodule ClawdEx.Agent.Loop do
   # Private Functions
   # ============================================================================
 
+  defp cancel_running_task(%{task_ref: pid}) when is_pid(pid) do
+    Process.exit(pid, :shutdown)
+  end
+
+  defp cancel_running_task(_data), do: :ok
+
   defp via_tuple(session_id) do
     {:via, Registry, {ClawdEx.AgentLoopRegistry, session_id}}
   end
@@ -566,10 +578,16 @@ defmodule ClawdEx.Agent.Loop do
   defp load_session_messages(session_id) do
     import Ecto.Query
 
-    Message
-    |> where([m], m.session_id == ^session_id)
+    # Subquery: get the latest 100 messages (desc), then re-order ascending
+    latest =
+      Message
+      |> where([m], m.session_id == ^session_id)
+      |> order_by([m], desc: m.inserted_at)
+      |> limit(100)
+
+    latest
+    |> subquery()
     |> order_by([m], asc: m.inserted_at)
-    |> limit(100)
     |> Repo.all()
     |> Enum.map(fn m ->
       base = %{role: to_string(m.role), content: m.content}
@@ -711,6 +729,11 @@ defmodule ClawdEx.Agent.Loop do
       completed_at: DateTime.utc_now() |> DateTime.to_iso8601()
     })
 
+    # Ack A2A message after successful completion (not before the run)
+    if data.a2a_message_id && data.agent_id do
+      A2AMailbox.ack(data.agent_id, data.a2a_message_id)
+    end
+
     # 回复调用者 (nil reply_to for A2A-initiated runs)
     if data.reply_to do
       GenStateMachine.reply(data.reply_to, {:ok, final_content})
@@ -722,7 +745,7 @@ defmodule ClawdEx.Agent.Loop do
 
   defp reply_error(from, reason, data) do
     if data, do: broadcast_run_error(data, reason)
-    GenStateMachine.reply(from, {:error, reason})
+    if from, do: GenStateMachine.reply(from, {:error, reason})
   end
 
   defp broadcast_chunk(data, chunk) do
@@ -833,7 +856,7 @@ defmodule ClawdEx.Agent.Loop do
 
   # Check A2A mailbox for pending messages (non-blocking)
   defp check_a2a_mailbox(agent_id) do
-    case A2AMailbox.peek(agent_id) do
+    case A2AMailbox.pop(agent_id) do
       {:ok, msg} ->
         Logger.debug("Agent #{agent_id} has pending A2A message, scheduling processing")
         send(self(), {:a2a_run, msg})
@@ -863,8 +886,8 @@ defmodule ClawdEx.Agent.Loop do
 
     reply_hint =
       if msg.type == "request" do
-        "\n\nPlease respond using the a2a tool with action 'send' to reply to this request. " <>
-          "Reply to message_id: #{msg.message_id}"
+        "\n\nPlease respond using the a2a tool with action 'respond' and " <>
+          "replyToMessageId: \"#{msg.message_id}\""
       else
         ""
       end

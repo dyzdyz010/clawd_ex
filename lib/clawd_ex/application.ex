@@ -23,6 +23,8 @@ defmodule ClawdEx.Application do
       # A2A Mailbox Registry + DynamicSupervisor
       {Registry, keys: :unique, name: ClawdEx.A2AMailboxRegistry},
       {DynamicSupervisor, name: ClawdEx.A2AMailboxSupervisor, strategy: :one_for_one},
+      # Agent Loop Task Supervisor (for supervised AI/tool tasks)
+      {Task.Supervisor, name: ClawdEx.AgentTaskSupervisor},
       # OAuth credential manager (handles token refresh)
       ClawdEx.AI.OAuth,
       # Background process manager

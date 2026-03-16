@@ -58,36 +58,54 @@ defmodule ClawdEx.Tasks.Manager do
     Repo.all(query)
   end
 
-  @doc "Update a task's status and/or result"
+  @doc "Update a task's status and/or result (atomic: locks row and verifies status)"
   @spec update_task(integer(), map()) :: {:ok, Task.t()} | {:error, term()}
   def update_task(task_id, attrs) do
-    case Repo.get(Task, task_id) do
-      nil ->
-        {:error, :not_found}
+    Repo.transaction(fn ->
+      # Lock the row to prevent concurrent updates
+      task =
+        from(t in Task, where: t.id == ^task_id, lock: "FOR UPDATE")
+        |> Repo.one()
 
-      task ->
-        old_status = task.status
+      case task do
+        nil ->
+          Repo.rollback(:not_found)
 
-        case task |> Task.changeset(attrs) |> Repo.update() do
-          {:ok, updated_task} = result ->
-            new_status = updated_task.status
+        task ->
+          old_status = task.status
+          new_status = Map.get(attrs, :status) || Map.get(attrs, "status")
 
-            if old_status != new_status do
-              ClawdEx.Webhooks.Manager.trigger("task.status.changed", %{
-                task_id: updated_task.id,
-                title: updated_task.title,
-                old_status: old_status,
-                new_status: new_status,
-                agent_id: updated_task.agent_id,
-                changed_at: DateTime.utc_now() |> DateTime.to_iso8601()
-              })
+          # If changing status, verify it hasn't changed since caller decided to update
+          if new_status && new_status != old_status do
+            case task |> Task.changeset(attrs) |> Repo.update() do
+              {:ok, updated_task} ->
+                ClawdEx.Webhooks.Manager.trigger("task.status.changed", %{
+                  task_id: updated_task.id,
+                  title: updated_task.title,
+                  old_status: old_status,
+                  new_status: updated_task.status,
+                  agent_id: updated_task.agent_id,
+                  changed_at: DateTime.utc_now() |> DateTime.to_iso8601()
+                })
+
+                updated_task
+
+              {:error, changeset} ->
+                Repo.rollback(changeset)
             end
-
-            result
-
-          error ->
-            error
-        end
+          else
+            # No status change — simple update
+            case task |> Task.changeset(attrs) |> Repo.update() do
+              {:ok, updated_task} -> updated_task
+              {:error, changeset} -> Repo.rollback(changeset)
+            end
+          end
+      end
+    end)
+    |> case do
+      {:ok, task} -> {:ok, task}
+      {:error, :not_found} -> {:error, :not_found}
+      {:error, changeset} -> {:error, changeset}
     end
   end
 
@@ -258,43 +276,66 @@ defmodule ClawdEx.Tasks.Manager do
       if agent_session do
         Logger.info("Auto-assigning task #{task.id} to session #{agent_session}")
 
-        task
-        |> Task.changeset(%{status: "assigned", session_key: agent_session})
-        |> Repo.update()
+        # Atomic: only assign if still pending (prevent double-assignment)
+        {count, _} =
+          from(t in Task, where: t.id == ^task.id and t.status == "pending")
+          |> Repo.update_all(
+            set: [
+              status: "assigned",
+              session_key: agent_session,
+              updated_at: DateTime.utc_now()
+            ]
+          )
 
-        # Notify agent via PubSub
-        Phoenix.PubSub.broadcast(
-          ClawdEx.PubSub,
-          "tasks:agent:#{task.agent_id}",
-          {:task_assigned, task.id, task.title}
-        )
+        # Notify agent via PubSub (only if we actually assigned)
+        if count > 0 do
+          Phoenix.PubSub.broadcast(
+            ClawdEx.PubSub,
+            "tasks:agent:#{task.agent_id}",
+            {:task_assigned, task.id, task.title}
+          )
+        end
       end
     end
   end
 
-  # Requeue a task (increment retry, set back to pending)
+  # Requeue a task (atomic: only updates if still "running" to avoid reviving finished work)
   defp requeue_task(task) do
     new_retry = task.retry_count + 1
 
     if new_retry > task.max_retries do
       Logger.warning("Task #{task.id} exceeded max retries (#{task.max_retries}), marking failed")
 
-      task
-      |> Task.changeset(%{
-        status: "failed",
-        result: Map.merge(task.result || %{}, %{"error" => "max_retries_exceeded"}),
-        completed_at: DateTime.utc_now()
-      })
-      |> Repo.update()
+      {count, _} =
+        from(t in Task, where: t.id == ^task.id and t.status == "running")
+        |> Repo.update_all(
+          set: [
+            status: "failed",
+            result: Map.merge(task.result || %{}, %{"error" => "max_retries_exceeded"}),
+            completed_at: DateTime.utc_now(),
+            updated_at: DateTime.utc_now()
+          ]
+        )
+
+      if count == 0 do
+        Logger.debug("Task #{task.id} was no longer running, skipping requeue")
+      end
     else
-      task
-      |> Task.changeset(%{
-        status: "pending",
-        retry_count: new_retry,
-        session_key: nil,
-        last_heartbeat_at: nil
-      })
-      |> Repo.update()
+      {count, _} =
+        from(t in Task, where: t.id == ^task.id and t.status == "running")
+        |> Repo.update_all(
+          set: [
+            status: "pending",
+            retry_count: new_retry,
+            session_key: nil,
+            last_heartbeat_at: nil,
+            updated_at: DateTime.utc_now()
+          ]
+        )
+
+      if count == 0 do
+        Logger.debug("Task #{task.id} was no longer running, skipping requeue")
+      end
     end
   end
 

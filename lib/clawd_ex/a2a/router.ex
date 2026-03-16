@@ -311,6 +311,9 @@ defmodule ClawdEx.A2A.Router do
 
   defp deliver_to_agent(msg) do
     if msg.to_agent_id do
+      # Ensure mailbox exists before delivering
+      ClawdEx.A2A.Mailbox.ensure_started(msg.to_agent_id)
+
       Phoenix.PubSub.broadcast(
         ClawdEx.PubSub,
         "a2a:#{msg.to_agent_id}",

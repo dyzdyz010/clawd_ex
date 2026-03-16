@@ -31,7 +31,7 @@ defmodule ClawdEx.Tools.A2A do
       properties: %{
         action: %{
           type: "string",
-          enum: ["discover", "send", "request", "delegate"],
+          enum: ["discover", "send", "request", "respond", "delegate"],
           description: "A2A action to perform"
         },
         targetAgentId: %{
@@ -45,6 +45,10 @@ defmodule ClawdEx.Tools.A2A do
         metadata: %{
           type: "object",
           description: "Optional metadata to include with the message"
+        },
+        replyToMessageId: %{
+          type: "string",
+          description: "Message ID to reply to (for respond action)"
         },
         capability: %{
           type: "string",
@@ -83,8 +87,9 @@ defmodule ClawdEx.Tools.A2A do
       "discover" -> discover_agents(params)
       "send" -> send_notification(params, context)
       "request" -> send_request(params, context)
+      "respond" -> respond_to_request(params, context)
       "delegate" -> delegate_to_agent(params, context)
-      _ -> {:error, "Unknown action: #{action}. Use: discover, send, request, delegate"}
+      _ -> {:error, "Unknown action: #{action}. Use: discover, send, request, respond, delegate"}
     end
   end
 
@@ -183,6 +188,36 @@ defmodule ClawdEx.Tools.A2A do
 
           {:error, reason} ->
             {:error, "Request failed: #{inspect(reason)}"}
+        end
+    end
+  end
+
+  defp respond_to_request(params, context) do
+    from_agent_id = context[:agent_id]
+    reply_to_message_id = Map.get(params, "replyToMessageId")
+    content = Map.get(params, "content")
+    metadata = Map.get(params, "metadata", %{})
+
+    cond do
+      is_nil(reply_to_message_id) || reply_to_message_id == "" ->
+        {:error, "replyToMessageId is required for respond action"}
+
+      is_nil(content) || content == "" ->
+        {:error, "content is required for respond action"}
+
+      true ->
+        case Router.respond(reply_to_message_id, from_agent_id, content, metadata: metadata) do
+          {:ok, message_id} ->
+            {:ok,
+             %{
+               message_id: message_id,
+               type: "response",
+               reply_to: reply_to_message_id,
+               message: "Response sent"
+             }}
+
+          {:error, reason} ->
+            {:error, "Failed to send response: #{inspect(reason)}"}
         end
     end
   end
