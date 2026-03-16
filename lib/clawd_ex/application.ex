@@ -42,6 +42,9 @@ defmodule ClawdEx.Application do
       ClawdEx.Tasks.Manager,
       # A2A Router (agent-to-agent communication)
       ClawdEx.A2A.Router,
+      # Webhook Manager (outbound webhook dispatch + retry)
+      {Task.Supervisor, name: ClawdEx.WebhookTaskSupervisor},
+      ClawdEx.Webhooks.Manager,
       # Session Manager (DynamicSupervisor)
       ClawdEx.Sessions.SessionManager,
       # Discord channel (optional, starts if configured)

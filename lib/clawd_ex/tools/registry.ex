@@ -105,25 +105,43 @@ defmodule ClawdEx.Tools.Registry do
   """
   @spec execute(String.t(), map(), map()) :: {:ok, any()} | {:error, term()}
   def execute(tool_name, params, context) do
-    # Try exact match first, then case-insensitive, then Claude Code name mapping
-    module =
-      Map.get(@tools, tool_name) ||
-        Map.get(@tools, String.downcase(tool_name)) ||
-        Map.get(@tools, Map.get(@claude_code_to_clawd, tool_name, ""))
+    # Resolve canonical tool name
+    canonical = resolve_tool_name(tool_name)
 
-    case module do
+    case Map.get(@tools, canonical) do
       nil ->
         Logger.warning("Tool not found: #{tool_name}")
         {:error, :tool_not_found}
 
       mod ->
-        try do
-          mod.execute(params, context)
-        rescue
-          e ->
-            Logger.error("Tool execution error: #{inspect(e)}")
-            {:error, {:execution_error, Exception.message(e)}}
+        # Security check before execution
+        case ClawdEx.Security.ToolGuard.check_permission(canonical, params, context) do
+          :ok ->
+            try do
+              mod.execute(params, context)
+            rescue
+              e ->
+                Logger.error("Tool execution error: #{inspect(e)}")
+                {:error, {:execution_error, Exception.message(e)}}
+            end
+
+          {:error, reason} ->
+            Logger.warning("Tool permission denied: #{tool_name} — #{inspect(reason)}")
+            {:error, reason}
         end
+    end
+  end
+
+  @doc """
+  Resolve a tool name to its canonical internal name.
+  """
+  @spec resolve_tool_name(String.t()) :: String.t()
+  def resolve_tool_name(tool_name) do
+    cond do
+      Map.has_key?(@tools, tool_name) -> tool_name
+      Map.has_key?(@tools, String.downcase(tool_name)) -> String.downcase(tool_name)
+      Map.has_key?(@claude_code_to_clawd, tool_name) -> Map.get(@claude_code_to_clawd, tool_name)
+      true -> tool_name
     end
   end
 

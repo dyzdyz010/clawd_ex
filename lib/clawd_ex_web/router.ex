@@ -55,8 +55,10 @@ defmodule ClawdExWeb.Router do
     live "/settings", SettingsLive, :index
   end
 
-  # Other scopes may use custom stacks.
-  # scope "/api", ClawdExWeb do
-  #   pipe_through :api
-  # end
+  # API endpoints
+  scope "/api", ClawdExWeb do
+    pipe_through :api
+
+    post "/webhooks/inbound", WebhookController, :inbound
+  end
 end
