@@ -35,6 +35,9 @@ defmodule ClawdExWeb.Router do
     # Skills
     live "/skills", SkillsLive, :index
 
+    # Webhooks
+    live "/webhooks", WebhooksLive, :index
+
     # Tasks
     live "/tasks", TasksLive, :index
     live "/tasks/:id", TaskDetailLive, :show
