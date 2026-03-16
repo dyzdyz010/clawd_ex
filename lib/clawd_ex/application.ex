@@ -34,6 +34,7 @@ defmodule ClawdEx.Application do
       # Browser server (manages Chrome process)
       ClawdEx.Browser.Server,
       # Skills system
+      ClawdEx.Skills.Manager,
       ClawdEx.Skills.Registry,
       ClawdEx.Skills.Watcher,
       # Progressive Output Manager

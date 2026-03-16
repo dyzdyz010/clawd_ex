@@ -67,7 +67,7 @@ defmodule ClawdEx.Webhooks.Manager do
   def trigger(event_type, payload) do
     webhooks =
       from(w in Webhook,
-        where: w.enabled == true and ^event_type in w.events
+        where: w.enabled == true and fragment("? = ANY(?)", ^event_type, w.events)
       )
       |> Repo.all()
 

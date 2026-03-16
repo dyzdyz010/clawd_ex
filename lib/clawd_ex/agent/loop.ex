@@ -701,6 +701,16 @@ defmodule ClawdEx.Agent.Loop do
       iterations: data.tool_iterations
     })
 
+    # Trigger webhook for run completion
+    ClawdEx.Webhooks.Manager.trigger("agent.run.completed", %{
+      run_id: data.run_id,
+      session_id: data.session_id,
+      agent_id: data.agent_id,
+      model: data.model,
+      iterations: data.tool_iterations,
+      completed_at: DateTime.utc_now() |> DateTime.to_iso8601()
+    })
+
     # 回复调用者 (nil reply_to for A2A-initiated runs)
     if data.reply_to do
       GenStateMachine.reply(data.reply_to, {:ok, final_content})

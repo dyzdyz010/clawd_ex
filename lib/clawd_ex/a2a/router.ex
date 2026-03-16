@@ -291,6 +291,16 @@ defmodule ClawdEx.A2A.Router do
       {:ok, msg} ->
         # Deliver via PubSub
         deliver_to_agent(msg)
+
+        # Trigger webhook for A2A message
+        ClawdEx.Webhooks.Manager.trigger("a2a.message.sent", %{
+          message_id: msg.message_id,
+          from_agent_id: msg.from_agent_id,
+          to_agent_id: msg.to_agent_id,
+          type: msg.type,
+          sent_at: DateTime.utc_now() |> DateTime.to_iso8601()
+        })
+
         {:ok, msg}
 
       {:error, changeset} ->

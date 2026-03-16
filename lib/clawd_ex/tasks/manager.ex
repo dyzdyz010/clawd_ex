@@ -66,9 +66,28 @@ defmodule ClawdEx.Tasks.Manager do
         {:error, :not_found}
 
       task ->
-        task
-        |> Task.changeset(attrs)
-        |> Repo.update()
+        old_status = task.status
+
+        case task |> Task.changeset(attrs) |> Repo.update() do
+          {:ok, updated_task} = result ->
+            new_status = updated_task.status
+
+            if old_status != new_status do
+              ClawdEx.Webhooks.Manager.trigger("task.status.changed", %{
+                task_id: updated_task.id,
+                title: updated_task.title,
+                old_status: old_status,
+                new_status: new_status,
+                agent_id: updated_task.agent_id,
+                changed_at: DateTime.utc_now() |> DateTime.to_iso8601()
+              })
+            end
+
+            result
+
+          error ->
+            error
+        end
     end
   end
 

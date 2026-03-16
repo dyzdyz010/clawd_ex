@@ -9,7 +9,7 @@ defmodule ClawdEx.Skills.Registry do
 
   require Logger
 
-  alias ClawdEx.Skills.{Loader, Gate, Skill}
+  alias ClawdEx.Skills.{Loader, Gate, Skill, Manager}
 
   # ============================================================================
   # Client API
@@ -107,8 +107,9 @@ defmodule ClawdEx.Skills.Registry do
 
   @impl true
   def handle_call(:list_skills, _from, state) do
-    # 返回 eligible 且未被手动禁用的 skills
-    active = Enum.reject(state.skills, fn s -> MapSet.member?(state.disabled, s.name) end)
+    # Delegate disabled state to Manager for consistent enable/disable management
+    disabled = try_get_disabled_set(state.disabled)
+    active = Enum.reject(state.skills, fn s -> MapSet.member?(disabled, s.name) end)
     {:reply, active, state}
   end
 
@@ -130,12 +131,19 @@ defmodule ClawdEx.Skills.Registry do
         {:reply, {:error, :not_found}, state}
 
       _skill ->
+        # Delegate enable/disable to Manager for consistent state
+        result =
+          if enabled?,
+            do: Manager.enable_skill(name),
+            else: Manager.disable_skill(name)
+
+        # Keep local disabled set in sync as fallback
         disabled =
           if enabled?,
             do: MapSet.delete(state.disabled, name),
             else: MapSet.put(state.disabled, name)
 
-        {:reply, :ok, %{state | disabled: disabled}}
+        {:reply, result, %{state | disabled: disabled}}
     end
   end
 
@@ -146,11 +154,13 @@ defmodule ClawdEx.Skills.Registry do
         {:reply, {:error, :not_found}, state}
 
       skill ->
+        disabled = try_get_disabled_set(state.disabled)
+
         details = %{
           skill: skill,
           eligible: Gate.eligible?(skill),
           gate_status: Gate.detailed_status(skill),
-          disabled: MapSet.member?(state.disabled, name)
+          disabled: MapSet.member?(disabled, name)
         }
 
         {:reply, {:ok, details}, state}
@@ -163,5 +173,14 @@ defmodule ClawdEx.Skills.Registry do
     eligible = Gate.filter_eligible(all_skills)
     Logger.info("Skills registry refreshed: #{length(eligible)} eligible skill(s) out of #{length(all_skills)} total")
     {:noreply, %{state | all_skills: all_skills, skills: eligible}}
+  end
+
+  # Attempt to read the canonical disabled set from Manager; fall back to local state
+  defp try_get_disabled_set(local_fallback) do
+    Manager.disabled_set()
+  rescue
+    _ -> local_fallback
+  catch
+    :exit, _ -> local_fallback
   end
 end
