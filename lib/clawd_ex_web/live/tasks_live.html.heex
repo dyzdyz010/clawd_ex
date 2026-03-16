@@ -1,0 +1,314 @@
+<Layouts.app flash={@flash}>
+  <div class="space-y-6">
+    <%!-- Header --%>
+    <div class="flex items-center justify-between">
+      <div>
+        <h1 class="text-2xl font-bold text-white">Tasks</h1>
+        <p class="text-gray-400 text-sm mt-1">Manage and monitor agent tasks</p>
+      </div>
+      <button phx-click="open_create_modal" class="btn-primary">
+        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+        </svg>
+        New Task
+      </button>
+    </div>
+
+    <%!-- Stats --%>
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div class="bg-gray-800 rounded-lg p-4">
+        <div class="text-2xl font-bold text-white">{@stats.total}</div>
+        <div class="text-xs text-gray-500 mt-1">Total</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-4">
+        <div class="text-2xl font-bold text-gray-400">{@stats.pending}</div>
+        <div class="text-xs text-gray-500 mt-1">Pending</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-4">
+        <div class="text-2xl font-bold text-purple-400">{@stats.running}</div>
+        <div class="text-xs text-gray-500 mt-1">Running</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-4">
+        <div class="text-2xl font-bold text-green-400">{@stats.completed}</div>
+        <div class="text-xs text-gray-500 mt-1">Completed</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-4">
+        <div class="text-2xl font-bold text-red-400">{@stats.failed}</div>
+        <div class="text-xs text-gray-500 mt-1">Failed</div>
+      </div>
+    </div>
+
+    <%!-- Filters --%>
+    <div class="bg-gray-800 rounded-lg p-4">
+      <div class="flex flex-wrap gap-4 items-center">
+        <div class="flex-1 min-w-64">
+          <input
+            type="text"
+            placeholder="Search tasks..."
+            value={@search}
+            phx-keyup="search"
+            phx-key="Enter"
+            phx-debounce="300"
+            name="search"
+            class="w-full bg-gray-700 border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:ring-blue-500 focus:border-blue-500"
+          />
+        </div>
+        <div class="flex gap-2 flex-wrap">
+          <button
+            phx-click="filter"
+            phx-value-status="all"
+            class={"px-3 py-1.5 rounded-lg text-sm " <> if(@filter_status == "all", do: "bg-blue-600 text-white", else: "bg-gray-700 text-gray-300 hover:bg-gray-600")}
+          >
+            All
+          </button>
+          <button
+            phx-click="filter"
+            phx-value-status="pending"
+            class={"px-3 py-1.5 rounded-lg text-sm " <> if(@filter_status == "pending", do: "bg-blue-600 text-white", else: "bg-gray-700 text-gray-300 hover:bg-gray-600")}
+          >
+            Pending
+          </button>
+          <button
+            phx-click="filter"
+            phx-value-status="running"
+            class={"px-3 py-1.5 rounded-lg text-sm " <> if(@filter_status == "running", do: "bg-blue-600 text-white", else: "bg-gray-700 text-gray-300 hover:bg-gray-600")}
+          >
+            Running
+          </button>
+          <button
+            phx-click="filter"
+            phx-value-status="completed"
+            class={"px-3 py-1.5 rounded-lg text-sm " <> if(@filter_status == "completed", do: "bg-blue-600 text-white", else: "bg-gray-700 text-gray-300 hover:bg-gray-600")}
+          >
+            Completed
+          </button>
+          <button
+            phx-click="filter"
+            phx-value-status="failed"
+            class={"px-3 py-1.5 rounded-lg text-sm " <> if(@filter_status == "failed", do: "bg-blue-600 text-white", else: "bg-gray-700 text-gray-300 hover:bg-gray-600")}
+          >
+            Failed
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <%!-- Tasks Table --%>
+    <div class="bg-gray-800 rounded-lg overflow-hidden">
+      <%= if Enum.empty?(@tasks) do %>
+        <div class="p-8 text-center text-gray-400">
+          <svg class="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+          </svg>
+          <p>No tasks found</p>
+          <button phx-click="open_create_modal" class="text-blue-400 hover:underline mt-2 inline-block">
+            Create your first task
+          </button>
+        </div>
+      <% else %>
+        <table class="w-full">
+          <thead class="bg-gray-700/50">
+            <tr>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Priority</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Task</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Status</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Agent</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Subtasks</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Updated</th>
+              <th class="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Actions</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-700">
+            <%= for task <- @tasks do %>
+              <tr class="hover:bg-gray-700/30">
+                <%!-- Priority --%>
+                <td class="px-4 py-3">
+                  <span class={"px-2 py-1 rounded text-xs font-bold " <> priority_bg(task.priority)}>
+                    P{task.priority}
+                  </span>
+                </td>
+                <%!-- Task Info --%>
+                <td class="px-4 py-3">
+                  <.link navigate={~p"/tasks/#{task.id}"} class="font-medium text-white hover:text-blue-400">
+                    {task.title}
+                  </.link>
+                  <%= if task.description do %>
+                    <p class="text-xs text-gray-500 truncate max-w-sm">{task.description}</p>
+                  <% end %>
+                  <%= if task.parent_task do %>
+                    <div class="flex items-center gap-1 mt-1">
+                      <svg class="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                      </svg>
+                      <.link navigate={~p"/tasks/#{task.parent_task.id}"} class="text-xs text-gray-500 hover:text-blue-400">
+                        {task.parent_task.title}
+                      </.link>
+                    </div>
+                  <% end %>
+                </td>
+                <%!-- Status --%>
+                <td class="px-4 py-3">
+                  <span class={"inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium " <> status_badge_classes(task.status)}>
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={status_icon(task.status)} />
+                    </svg>
+                    {String.capitalize(task.status)}
+                  </span>
+                </td>
+                <%!-- Agent --%>
+                <td class="px-4 py-3 text-sm text-gray-400">
+                  {if task.agent, do: task.agent.name, else: "-"}
+                </td>
+                <%!-- Subtasks --%>
+                <td class="px-4 py-3 text-sm text-gray-400">
+                  {Map.get(@subtask_counts, task.id, 0)}
+                </td>
+                <%!-- Updated --%>
+                <td class="px-4 py-3 text-sm text-gray-400">
+                  {format_time(task.updated_at)}
+                </td>
+                <%!-- Actions --%>
+                <td class="px-4 py-3 text-right">
+                  <div class="flex items-center justify-end gap-2">
+                    <%= cond do %>
+                      <% task.status in ["pending", "assigned"] -> %>
+                        <button phx-click="start_task" phx-value-id={task.id} class="text-green-400 hover:text-green-300" title="Start">
+                          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        </button>
+                      <% task.status == "running" -> %>
+                        <button phx-click="pause_task" phx-value-id={task.id} class="text-yellow-400 hover:text-yellow-300" title="Pause">
+                          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        </button>
+                      <% task.status == "paused" -> %>
+                        <button phx-click="start_task" phx-value-id={task.id} class="text-green-400 hover:text-green-300" title="Resume">
+                          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        </button>
+                      <% task.status in ["failed", "cancelled"] -> %>
+                        <button phx-click="retry_task" phx-value-id={task.id} class="text-blue-400 hover:text-blue-300" title="Retry">
+                          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                        </button>
+                      <% true -> %>
+                    <% end %>
+                    <%= if task.status not in ["completed", "cancelled"] do %>
+                      <button
+                        phx-click="cancel_task"
+                        phx-value-id={task.id}
+                        data-confirm="Cancel this task?"
+                        class="text-gray-400 hover:text-red-400"
+                        title="Cancel"
+                      >
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                        </svg>
+                      </button>
+                    <% end %>
+                    <button
+                      phx-click="delete_task"
+                      phx-value-id={task.id}
+                      data-confirm="Delete this task permanently?"
+                      class="text-red-400 hover:text-red-300"
+                      title="Delete"
+                    >
+                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      <% end %>
+    </div>
+  </div>
+
+  <%!-- Create Task Modal --%>
+  <%= if @show_create_modal do %>
+    <div class="fixed inset-0 z-50 flex items-center justify-center">
+      <div class="absolute inset-0 bg-black/60" phx-click="close_create_modal"></div>
+      <div class="relative bg-gray-800 rounded-lg shadow-xl w-full max-w-lg mx-4 p-6">
+        <div class="flex justify-between items-center mb-6">
+          <h2 class="text-xl font-bold text-white">Create Task</h2>
+          <button phx-click="close_create_modal" class="text-gray-400 hover:text-white">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <form phx-submit="create_task" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-1">Title *</label>
+            <input
+              type="text"
+              name="title"
+              required
+              class="w-full bg-gray-700 border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="Task title..."
+            />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-1">Description</label>
+            <textarea
+              name="description"
+              rows="3"
+              class="w-full bg-gray-700 border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="Optional description..."
+            ></textarea>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-300 mb-1">Priority (1-10)</label>
+              <select
+                name="priority"
+                class="w-full bg-gray-700 border-gray-600 rounded-lg px-4 py-2 text-white focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="1" class="text-red-400">1 - Critical</option>
+                <option value="2" class="text-red-400">2 - High</option>
+                <option value="3" class="text-red-400">3 - High</option>
+                <option value="4" class="text-yellow-400">4 - Medium</option>
+                <option value="5" selected class="text-yellow-400">5 - Medium</option>
+                <option value="6" class="text-yellow-400">6 - Medium</option>
+                <option value="7" class="text-green-400">7 - Low</option>
+                <option value="8" class="text-green-400">8 - Low</option>
+                <option value="9" class="text-green-400">9 - Low</option>
+                <option value="10" class="text-green-400">10 - Lowest</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-300 mb-1">Assign Agent</label>
+              <select
+                name="agent_id"
+                class="w-full bg-gray-700 border-gray-600 rounded-lg px-4 py-2 text-white focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="">Unassigned</option>
+                <%= for agent <- @agents do %>
+                  <option value={agent.id}>{agent.name}</option>
+                <% end %>
+              </select>
+            </div>
+          </div>
+          <div class="flex justify-end gap-3 pt-4">
+            <button type="button" phx-click="close_create_modal" class="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg hover:bg-gray-600">
+              Cancel
+            </button>
+            <button type="submit" class="btn-primary">
+              Create Task
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  <% end %>
+</Layouts.app>

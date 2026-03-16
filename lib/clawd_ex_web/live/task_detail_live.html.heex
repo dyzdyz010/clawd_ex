@@ -1,0 +1,216 @@
+<Layouts.app flash={@flash}>
+  <div class="max-w-6xl mx-auto px-4 py-8">
+    <%!-- Header --%>
+    <div class="flex items-center gap-4 mb-6">
+      <.link navigate={~p"/tasks"} class="text-gray-400 hover:text-white">
+        ← Back
+      </.link>
+      <h1 class="text-2xl font-bold flex-1 truncate">{@task.title}</h1>
+      <span class={"px-3 py-1.5 rounded text-sm font-medium " <> status_badge_classes(@task.status)}>
+        {String.capitalize(@task.status)}
+      </span>
+      <span class={"px-2 py-1 rounded text-xs font-bold " <> priority_bg(@task.priority)}>
+        P{@task.priority}
+      </span>
+    </div>
+
+    <%!-- Action Buttons --%>
+    <div class="flex gap-2 mb-6">
+      <%= cond do %>
+        <% @task.status in ["pending", "assigned", "paused"] -> %>
+          <button phx-click="start_task" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-500 text-sm">
+            <span class="flex items-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+              </svg>
+              {if @task.status == "paused", do: "Resume", else: "Start"}
+            </span>
+          </button>
+        <% @task.status == "running" -> %>
+          <button phx-click="pause_task" class="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-500 text-sm">
+            <span class="flex items-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Pause
+            </span>
+          </button>
+        <% @task.status in ["failed", "cancelled"] -> %>
+          <button phx-click="retry_task" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 text-sm">
+            <span class="flex items-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Retry
+            </span>
+          </button>
+        <% true -> %>
+      <% end %>
+      <%= if @task.status not in ["completed", "cancelled"] do %>
+        <button phx-click="cancel_task" data-confirm="Cancel this task?" class="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg hover:bg-red-600 hover:text-white text-sm">
+          Cancel Task
+        </button>
+      <% end %>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <%!-- Left Column: Details --%>
+      <div class="lg:col-span-2 space-y-6">
+        <%!-- Task Info --%>
+        <div class="bg-gray-800 rounded-lg p-6">
+          <h2 class="text-lg font-semibold mb-4">Task Details</h2>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+              <div class="text-sm text-gray-400">Agent</div>
+              <div class="font-medium">{if @task.agent, do: @task.agent.name, else: "-"}</div>
+            </div>
+            <div>
+              <div class="text-sm text-gray-400">Session</div>
+              <div class="font-medium text-xs font-mono">{@task.session_key || "-"}</div>
+            </div>
+            <div>
+              <div class="text-sm text-gray-400">Retries</div>
+              <div class="font-medium">{@task.retry_count} / {@task.max_retries}</div>
+            </div>
+            <div>
+              <div class="text-sm text-gray-400">Timeout</div>
+              <div class="font-medium">{@task.timeout_seconds}s</div>
+            </div>
+            <div>
+              <div class="text-sm text-gray-400">Created</div>
+              <div class="font-medium text-sm">{format_datetime(@task.inserted_at)}</div>
+            </div>
+            <div>
+              <div class="text-sm text-gray-400">Started</div>
+              <div class="font-medium text-sm">{format_datetime(@task.started_at)}</div>
+            </div>
+            <div>
+              <div class="text-sm text-gray-400">Completed</div>
+              <div class="font-medium text-sm">{format_datetime(@task.completed_at)}</div>
+            </div>
+            <div>
+              <div class="text-sm text-gray-400">Scheduled</div>
+              <div class="font-medium text-sm">{format_datetime(@task.scheduled_at)}</div>
+            </div>
+          </div>
+          <%= if @task.description do %>
+            <div class="mt-4 pt-4 border-t border-gray-700">
+              <div class="text-sm text-gray-400 mb-1">Description</div>
+              <p class="text-gray-300">{@task.description}</p>
+            </div>
+          <% end %>
+          <%= if @task.parent_task do %>
+            <div class="mt-4 pt-4 border-t border-gray-700">
+              <div class="text-sm text-gray-400 mb-1">Parent Task</div>
+              <.link navigate={~p"/tasks/#{@task.parent_task.id}"} class="text-blue-400 hover:text-blue-300">
+                {String.capitalize(@task.parent_task.status)} — {@task.parent_task.title}
+              </.link>
+            </div>
+          <% end %>
+        </div>
+
+        <%!-- Result / Error --%>
+        <% result_text = format_result(@task.result) %>
+        <%= if result_text do %>
+          <div class="bg-gray-800 rounded-lg p-6">
+            <h2 class="text-lg font-semibold mb-4">
+              {if @task.status == "failed", do: "Error Details", else: "Result"}
+            </h2>
+            <pre class={"text-sm rounded-lg p-4 overflow-x-auto " <> if(@task.status == "failed", do: "bg-red-900/20 text-red-300", else: "bg-gray-900 text-gray-300")}>{result_text}</pre>
+          </div>
+        <% end %>
+
+        <%!-- Subtasks --%>
+        <div class="bg-gray-800 rounded-lg p-6">
+          <h2 class="text-lg font-semibold mb-4">Subtasks ({length(@task.subtasks)})</h2>
+          <%= if Enum.empty?(@task.subtasks) do %>
+            <p class="text-gray-500 text-sm">No subtasks</p>
+          <% else %>
+            <div class="space-y-2">
+              <%= for subtask <- @task.subtasks do %>
+                <div class="flex items-center gap-3 bg-gray-700/50 rounded-lg p-3">
+                  <span class={"px-2 py-0.5 rounded text-xs font-bold " <> priority_bg(subtask.priority)}>
+                    P{subtask.priority}
+                  </span>
+                  <.link navigate={~p"/tasks/#{subtask.id}"} class="flex-1 text-white hover:text-blue-400 text-sm font-medium">
+                    {subtask.title}
+                  </.link>
+                  <span class={"px-2 py-0.5 rounded text-xs font-medium " <> status_badge_classes(subtask.status)}>
+                    {String.capitalize(subtask.status)}
+                  </span>
+                  <span class="text-xs text-gray-500">
+                    {if subtask.agent, do: subtask.agent.name, else: "Unassigned"}
+                  </span>
+                </div>
+              <% end %>
+            </div>
+          <% end %>
+        </div>
+      </div>
+
+      <%!-- Right Column: Timeline & Heartbeat --%>
+      <div class="space-y-6">
+        <%!-- Heartbeat Status --%>
+        <div class="bg-gray-800 rounded-lg p-6">
+          <h2 class="text-lg font-semibold mb-4">Heartbeat</h2>
+          <% hb_status = heartbeat_status(@task) %>
+          <div class="flex items-center gap-3">
+            <div class={"w-4 h-4 rounded-full " <> heartbeat_pulse(hb_status) <> " " <> (case hb_status do
+              :healthy -> "bg-green-400"
+              :warning -> "bg-yellow-400"
+              :stale -> "bg-red-400"
+              _ -> "bg-gray-600"
+            end)}></div>
+            <div>
+              <div class={"font-medium " <> heartbeat_color(hb_status)}>{heartbeat_label(hb_status)}</div>
+              <div class="text-xs text-gray-500">
+                Last: {format_time(@task.last_heartbeat_at)}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <%!-- Status Timeline --%>
+        <div class="bg-gray-800 rounded-lg p-6">
+          <h2 class="text-lg font-semibold mb-4">Timeline</h2>
+          <div class="space-y-0">
+            <%= for {step, idx} <- Enum.with_index(timeline_steps(@task)) do %>
+              <div class="flex gap-3">
+                <%!-- Timeline connector --%>
+                <div class="flex flex-col items-center">
+                  <div class={"w-3 h-3 rounded-full border-2 " <>
+                    cond do
+                      step.done and idx == 3 -> terminal_color(@task.status)
+                      step.done -> "border-blue-400 bg-blue-400"
+                      true -> "border-gray-600 bg-transparent"
+                    end
+                  }></div>
+                  <%= if idx < 3 do %>
+                    <div class={"w-0.5 h-8 " <> if(step.done, do: "bg-blue-400/50", else: "bg-gray-700")}></div>
+                  <% end %>
+                </div>
+                <%!-- Step content --%>
+                <div class="pb-4">
+                  <div class={"text-sm font-medium " <> if(step.done, do: "text-white", else: "text-gray-500")}>
+                    {step.label}
+                  </div>
+                  <%= if step.time do %>
+                    <div class="text-xs text-gray-500">{format_datetime(step.time)}</div>
+                  <% end %>
+                </div>
+              </div>
+            <% end %>
+          </div>
+        </div>
+
+        <%!-- Context / Metadata --%>
+        <%= if @task.context != %{} do %>
+          <div class="bg-gray-800 rounded-lg p-6">
+            <h2 class="text-lg font-semibold mb-4">Context</h2>
+            <pre class="text-xs bg-gray-900 rounded-lg p-3 overflow-x-auto text-gray-400">{Jason.encode!(@task.context, pretty: true)}</pre>
+          </div>
+        <% end %>
+      </div>
+    </div>
+  </div>
+</Layouts.app>

@@ -35,6 +35,13 @@ defmodule ClawdExWeb.Router do
     # Skills
     live "/skills", SkillsLive, :index
 
+    # Tasks
+    live "/tasks", TasksLive, :index
+    live "/tasks/:id", TaskDetailLive, :show
+
+    # A2A Communication
+    live "/a2a", A2ALive, :index
+
     # Cron Jobs
     live "/cron", CronJobsLive, :index
     live "/cron/new", CronJobFormLive, :new

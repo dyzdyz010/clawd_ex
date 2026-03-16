@@ -1,0 +1,254 @@
+<Layouts.app flash={@flash}>
+  <div class="space-y-6">
+    <%!-- Header --%>
+    <div class="flex items-center justify-between">
+      <div>
+        <h1 class="text-2xl font-bold text-white">A2A Communication</h1>
+        <p class="text-gray-400 text-sm mt-1">Monitor agent-to-agent messages and registry</p>
+      </div>
+    </div>
+
+    <%!-- Stats --%>
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div class="bg-gray-800 rounded-lg p-4">
+        <div class="text-2xl font-bold text-white">{@stats.total}</div>
+        <div class="text-xs text-gray-500 mt-1">Total Messages</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-4">
+        <div class="text-2xl font-bold text-gray-400">{@stats.pending}</div>
+        <div class="text-xs text-gray-500 mt-1">Pending</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-4">
+        <div class="text-2xl font-bold text-blue-400">{@stats.delivered}</div>
+        <div class="text-xs text-gray-500 mt-1">Delivered</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-4">
+        <div class="text-2xl font-bold text-green-400">{@stats.processed}</div>
+        <div class="text-xs text-gray-500 mt-1">Processed</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-4">
+        <div class="text-2xl font-bold text-yellow-400">{@stats.expired}</div>
+        <div class="text-xs text-gray-500 mt-1">Expired</div>
+      </div>
+    </div>
+
+    <%!-- Tab Navigation --%>
+    <div class="flex gap-2 border-b border-gray-700 pb-0">
+      <button
+        phx-click="switch_tab"
+        phx-value-tab="messages"
+        class={"px-4 py-2 text-sm font-medium border-b-2 -mb-px " <>
+          if(@tab == "messages", do: "border-blue-500 text-blue-400", else: "border-transparent text-gray-400 hover:text-white")}
+      >
+        <span class="flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+          </svg>
+          Messages
+        </span>
+      </button>
+      <button
+        phx-click="switch_tab"
+        phx-value-tab="registry"
+        class={"px-4 py-2 text-sm font-medium border-b-2 -mb-px " <>
+          if(@tab == "registry", do: "border-blue-500 text-blue-400", else: "border-transparent text-gray-400 hover:text-white")}
+      >
+        <span class="flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+          </svg>
+          Agent Registry ({length(@registry)})
+        </span>
+      </button>
+    </div>
+
+    <%!-- Messages Tab --%>
+    <%= if @tab == "messages" do %>
+      <%!-- Filters --%>
+      <div class="bg-gray-800 rounded-lg p-4">
+        <div class="flex flex-wrap gap-4 items-center">
+          <%!-- Type filter --%>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">Type</label>
+            <div class="flex gap-1">
+              <%= for type <- ["all", "request", "response", "notification", "delegation"] do %>
+                <button
+                  phx-click="filter_type"
+                  phx-value-type={type}
+                  class={"px-2.5 py-1 rounded text-xs " <> if(@filter_type == type, do: "bg-blue-600 text-white", else: "bg-gray-700 text-gray-300 hover:bg-gray-600")}
+                >
+                  {String.capitalize(type)}
+                </button>
+              <% end %>
+            </div>
+          </div>
+          <%!-- Status filter --%>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">Status</label>
+            <div class="flex gap-1">
+              <%= for status <- ["all", "pending", "delivered", "processed", "expired"] do %>
+                <button
+                  phx-click="filter_status"
+                  phx-value-status={status}
+                  class={"px-2.5 py-1 rounded text-xs " <> if(@filter_status == status, do: "bg-blue-600 text-white", else: "bg-gray-700 text-gray-300 hover:bg-gray-600")}
+                >
+                  {String.capitalize(status)}
+                </button>
+              <% end %>
+            </div>
+          </div>
+          <%!-- Agent filter --%>
+          <div>
+            <label class="block text-xs text-gray-500 mb-1">Agent</label>
+            <select
+              phx-change="filter_agent"
+              name="agent"
+              class="bg-gray-700 border-gray-600 rounded-lg px-3 py-1 text-sm text-white focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="all" selected={@filter_agent == "all"}>All Agents</option>
+              <%= for agent <- @agents do %>
+                <option value={agent.id} selected={@filter_agent == to_string(agent.id)}>{agent.name}</option>
+              <% end %>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <%!-- Message List --%>
+      <div class="bg-gray-800 rounded-lg overflow-hidden">
+        <%= if Enum.empty?(@messages) do %>
+          <div class="p-8 text-center text-gray-400">
+            <svg class="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+            </svg>
+            <p>No messages found</p>
+          </div>
+        <% else %>
+          <table class="w-full">
+            <thead class="bg-gray-700/50">
+              <tr>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Type</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">From → To</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Content</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Status</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Time</th>
+                <th class="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-700">
+              <%= for msg <- @messages do %>
+                <tr class="hover:bg-gray-700/30">
+                  <%!-- Type --%>
+                  <td class="px-4 py-3">
+                    <span class={"inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium " <> type_badge_classes(msg.type)}>
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={type_icon(msg.type)} />
+                      </svg>
+                      {String.capitalize(msg.type)}
+                    </span>
+                  </td>
+                  <%!-- From → To --%>
+                  <td class="px-4 py-3">
+                    <div class="flex items-center gap-1 text-sm">
+                      <span class="text-blue-400">
+                        {if msg.from_agent, do: msg.from_agent.name, else: "Unknown"}
+                      </span>
+                      <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                      </svg>
+                      <span class="text-green-400">
+                        {if msg.to_agent, do: msg.to_agent.name, else: "Broadcast"}
+                      </span>
+                    </div>
+                    <%= if msg.reply_to do %>
+                      <div class="text-xs text-gray-500 mt-0.5">
+                        Reply to: {String.slice(msg.reply_to, 0, 12)}...
+                      </div>
+                    <% end %>
+                  </td>
+                  <%!-- Content --%>
+                  <td class="px-4 py-3">
+                    <p class="text-sm text-gray-300 truncate max-w-xs" title={msg.content}>
+                      {truncate_content(msg.content, 60)}
+                    </p>
+                  </td>
+                  <%!-- Status --%>
+                  <td class="px-4 py-3">
+                    <span class={"px-2 py-1 rounded text-xs font-medium " <> status_badge_classes(msg.status)}>
+                      {String.capitalize(msg.status)}
+                    </span>
+                  </td>
+                  <%!-- Time --%>
+                  <td class="px-4 py-3 text-sm text-gray-400">
+                    {format_time(msg.inserted_at)}
+                  </td>
+                  <%!-- Actions --%>
+                  <td class="px-4 py-3 text-right">
+                    <%= if msg.status in ["pending", "delivered"] do %>
+                      <button
+                        phx-click="mark_processed"
+                        phx-value-id={msg.message_id}
+                        class="text-green-400 hover:text-green-300 text-sm"
+                      >
+                        Mark Processed
+                      </button>
+                    <% end %>
+                  </td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        <% end %>
+      </div>
+    <% end %>
+
+    <%!-- Registry Tab --%>
+    <%= if @tab == "registry" do %>
+      <div class="bg-gray-800 rounded-lg overflow-hidden">
+        <%= if Enum.empty?(@registry) do %>
+          <div class="p-8 text-center text-gray-400">
+            <svg class="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+            </svg>
+            <p>No agents registered in A2A router</p>
+            <p class="text-sm text-gray-600 mt-1">Agents register when they start communicating</p>
+          </div>
+        <% else %>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
+            <%= for entry <- @registry do %>
+              <div class="bg-gray-700/50 rounded-lg p-4">
+                <div class="flex items-center gap-3 mb-3">
+                  <div class="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold">
+                    {Map.get(@agent_map, entry.agent_id, "?") |> String.first() |> String.upcase()}
+                  </div>
+                  <div>
+                    <div class="font-medium text-white">
+                      {Map.get(@agent_map, entry.agent_id, "Agent ##{entry.agent_id}")}
+                    </div>
+                    <div class="text-xs text-gray-500">
+                      Registered {format_datetime(entry.registered_at)}
+                    </div>
+                  </div>
+                  <div class="ml-auto">
+                    <div class="w-2.5 h-2.5 rounded-full bg-green-400 animate-pulse"></div>
+                  </div>
+                </div>
+                <%= if Enum.any?(entry.capabilities) do %>
+                  <div class="flex flex-wrap gap-1.5">
+                    <%= for cap <- entry.capabilities do %>
+                      <span class="px-2 py-0.5 bg-gray-600 text-gray-300 rounded text-xs">
+                        {cap}
+                      </span>
+                    <% end %>
+                  </div>
+                <% else %>
+                  <p class="text-xs text-gray-500">No capabilities declared</p>
+                <% end %>
+              </div>
+            <% end %>
+          </div>
+        <% end %>
+      </div>
+    <% end %>
+  </div>
+</Layouts.app>
