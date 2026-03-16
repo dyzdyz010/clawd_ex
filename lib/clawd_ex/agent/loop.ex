@@ -17,9 +17,10 @@ defmodule ClawdEx.Agent.Loop do
 
   require Logger
 
-  alias ClawdEx.Agent.Prompt
+  alias ClawdEx.Agent.{OutputManager, Prompt}
   alias ClawdEx.AI.Models
   alias ClawdEx.AI.Stream, as: AIStream
+  alias ClawdEx.A2A.Mailbox, as: A2AMailbox
   alias ClawdEx.Sessions.Message
   alias ClawdEx.Repo
 
@@ -44,6 +45,7 @@ defmodule ClawdEx.Agent.Loop do
     :started_at,
     :timeout_ref,
     :config,
+    :output_manager_pid,
     tool_iterations: 0
   ]
 
@@ -129,8 +131,14 @@ defmodule ClawdEx.Agent.Loop do
         reply_to: nil,
         started_at: nil,
         timeout_ref: nil,
-        tool_iterations: 0
+        tool_iterations: 0,
+        output_manager_pid: nil
     }
+
+    # Check A2A mailbox for pending messages
+    if data.agent_id do
+      check_a2a_mailbox(data.agent_id)
+    end
 
     {:keep_state, new_data}
   end
@@ -190,6 +198,47 @@ defmodule ClawdEx.Agent.Loop do
     :keep_state_and_data
   end
 
+  # Handle A2A mailbox notification in idle state
+  def idle(:info, {:mailbox_message, agent_id, msg}, data) when data.agent_id == agent_id do
+    Logger.info("Agent #{agent_id} received A2A #{msg.type} message from agent #{msg.from_agent_id}")
+    # Schedule async processing — the agent will process this as a run
+    send(self(), {:a2a_run, msg})
+    :keep_state_and_data
+  end
+
+  def idle(:info, {:mailbox_message, _agent_id, _msg}, _data) do
+    :keep_state_and_data
+  end
+
+  # Process A2A message as a new run (self-initiated)
+  def idle(:info, {:a2a_run, msg}, data) do
+    # Pop from mailbox to acknowledge
+    if data.agent_id do
+      A2AMailbox.ack(data.agent_id, msg.message_id)
+    end
+
+    run_id = generate_run_id()
+    timeout_ms = @default_timeout_ms
+
+    # Format A2A message as user content for the agent
+    content = format_a2a_as_prompt(msg)
+
+    Logger.info("Starting A2A-initiated run #{run_id} for agent #{data.agent_id}")
+
+    timeout_ref = Process.send_after(self(), {:run_timeout, run_id}, timeout_ms)
+
+    new_data = %{
+      data
+      | run_id: run_id,
+        reply_to: nil,
+        started_at: DateTime.utc_now(),
+        timeout_ref: timeout_ref,
+        model: data.config[:default_model] |> Models.resolve()
+    }
+
+    {:next_state, :preparing, new_data, [{:next_event, :internal, {:prepare, content}}]}
+  end
+
   # ============================================================================
   # State: PREPARING
   # ============================================================================
@@ -219,6 +268,9 @@ defmodule ClawdEx.Agent.Loop do
     Logger.info("Loaded #{length(tools)} tools for run #{data.run_id}")
 
     new_data = %{data | messages: messages, system_prompt: system_prompt, tools: tools}
+
+    # Register with OutputManager for progressive output
+    OutputManager.start_run(data.run_id, data.session_id)
 
     # 广播运行开始
     broadcast_run_started(new_data)
@@ -299,8 +351,13 @@ defmodule ClawdEx.Agent.Loop do
       response[:tool_calls] && length(response[:tool_calls]) > 0 ->
         content = response[:content] || ""
 
-        # 如果有文本内容，先广播消息段（让渠道可以立即发送）
+        # 如果有文本内容，通过 OutputManager 立即推送中间段
         if content != "" do
+          OutputManager.deliver_segment(data.run_id, content, %{
+            type: :intermediate,
+            tool_calls_pending: length(response[:tool_calls])
+          })
+
           broadcast_segment(data, content, continuing: true)
         end
 
@@ -421,6 +478,13 @@ defmodule ClawdEx.Agent.Loop do
     Logger.debug("Tools completed for run #{data.run_id}")
 
     new_iterations = data.tool_iterations + 1
+
+    # Send progress summary via OutputManager
+    progress_summary = format_tools_progress(results, new_iterations)
+    OutputManager.deliver_progress(data.run_id, progress_summary, %{
+      type: :tools_done,
+      iteration: new_iterations
+    })
 
     # 广播工具完成事件（让渠道可以发送中间结果）
     broadcast_tools_done(data, results)
@@ -631,8 +695,16 @@ defmodule ClawdEx.Agent.Loop do
     # 广播运行完成
     broadcast_run_done(data, final_content)
 
-    # 回复调用者
-    GenStateMachine.reply(data.reply_to, {:ok, final_content})
+    # Signal OutputManager that run is complete
+    OutputManager.deliver_complete(data.run_id, final_content, %{
+      model: data.model,
+      iterations: data.tool_iterations
+    })
+
+    # 回复调用者 (nil reply_to for A2A-initiated runs)
+    if data.reply_to do
+      GenStateMachine.reply(data.reply_to, {:ok, final_content})
+    end
 
     Logger.info("Run #{data.run_id} completed")
     {:next_state, :idle, %{data | timeout_ref: nil}}
@@ -744,4 +816,62 @@ defmodule ClawdEx.Agent.Loop do
   end
 
   defp sanitize_params(_), do: %{}
+
+  # ============================================================================
+  # A2A Integration
+  # ============================================================================
+
+  # Check A2A mailbox for pending messages (non-blocking)
+  defp check_a2a_mailbox(agent_id) do
+    case A2AMailbox.peek(agent_id) do
+      {:ok, msg} ->
+        Logger.debug("Agent #{agent_id} has pending A2A message, scheduling processing")
+        send(self(), {:a2a_run, msg})
+
+      :empty ->
+        :ok
+    end
+  end
+
+  # Format an A2A message as a prompt for the agent
+  defp format_a2a_as_prompt(msg) do
+    header =
+      case msg.type do
+        "request" ->
+          "[A2A Request from Agent #{msg.from_agent_id}]"
+
+        "notification" ->
+          "[A2A Notification from Agent #{msg.from_agent_id}]"
+
+        "delegation" ->
+          task_title = get_in(msg, [:metadata, "task_title"]) || "Unknown"
+          "[A2A Task Delegation from Agent #{msg.from_agent_id}: #{task_title}]"
+
+        _ ->
+          "[A2A Message from Agent #{msg.from_agent_id}]"
+      end
+
+    reply_hint =
+      if msg.type == "request" do
+        "\n\nPlease respond using the a2a tool with action 'send' to reply to this request. " <>
+          "Reply to message_id: #{msg.message_id}"
+      else
+        ""
+      end
+
+    "#{header}\n\n#{msg.content}#{reply_hint}"
+  end
+
+  # Format tool execution results as progress summary
+  defp format_tools_progress(results, iteration) do
+    tool_summaries =
+      Enum.map(results, fn {tool_call, result} ->
+        name = tool_call["name"] || get_in(tool_call, ["function", "name"]) || "unknown"
+        status = if match?({:ok, _}, result), do: "✓", else: "✗"
+        "#{status} #{name}"
+      end)
+      |> Enum.join(", ")
+
+    "Round #{iteration}: #{tool_summaries}"
+  end
 end

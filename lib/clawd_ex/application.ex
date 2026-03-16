@@ -20,6 +20,9 @@ defmodule ClawdEx.Application do
       {Registry, keys: :unique, name: ClawdEx.SessionRegistry},
       # Agent Loop Registry
       {Registry, keys: :unique, name: ClawdEx.AgentLoopRegistry},
+      # A2A Mailbox Registry + DynamicSupervisor
+      {Registry, keys: :unique, name: ClawdEx.A2AMailboxRegistry},
+      {DynamicSupervisor, name: ClawdEx.A2AMailboxSupervisor, strategy: :one_for_one},
       # OAuth credential manager (handles token refresh)
       ClawdEx.AI.OAuth,
       # Background process manager
@@ -33,6 +36,12 @@ defmodule ClawdEx.Application do
       # Skills system
       ClawdEx.Skills.Registry,
       ClawdEx.Skills.Watcher,
+      # Progressive Output Manager
+      ClawdEx.Agent.OutputManager,
+      # Task Manager (periodic task health checks)
+      ClawdEx.Tasks.Manager,
+      # A2A Router (agent-to-agent communication)
+      ClawdEx.A2A.Router,
       # Session Manager (DynamicSupervisor)
       ClawdEx.Sessions.SessionManager,
       # Discord channel (optional, starts if configured)

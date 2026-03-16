@@ -45,9 +45,13 @@ defmodule ClawdEx.Tools.Registry do
     "browser" => ClawdEx.Tools.Browser,
     "nodes" => ClawdEx.Tools.Nodes,
     "canvas" => ClawdEx.Tools.Canvas,
-    # 媒体 (新增)
+    # 媒体
     "image" => ClawdEx.Tools.Image,
-    "tts" => ClawdEx.Tools.Tts
+    "tts" => ClawdEx.Tools.Tts,
+    # 任务管理
+    "task" => ClawdEx.Tools.TaskTool,
+    # Agent-to-Agent 通信
+    "a2a" => ClawdEx.Tools.A2A
   }
 
   @doc """
@@ -91,7 +95,9 @@ defmodule ClawdEx.Tools.Registry do
     "Nodes" => "nodes",
     "Image" => "image",
     "Tts" => "tts",
-    "Compact" => "compact"
+    "Compact" => "compact",
+    "Task" => "task",
+    "A2A" => "a2a"
   }
 
   @doc """

@@ -293,15 +293,16 @@ defmodule ClawdEx.Channels.Telegram do
     # 获取 session_id 用于订阅 PubSub
     session_id = get_session_id(session_key)
 
-    # 订阅 agent 事件（接收中间消息段）
+    # 订阅 output 事件（渐进式输出）和 agent 事件
     if session_id do
+      Phoenix.PubSub.subscribe(ClawdEx.PubSub, "output:#{session_id}")
       Phoenix.PubSub.subscribe(ClawdEx.PubSub, "agent:#{session_id}")
     end
 
     # 启动持续的 typing 指示器
     stop_typing = start_typing_indicator(chat_id)
 
-    # 在后台 Task 中处理消息，以便能接收 PubSub 事件
+    # 异步发送消息 — 不再同步等待整个 run 完成
     parent = self()
     ref = make_ref()
 
@@ -311,7 +312,7 @@ defmodule ClawdEx.Channels.Telegram do
         send(parent, {:result, ref, result})
       end)
 
-    # 接收循环：处理中间消息段和最终结果
+    # 接收循环：处理渐进式输出段和最终结果
     final_result = receive_loop(chat_id, reply_to, ref, nil)
 
     # 清理
@@ -319,6 +320,7 @@ defmodule ClawdEx.Channels.Telegram do
     Task.shutdown(task, :brutal_kill)
 
     if session_id do
+      Phoenix.PubSub.unsubscribe(ClawdEx.PubSub, "output:#{session_id}")
       Phoenix.PubSub.unsubscribe(ClawdEx.PubSub, "agent:#{session_id}")
     end
 
@@ -338,17 +340,32 @@ defmodule ClawdEx.Channels.Telegram do
     end
   end
 
-  # 接收循环：处理中间消息段和等待最终结果
+  # 接收循环：处理渐进式输出段和等待最终结果
   # sent_tools_msg: 是否已发送工具执行消息（避免重复发送）
   defp receive_loop(chat_id, reply_to, ref, state) do
     state = state || %{sent_segment: false, sent_tools_msg: false}
 
     receive do
-      # 收到消息段（工具调用前的文本）
-      {:agent_segment, _run_id, content, %{continuing: true}} when content != "" ->
-        # 发送中间消息
-        Logger.info("Sending Telegram segment: #{String.slice(content, 0, 50)}...")
+      # OutputManager: 收到渐进式输出段（优先处理）
+      {:output_segment, _run_id, content, metadata} when content != "" ->
+        type = Map.get(metadata, :type, :intermediate)
+        Logger.info("Sending Telegram output segment (#{type}): #{String.slice(content, 0, 50)}...")
         send_response_with_media(chat_id, content, reply_to: reply_to)
+        receive_loop(chat_id, reply_to, ref, %{state | sent_segment: true})
+
+      # OutputManager: 运行完成信号
+      {:output_complete, _run_id, _final_content, _metadata} ->
+        # Don't send here — the final result comes via {:result, ref, ...}
+        # Just continue waiting for it
+        receive_loop(chat_id, reply_to, ref, state)
+
+      # Legacy: 收到消息段（工具调用前的文本）— 保留兼容性
+      {:agent_segment, _run_id, content, %{continuing: true}} when content != "" ->
+        # Only send if not already handled by output_segment
+        unless state.sent_segment do
+          Logger.info("Sending Telegram segment: #{String.slice(content, 0, 50)}...")
+          send_response_with_media(chat_id, content, reply_to: reply_to)
+        end
         receive_loop(chat_id, reply_to, ref, %{state | sent_segment: true})
 
       # 收到工具开始执行事件
