@@ -374,24 +374,15 @@ defmodule ClawdEx.A2A.Router do
   end
 
   defp expire_old_messages do
-    now = DateTime.utc_now()
+    {count, _} =
+      from(m in Message,
+        where: m.status in ["pending", "delivered"],
+        where: fragment("? + ? * interval '1 second' < NOW()", m.inserted_at, m.ttl_seconds)
+      )
+      |> Repo.update_all(set: [status: "expired"])
 
-    # Find pending/delivered messages that have exceeded their TTL
-    from(m in Message,
-      where: m.status in ["pending", "delivered"],
-      select: m
-    )
-    |> Repo.all()
-    |> Enum.each(fn msg ->
-      expiry = DateTime.add(msg.inserted_at, msg.ttl_seconds, :second)
-
-      if DateTime.compare(now, expiry) == :gt do
-        Logger.debug("A2A: Expiring message #{msg.message_id} (TTL exceeded)")
-
-        msg
-        |> Message.changeset(%{status: "expired"})
-        |> Repo.update()
-      end
-    end)
+    if count > 0 do
+      Logger.debug("A2A: Expired #{count} messages (TTL exceeded)")
+    end
   end
 end

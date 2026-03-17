@@ -20,9 +20,8 @@ defmodule ClawdEx.Application do
       {Registry, keys: :unique, name: ClawdEx.SessionRegistry},
       # Agent Loop Registry
       {Registry, keys: :unique, name: ClawdEx.AgentLoopRegistry},
-      # A2A Mailbox Registry + DynamicSupervisor
-      {Registry, keys: :unique, name: ClawdEx.A2AMailboxRegistry},
-      {DynamicSupervisor, name: ClawdEx.A2AMailboxSupervisor, strategy: :one_for_one},
+      # A2A subsystem (Registry, DynamicSupervisor, Router)
+      ClawdEx.A2A.Supervisor,
       # Agent Loop Task Supervisor (for supervised AI/tool tasks)
       {Task.Supervisor, name: ClawdEx.AgentTaskSupervisor},
       # OAuth credential manager (handles token refresh)
@@ -31,20 +30,14 @@ defmodule ClawdEx.Application do
       ClawdEx.Tools.Process,
       # Node registry for paired devices
       ClawdEx.Nodes.Registry,
-      # Browser CDP client
-      ClawdEx.Browser.CDP,
-      # Browser server (manages Chrome process)
-      ClawdEx.Browser.Server,
-      # Skills system
-      ClawdEx.Skills.Manager,
-      ClawdEx.Skills.Registry,
-      ClawdEx.Skills.Watcher,
+      # Browser subsystem (CDP → Server)
+      ClawdEx.Browser.Supervisor,
+      # Skills subsystem (Manager → Registry → Watcher)
+      ClawdEx.Skills.Supervisor,
       # Progressive Output Manager
       ClawdEx.Agent.OutputManager,
       # Task Manager (periodic task health checks)
       ClawdEx.Tasks.Manager,
-      # A2A Router (agent-to-agent communication)
-      ClawdEx.A2A.Router,
       # Webhook Manager (outbound webhook dispatch + retry)
       {Task.Supervisor, name: ClawdEx.WebhookTaskSupervisor},
       ClawdEx.Webhooks.Manager,

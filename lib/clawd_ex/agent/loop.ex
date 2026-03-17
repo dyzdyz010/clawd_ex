@@ -25,7 +25,7 @@ defmodule ClawdEx.Agent.Loop do
   alias ClawdEx.Repo
 
   # Maximum tool iterations before forcing completion (prevent infinite loops)
-  @max_tool_iterations 5000
+  @max_tool_iterations 50
 
   @doc "Get the maximum tool iterations limit"
   def max_tool_iterations, do: @max_tool_iterations

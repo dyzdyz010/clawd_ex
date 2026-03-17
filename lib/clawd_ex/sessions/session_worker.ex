@@ -110,6 +110,9 @@ defmodule ClawdEx.Sessions.SessionWorker do
           config: config
         )
 
+      # Monitor the loop process so we detect crashes
+      Process.monitor(loop_pid)
+
       state = %__MODULE__{
         session_key: session_key,
         session_id: session.id,
@@ -149,21 +152,26 @@ defmodule ClawdEx.Sessions.SessionWorker do
         handle_reset_trigger(content, opts, state)
       else
         # 检查会话是否过期需要重置
-        session = Repo.get!(Session, state.session_id)
+        case Repo.get(Session, state.session_id) do
+          nil ->
+            Logger.error("Session #{state.session_key} not found in DB (id=#{state.session_id})")
+            {:reply, {:error, "Session not found"}, state}
 
-        case Reset.should_reset?(session) do
-          {:reset, reason} ->
-            Logger.info("Session #{state.session_key} reset due to #{reason}")
-            new_session = Reset.reset_session!(session)
-            new_state = restart_with_new_session(state, new_session)
-            result = safe_run_agent(new_state.loop_pid, content, opts)
-            {:reply, result, new_state}
+          session ->
+            case Reset.should_reset?(session) do
+              {:reset, reason} ->
+                Logger.info("Session #{state.session_key} reset due to #{reason}")
+                new_session = Reset.reset_session!(session)
+                new_state = restart_with_new_session(state, new_session)
+                result = safe_run_agent(new_state.loop_pid, content, opts)
+                {:reply, result, new_state}
 
-          {:ok, :fresh} ->
-            # 更新最后活动时间
-            update_last_activity(state.session_id)
-            result = safe_run_agent(state.loop_pid, content, opts)
-            {:reply, result, state}
+              {:ok, :fresh} ->
+                # 更新最后活动时间
+                update_last_activity(state.session_id)
+                result = safe_run_agent(state.loop_pid, content, opts)
+                {:reply, result, state}
+            end
         end
       end
     rescue
@@ -304,6 +312,9 @@ defmodule ClawdEx.Sessions.SessionWorker do
         config: state.config
       )
 
+    # Monitor the restarted loop process
+    Process.monitor(new_loop_pid)
+
     {:noreply, %{state | loop_pid: new_loop_pid}}
   end
 
@@ -321,20 +332,26 @@ defmodule ClawdEx.Sessions.SessionWorker do
     Logger.info("Manual reset triggered for session #{state.session_key}")
 
     # 重置会话
-    session = Repo.get!(Session, state.session_id)
-    new_session = Reset.reset_session!(session)
-    new_state = restart_with_new_session(state, new_session)
-
-    # 检查是否有后续内容
-    case Reset.extract_post_reset_content(content) do
+    case Repo.get(Session, state.session_id) do
       nil ->
-        # 只是重置，发送确认消息
-        {:reply, {:ok, "Session reset. How can I help you?"}, new_state}
+        Logger.error("Session #{state.session_key} not found in DB for reset (id=#{state.session_id})")
+        {:reply, {:error, "Session not found"}, state}
 
-      post_content ->
-        # 有后续内容，继续处理
-        result = AgentLoop.run(new_state.loop_pid, post_content, opts)
-        {:reply, result, new_state}
+      session ->
+        new_session = Reset.reset_session!(session)
+        new_state = restart_with_new_session(state, new_session)
+
+        # 检查是否有后续内容
+        case Reset.extract_post_reset_content(content) do
+          nil ->
+            # 只是重置，发送确认消息
+            {:reply, {:ok, "Session reset. How can I help you?"}, new_state}
+
+          post_content ->
+            # 有后续内容，继续处理
+            result = AgentLoop.run(new_state.loop_pid, post_content, opts)
+            {:reply, result, new_state}
+        end
     end
   end
 
@@ -357,6 +374,9 @@ defmodule ClawdEx.Sessions.SessionWorker do
         config: config
       )
 
+    # Monitor the new loop process
+    Process.monitor(new_loop_pid)
+
     %{
       state
       | session_id: new_session.id,
@@ -367,9 +387,19 @@ defmodule ClawdEx.Sessions.SessionWorker do
   end
 
   defp update_last_activity(session_id) do
-    Repo.get!(Session, session_id)
-    |> Session.changeset(%{last_activity_at: DateTime.utc_now()})
-    |> Repo.update!()
+    case Repo.get(Session, session_id) do
+      nil ->
+        Logger.error("Cannot update last_activity: session #{session_id} not found")
+        :ok
+
+      session ->
+        case session |> Session.changeset(%{last_activity_at: DateTime.utc_now()}) |> Repo.update() do
+          {:ok, _} -> :ok
+          {:error, changeset} ->
+            Logger.error("Failed to update last_activity for session #{session_id}: #{inspect(changeset.errors)}")
+            :ok
+        end
+    end
   end
 
   defp safe_update_last_activity(session_id) do
@@ -389,9 +419,13 @@ defmodule ClawdEx.Sessions.SessionWorker do
 
       %{state: :archived} = session ->
         # 存在但已归档，重新激活它
-        session
-        |> Session.changeset(%{state: :active})
-        |> Repo.update!()
+        case session |> Session.changeset(%{state: :active}) |> Repo.update() do
+          {:ok, updated} -> updated
+          {:error, changeset} ->
+            Logger.error("Failed to reactivate session #{session_key}: #{inspect(changeset.errors)}")
+            # Return the archived session as fallback — still usable
+            session
+        end
 
       session ->
         # 存在且活跃，直接返回
@@ -402,18 +436,31 @@ defmodule ClawdEx.Sessions.SessionWorker do
   defp create_new_session(session_key, agent_id, channel) do
     agent_id = agent_id || get_or_create_default_agent_id()
 
-    try do
-      %Session{}
-      |> Session.changeset(%{
-        session_key: session_key,
-        channel: channel,
-        agent_id: agent_id
-      })
-      |> Repo.insert!()
-    rescue
-      Ecto.ConstraintError ->
-        # 竞态条件：另一个进程创建了它，获取现有的
-        Repo.get_by!(Session, session_key: session_key)
+    case %Session{}
+         |> Session.changeset(%{
+           session_key: session_key,
+           channel: channel,
+           agent_id: agent_id
+         })
+         |> Repo.insert() do
+      {:ok, session} ->
+        session
+
+      {:error, %Ecto.Changeset{errors: errors} = changeset} ->
+        # Check if it's a unique constraint violation (race condition)
+        if Keyword.has_key?(errors, :session_key) do
+          case Repo.get_by(Session, session_key: session_key) do
+            nil ->
+              Logger.error("Session #{session_key} insert conflict but not found: #{inspect(errors)}")
+              raise "Failed to create session #{session_key}"
+
+            session ->
+              session
+          end
+        else
+          Logger.error("Failed to create session #{session_key}: #{inspect(changeset.errors)}")
+          raise "Failed to create session #{session_key}: #{inspect(errors)}"
+        end
     end
   end
 
@@ -458,10 +505,22 @@ defmodule ClawdEx.Sessions.SessionWorker do
 
     case Repo.get_by(Agent, name: "default") do
       nil ->
-        %Agent{}
-        |> Agent.changeset(%{name: "default"})
-        |> Repo.insert!()
-        |> Map.get(:id)
+        case %Agent{} |> Agent.changeset(%{name: "default"}) |> Repo.insert() do
+          {:ok, agent} ->
+            agent.id
+
+          {:error, changeset} ->
+            # Race condition: another process created it
+            Logger.warning("Failed to create default agent: #{inspect(changeset.errors)}, retrying lookup")
+            case Repo.get_by(Agent, name: "default") do
+              nil ->
+                Logger.error("Cannot create or find default agent")
+                nil
+
+              agent ->
+                agent.id
+            end
+        end
 
       agent ->
         agent.id
