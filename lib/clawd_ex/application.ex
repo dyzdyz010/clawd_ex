@@ -60,7 +60,10 @@ defmodule ClawdEx.Application do
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
-    opts = [strategy: :one_for_one, name: ClawdEx.Supervisor]
+    # In test env, increase max_restarts to prevent cascading supervisor shutdown
+    # when spawned processes hit DB sandbox ownership errors
+    max_restarts = if Application.get_env(:clawd_ex, :env) == :test, do: 100, else: 3
+    opts = [strategy: :one_for_one, name: ClawdEx.Supervisor, max_restarts: max_restarts, max_seconds: 5]
     Supervisor.start_link(children, opts)
   end
 

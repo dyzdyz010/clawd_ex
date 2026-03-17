@@ -188,7 +188,10 @@ defmodule ClawdEx.Tasks.Manager do
 
   @impl true
   def init(_opts) do
-    schedule_check()
+    unless Application.get_env(:clawd_ex, :env) == :test do
+      schedule_check()
+    end
+
     {:ok, %{}}
   end
 

@@ -129,7 +129,10 @@ defmodule ClawdEx.Webhooks.Manager do
 
   @impl true
   def init(_opts) do
-    schedule_retry()
+    unless Application.get_env(:clawd_ex, :env) == :test do
+      schedule_retry()
+    end
+
     {:ok, %{}}
   end
 

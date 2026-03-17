@@ -4,6 +4,15 @@ defmodule ClawdEx.A2A.MailboxTest do
   alias ClawdEx.A2A.Mailbox
 
   setup do
+    # Ensure infrastructure processes are alive (they may have crashed due to supervisor restarts)
+    unless Process.whereis(ClawdEx.A2AMailboxRegistry) do
+      Registry.start_link(keys: :unique, name: ClawdEx.A2AMailboxRegistry)
+    end
+
+    unless Process.whereis(ClawdEx.A2AMailboxSupervisor) do
+      DynamicSupervisor.start_link(name: ClawdEx.A2AMailboxSupervisor, strategy: :one_for_one)
+    end
+
     # Use a unique agent_id for each test to avoid conflicts
     agent_id = System.unique_integer([:positive])
 
@@ -11,7 +20,8 @@ defmodule ClawdEx.A2A.MailboxTest do
 
     on_exit(fn ->
       if Process.alive?(pid) do
-        GenServer.stop(pid, :normal)
+        # Use terminate_child to avoid triggering permanent restart / max_restarts
+        DynamicSupervisor.terminate_child(ClawdEx.A2AMailboxSupervisor, pid)
       end
     end)
 
@@ -29,7 +39,9 @@ defmodule ClawdEx.A2A.MailboxTest do
       assert Process.alive?(pid)
 
       on_exit(fn ->
-        if Process.alive?(pid), do: GenServer.stop(pid, :normal)
+        if Process.alive?(pid) do
+          DynamicSupervisor.terminate_child(ClawdEx.A2AMailboxSupervisor, pid)
+        end
       end)
     end
 

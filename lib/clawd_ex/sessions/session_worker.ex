@@ -92,37 +92,48 @@ defmodule ClawdEx.Sessions.SessionWorker do
     agent_id = Keyword.get(opts, :agent_id)
     channel = Keyword.get(opts, :channel, "telegram")
 
-    # 从数据库加载或创建会话
-    session = load_or_create_session(session_key, agent_id, channel)
+    # 从数据库加载或创建会话（graceful handling for DB unavailability）
+    try do
+      session = load_or_create_session(session_key, agent_id, channel)
 
-    # 构建配置
-    config = %{
-      default_model: get_agent_model(session.agent_id),
-      workspace: get_agent_workspace(session.agent_id)
-    }
+      # 构建配置
+      config = %{
+        default_model: get_agent_model(session.agent_id),
+        workspace: get_agent_workspace(session.agent_id)
+      }
 
-    # 启动 Agent Loop
-    {:ok, loop_pid} =
-      AgentLoop.start_link(
+      # 启动 Agent Loop
+      {:ok, loop_pid} =
+        AgentLoop.start_link(
+          session_id: session.id,
+          agent_id: session.agent_id,
+          config: config
+        )
+
+      state = %__MODULE__{
+        session_key: session_key,
         session_id: session.id,
         agent_id: session.agent_id,
+        channel: channel,
+        loop_pid: loop_pid,
         config: config
-      )
+      }
 
-    state = %__MODULE__{
-      session_key: session_key,
-      session_id: session.id,
-      agent_id: session.agent_id,
-      channel: channel,
-      loop_pid: loop_pid,
-      config: config
-    }
+      # 订阅 agent 事件以缓存 streaming content
+      Phoenix.PubSub.subscribe(ClawdEx.PubSub, "agent:#{session.id}")
 
-    # 订阅 agent 事件以缓存 streaming content
-    Phoenix.PubSub.subscribe(ClawdEx.PubSub, "agent:#{session.id}")
-
-    Logger.info("Session started: #{session_key}")
-    {:ok, state}
+      Logger.info("Session started: #{session_key}")
+      {:ok, state}
+    rescue
+      e ->
+        Logger.warning("Failed to start session #{session_key}: #{Exception.message(e)}")
+        # Use :shutdown to prevent supervisor restart loops
+        {:stop, {:shutdown, {:db_unavailable, Exception.message(e)}}}
+    catch
+      :exit, reason ->
+        Logger.warning("Failed to start session #{session_key}: #{inspect(reason)}")
+        {:stop, {:shutdown, {:db_unavailable, reason}}}
+    end
   end
 
   @impl true
@@ -132,27 +143,37 @@ defmodule ClawdEx.Sessions.SessionWorker do
     caller_timeout = Keyword.get(opts, :timeout, 300_000)
     opts = Keyword.put(opts, :timeout, max(caller_timeout - 5000, 30_000))
 
-    # 检查是否是重置触发器
-    if Reset.is_reset_trigger?(content) do
-      handle_reset_trigger(content, opts, state)
-    else
-      # 检查会话是否过期需要重置
-      session = Repo.get!(Session, state.session_id)
+    try do
+      # 检查是否是重置触发器
+      if Reset.is_reset_trigger?(content) do
+        handle_reset_trigger(content, opts, state)
+      else
+        # 检查会话是否过期需要重置
+        session = Repo.get!(Session, state.session_id)
 
-      case Reset.should_reset?(session) do
-        {:reset, reason} ->
-          Logger.info("Session #{state.session_key} reset due to #{reason}")
-          new_session = Reset.reset_session!(session)
-          new_state = restart_with_new_session(state, new_session)
-          result = safe_run_agent(new_state.loop_pid, content, opts)
-          {:reply, result, new_state}
+        case Reset.should_reset?(session) do
+          {:reset, reason} ->
+            Logger.info("Session #{state.session_key} reset due to #{reason}")
+            new_session = Reset.reset_session!(session)
+            new_state = restart_with_new_session(state, new_session)
+            result = safe_run_agent(new_state.loop_pid, content, opts)
+            {:reply, result, new_state}
 
-        {:ok, :fresh} ->
-          # 更新最后活动时间
-          update_last_activity(state.session_id)
-          result = safe_run_agent(state.loop_pid, content, opts)
-          {:reply, result, state}
+          {:ok, :fresh} ->
+            # 更新最后活动时间
+            update_last_activity(state.session_id)
+            result = safe_run_agent(state.loop_pid, content, opts)
+            {:reply, result, state}
+        end
       end
+    rescue
+      e ->
+        Logger.warning("Session #{state.session_key} DB error in send_message: #{Exception.message(e)}")
+        {:reply, {:error, "Session DB unavailable: #{Exception.message(e)}"}, state}
+    catch
+      :exit, reason ->
+        Logger.warning("Session #{state.session_key} exit in send_message: #{inspect(reason)}")
+        {:reply, {:error, "Session unavailable"}, state}
     end
   end
 
@@ -216,8 +237,8 @@ defmodule ClawdEx.Sessions.SessionWorker do
     session_key = state.session_key
     loop_pid = state.loop_pid
 
-    # 更新最后活动时间
-    update_last_activity(state.session_id)
+    # 更新最后活动时间 (ignore DB errors)
+    safe_update_last_activity(state.session_id)
 
     # 标记 agent 正在运行
     state = %{state | agent_running: true}
@@ -349,6 +370,14 @@ defmodule ClawdEx.Sessions.SessionWorker do
     Repo.get!(Session, session_id)
     |> Session.changeset(%{last_activity_at: DateTime.utc_now()})
     |> Repo.update!()
+  end
+
+  defp safe_update_last_activity(session_id) do
+    update_last_activity(session_id)
+  rescue
+    _ -> :ok
+  catch
+    :exit, _ -> :ok
   end
 
   defp load_or_create_session(session_key, agent_id, channel) do

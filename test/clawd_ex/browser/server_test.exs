@@ -1,6 +1,8 @@
 defmodule ClawdEx.Browser.ServerTest do
   use ExUnit.Case, async: false
 
+  @moduletag :requires_chrome
+
   alias ClawdEx.Browser.Server
   alias ClawdEx.Browser.CDP
 

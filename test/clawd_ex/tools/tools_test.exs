@@ -169,8 +169,11 @@ defmodule ClawdEx.Tools.ToolsTest do
 
     test "runs in specified workdir" do
       tmp_dir = System.tmp_dir!()
-      assert {:ok, output} = Exec.execute(%{command: "pwd", workdir: tmp_dir}, %{})
-      assert String.trim(output) == tmp_dir
+      assert {:ok, output} = Exec.execute(%{command: "pwd -P", workdir: tmp_dir}, %{})
+      # Use pwd -P to get physical path (resolves symlinks)
+      # and resolve tmp_dir the same way via realpath
+      {resolved_tmp, 0} = System.cmd("realpath", [tmp_dir])
+      assert String.trim(output) == String.trim(resolved_tmp)
     end
   end
 end

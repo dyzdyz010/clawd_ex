@@ -126,17 +126,20 @@ defmodule ClawdEx.Tools.Gateway do
   defp do_restart do
     Logger.info("[Gateway] Restart requested")
 
-    # 在生产环境中，使用 Application.stop/start 或信号
-    # 这里我们调度一个异步重启
-    spawn(fn ->
-      :timer.sleep(1000)
-      Logger.info("[Gateway] Executing restart...")
+    # Skip actual restart in test environment to avoid killing the Application
+    unless Application.get_env(:clawd_ex, :env) == :test do
+      # 在生产环境中，使用 Application.stop/start 或信号
+      # 这里我们调度一个异步重启
+      spawn(fn ->
+        :timer.sleep(1000)
+        Logger.info("[Gateway] Executing restart...")
 
-      # 停止并重启应用
-      Application.stop(:clawd_ex)
-      :timer.sleep(500)
-      Application.ensure_all_started(:clawd_ex)
-    end)
+        # 停止并重启应用
+        Application.stop(:clawd_ex)
+        :timer.sleep(500)
+        Application.ensure_all_started(:clawd_ex)
+      end)
+    end
 
     {:ok,
      %{

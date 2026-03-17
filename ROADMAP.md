@@ -183,12 +183,12 @@
 详细功能对比见 [docs/FEATURES.md](docs/FEATURES.md)
 
 ### 📊 统计
-- **整体完成度**: ~42% (76/181 功能)
+- **整体完成度**: ~50% (89/181 功能)
 - **工具数量**: 22/24 个
-- **测试用例**: 392 个
+- **测试用例**: 556 个
 - **渠道数量**: 3/11 个
 - **AI 提供商**: 5/10 个
-- **LiveView 页面**: 8/17 个 (+3: Cron/Logs/Settings)
+- **LiveView 页面**: 11/17 个 (Dashboard/Chat/Sessions/Agents/Cron/Logs/Settings/Tasks/A2A/Skills/Webhooks)
 - **CLI 命令**: 3/24 个 (status/health/configure)
 
 ---

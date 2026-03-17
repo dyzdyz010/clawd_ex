@@ -47,3 +47,6 @@ config :phoenix,
 
 # Disable Discord in tests
 config :clawd_ex, discord_enabled: false
+
+# Mark test environment for GenServer schedule skipping
+config :clawd_ex, env: :test
