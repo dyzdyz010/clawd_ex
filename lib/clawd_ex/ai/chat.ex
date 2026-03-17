@@ -28,6 +28,8 @@ defmodule ClawdEx.AI.Chat do
       :openai -> complete_openai(model_name, messages, opts)
       :google -> complete_google(model_name, messages, opts)
       :openrouter -> complete_openrouter(model_name, messages, opts)
+      :ollama -> complete_ollama(model_name, messages, opts)
+      :groq -> complete_groq(model_name, messages, opts)
       _ -> {:error, :unsupported_provider}
     end
   end
@@ -43,6 +45,8 @@ defmodule ClawdEx.AI.Chat do
       :anthropic -> stream_anthropic(model_name, messages, opts)
       :openai -> stream_openai(model_name, messages, opts)
       :openrouter -> stream_openrouter(model_name, messages, opts)
+      :ollama -> stream_ollama(model_name, messages, opts)
+      :groq -> stream_groq(model_name, messages, opts)
       _ -> {:error, :unsupported_provider}
     end
   end
@@ -171,12 +175,30 @@ defmodule ClawdEx.AI.Chat do
     ClawdEx.AI.Providers.OpenRouter.chat(model, messages, opts)
   end
 
+  # Ollama API (via dedicated provider module)
+  defp complete_ollama(model, messages, opts) do
+    ClawdEx.AI.Providers.Ollama.chat(model, messages, opts)
+  end
+
+  # Groq API (via dedicated provider module)
+  defp complete_groq(model, messages, opts) do
+    ClawdEx.AI.Providers.Groq.chat(model, messages, opts)
+  end
+
   # Streaming implementations (placeholder)
   defp stream_anthropic(_model, _messages, _opts), do: Stream.cycle([:not_implemented])
   defp stream_openai(_model, _messages, _opts), do: Stream.cycle([:not_implemented])
 
   defp stream_openrouter(model, messages, opts) do
     ClawdEx.AI.Providers.OpenRouter.stream(model, messages, opts)
+  end
+
+  defp stream_ollama(model, messages, opts) do
+    ClawdEx.AI.Providers.Ollama.stream(model, messages, opts)
+  end
+
+  defp stream_groq(model, messages, opts) do
+    ClawdEx.AI.Providers.Groq.stream(model, messages, opts)
   end
 
   # Helper functions
@@ -186,6 +208,8 @@ defmodule ClawdEx.AI.Chat do
       ["openai", name] -> {:openai, name}
       ["google", name] -> {:google, name}
       ["openrouter", name] -> {:openrouter, "openrouter/" <> name}
+      ["ollama", name] -> {:ollama, name}
+      ["groq", name] -> {:groq, name}
       # 默认 Anthropic
       [name] -> {:anthropic, name}
       _ -> {:unknown, model}

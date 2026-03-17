@@ -6,6 +6,9 @@ defmodule ClawdEx.AI.Stream do
   - Anthropic Claude (SSE) - 包括 OAuth token
   - OpenAI GPT (SSE)
   - Google Gemini (SSE)
+  - OpenRouter (SSE, OpenAI 兼容)
+  - Ollama (NDJSON, 本地模型)
+  - Groq (SSE, OpenAI 兼容, 快速推理)
   """
 
   require Logger
@@ -34,6 +37,8 @@ defmodule ClawdEx.AI.Stream do
       :openai -> stream_openai(model_name, messages, opts, stream_to)
       :google -> stream_google(model_name, messages, opts, stream_to)
       :openrouter -> stream_openrouter(model_name, messages, opts)
+      :ollama -> stream_ollama(model_name, messages, opts)
+      :groq -> stream_groq(model_name, messages, opts)
       _ -> {:error, :unsupported_provider}
     end
   end
@@ -619,6 +624,14 @@ defmodule ClawdEx.AI.Stream do
 
   defp stream_openrouter(model, messages, opts) do
     ClawdEx.AI.Providers.OpenRouter.stream(model, messages, opts)
+  end
+
+  defp stream_ollama(model, messages, opts) do
+    ClawdEx.AI.Providers.Ollama.stream(model, messages, opts)
+  end
+
+  defp stream_groq(model, messages, opts) do
+    ClawdEx.AI.Providers.Groq.stream(model, messages, opts)
   end
 
   defp format_messages_anthropic(messages) do

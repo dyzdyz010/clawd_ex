@@ -145,6 +145,66 @@ defmodule ClawdEx.AI.Models do
       context_window: 128_000,
       max_tokens: 16_384,
       aliases: ["4o-mini"]
+    },
+
+    # Groq (fast inference)
+    "groq/llama-3.3-70b-versatile" => %{
+      provider: :groq,
+      api_model: "llama-3.3-70b-versatile",
+      capabilities: [:chat, :tools],
+      context_window: 128_000,
+      max_tokens: 32_768,
+      aliases: ["groq-llama-70b", "groq-versatile"]
+    },
+    "groq/llama-3.1-8b-instant" => %{
+      provider: :groq,
+      api_model: "llama-3.1-8b-instant",
+      capabilities: [:chat, :tools],
+      context_window: 128_000,
+      max_tokens: 8_192,
+      aliases: ["groq-8b", "groq-instant"]
+    },
+    "groq/mixtral-8x7b-32768" => %{
+      provider: :groq,
+      api_model: "mixtral-8x7b-32768",
+      capabilities: [:chat, :tools],
+      context_window: 32_768,
+      max_tokens: 32_768,
+      aliases: ["groq-mixtral"]
+    },
+
+    # Ollama (local models - no fixed model list, these are common ones)
+    "ollama/llama3" => %{
+      provider: :ollama,
+      api_model: "llama3",
+      capabilities: [:chat, :tools],
+      context_window: 128_000,
+      max_tokens: 4_096,
+      aliases: ["llama3", "ollama-llama3"]
+    },
+    "ollama/llama3:70b" => %{
+      provider: :ollama,
+      api_model: "llama3:70b",
+      capabilities: [:chat, :tools],
+      context_window: 128_000,
+      max_tokens: 4_096,
+      aliases: ["llama3-70b"]
+    },
+    "ollama/mistral" => %{
+      provider: :ollama,
+      api_model: "mistral",
+      capabilities: [:chat],
+      context_window: 32_000,
+      max_tokens: 4_096,
+      aliases: ["ollama-mistral"]
+    },
+    "ollama/codellama" => %{
+      provider: :ollama,
+      api_model: "codellama",
+      capabilities: [:chat],
+      context_window: 16_000,
+      max_tokens: 4_096,
+      aliases: ["ollama-codellama"]
     }
   }
 
@@ -256,6 +316,8 @@ defmodule ClawdEx.AI.Models do
       ["openai", name] -> {:openai, api_model_for(full_model, name)}
       ["google", name] -> {:google, api_model_for(full_model, name)}
       ["openrouter", name] -> {:openrouter, "openrouter/" <> name}
+      ["ollama", name] -> {:ollama, api_model_for(full_model, name)}
+      ["groq", name] -> {:groq, api_model_for(full_model, name)}
       [name] -> {:anthropic, name}
       _ -> {:unknown, full_model}
     end

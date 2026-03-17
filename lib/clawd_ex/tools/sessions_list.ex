@@ -49,6 +49,10 @@ defmodule ClawdEx.Tools.SessionsList do
         messageLimit: %{
           type: "integer",
           description: "Include last N messages for each session (optional, default: 0)"
+        },
+        label: %{
+          type: "string",
+          description: "Filter sessions by label (stored in session metadata)"
         }
       },
       required: []
@@ -61,6 +65,7 @@ defmodule ClawdEx.Tools.SessionsList do
     limit = get_param(params, :limit, ["limit"]) || @default_limit
     active_minutes = get_param(params, :activeMinutes, ["activeMinutes", "active_minutes"])
     message_limit = get_param(params, :messageLimit, ["messageLimit", "message_limit"]) || 0
+    label = get_param(params, :label, ["label"])
 
     # 获取活跃会话进程的 session_keys
     active_keys = SessionManager.list_sessions()
@@ -71,6 +76,7 @@ defmodule ClawdEx.Tools.SessionsList do
       |> where([s], s.session_key in ^active_keys)
       |> maybe_filter_by_kinds(kinds)
       |> maybe_filter_by_activity(active_minutes)
+      |> maybe_filter_by_label(label)
       |> order_by([s], desc: s.last_activity_at)
       |> limit(^limit)
 
@@ -102,6 +108,13 @@ defmodule ClawdEx.Tools.SessionsList do
     where(query, [s], s.channel in ^kinds)
   end
 
+  defp maybe_filter_by_label(query, nil), do: query
+  defp maybe_filter_by_label(query, ""), do: query
+
+  defp maybe_filter_by_label(query, label) when is_binary(label) do
+    where(query, [s], fragment("?->>'label' = ?", s.metadata, ^label))
+  end
+
   defp maybe_filter_by_activity(query, nil), do: query
 
   defp maybe_filter_by_activity(query, minutes) when is_integer(minutes) and minutes > 0 do
@@ -120,6 +133,13 @@ defmodule ClawdEx.Tools.SessionsList do
       messageCount: session.message_count,
       tokenCount: session.token_count
     }
+
+    # 如果 metadata 中有 label，包含在输出中
+    base =
+      case get_in(session.metadata || %{}, ["label"]) do
+        nil -> base
+        label -> Map.put(base, :label, label)
+      end
 
     if message_limit > 0 do
       messages = load_recent_messages(session.id, message_limit)

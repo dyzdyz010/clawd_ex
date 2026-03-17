@@ -38,6 +38,10 @@ defmodule ClawdEx.Tools.SessionsSend do
           type: "string",
           description: "The session key of the target session to send the message to"
         },
+        label: %{
+          type: "string",
+          description: "Find target session by label (alternative to sessionKey)"
+        },
         message: %{
           type: "string",
           description: "The message content to send to the target session"
@@ -48,30 +52,68 @@ defmodule ClawdEx.Tools.SessionsSend do
             "How long to wait for a response (default: #{@default_timeout_seconds}, max: #{@max_timeout_seconds})"
         }
       },
-      required: ["sessionKey", "message"]
+      required: ["message"]
     }
   end
 
   @impl true
   def execute(params, context) do
     session_key = get_param(params, :sessionKey)
+    label = get_param(params, :label)
     message = get_param(params, :message)
     timeout_seconds = get_timeout(params)
 
     sender_session_key = context[:session_key] || "unknown"
 
+    # 解析目标 session_key: 优先使用 sessionKey，其次通过 label 查找
+    resolved_key = resolve_target_session(session_key, label)
+
     cond do
-      is_nil(session_key) or session_key == "" ->
-        {:error, "sessionKey is required"}
+      is_nil(resolved_key) or resolved_key == "" ->
+        {:error, "sessionKey or label is required to identify the target session"}
 
       is_nil(message) or message == "" ->
         {:error, "message is required"}
 
-      session_key == sender_session_key ->
+      resolved_key == sender_session_key ->
         {:error, "Cannot send message to self"}
 
       true ->
-        send_to_session(session_key, message, sender_session_key, timeout_seconds)
+        send_to_session(resolved_key, message, sender_session_key, timeout_seconds)
+    end
+  end
+
+  # 通过 sessionKey 或 label 解析目标会话
+  defp resolve_target_session(session_key, _label) when is_binary(session_key) and session_key != "" do
+    session_key
+  end
+
+  defp resolve_target_session(_session_key, label) when is_binary(label) and label != "" do
+    find_session_by_label(label)
+  end
+
+  defp resolve_target_session(_, _), do: nil
+
+  defp find_session_by_label(label) do
+    import Ecto.Query
+
+    # 查找活跃进程的 session keys
+    active_keys = SessionManager.list_sessions()
+
+    case ClawdEx.Repo.one(
+           from(s in ClawdEx.Sessions.Session,
+             where: s.session_key in ^active_keys,
+             where: fragment("?->>'label' = ?", s.metadata, ^label),
+             select: s.session_key,
+             limit: 1
+           )
+         ) do
+      nil ->
+        Logger.warning("No active session found with label: #{label}")
+        nil
+
+      key ->
+        key
     end
   end
 

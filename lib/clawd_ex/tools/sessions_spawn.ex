@@ -131,6 +131,13 @@ defmodule ClawdEx.Tools.SessionsSpawn do
     # 启动子会话
     case start_child_session(child_session_key, agent_id, child_config) do
       {:ok, _pid} ->
+        # 将 label 和 cleanup 存入 session metadata
+        store_session_metadata(child_session_key, %{
+          label: label,
+          cleanup: to_string(cleanup),
+          parent_session_key: parent_session_key
+        })
+
         # 异步执行任务
         spawn_task_runner(%{
           child_session_key: child_session_key,
@@ -231,6 +238,33 @@ defmodule ClawdEx.Tools.SessionsSpawn do
         delete_session_from_db(child_session_key)
       end
     end)
+  end
+
+  # 将 label/cleanup 等元信息存入 session 的 metadata 字段
+  defp store_session_metadata(session_key, meta) do
+    import Ecto.Query
+
+    # 过滤掉 nil 值
+    meta = meta |> Enum.reject(fn {_k, v} -> is_nil(v) end) |> Map.new()
+
+    case ClawdEx.Repo.get_by(ClawdEx.Sessions.Session, session_key: session_key) do
+      nil ->
+        Logger.debug("Session #{session_key} not found for metadata update")
+        :ok
+
+      session ->
+        merged = Map.merge(session.metadata || %{}, meta)
+
+        session
+        |> ClawdEx.Sessions.Session.changeset(%{metadata: merged})
+        |> ClawdEx.Repo.update()
+        |> case do
+          {:ok, _} -> :ok
+          {:error, reason} ->
+            Logger.warning("Failed to store metadata for #{session_key}: #{inspect(reason)}")
+            :ok
+        end
+    end
   end
 
   # 从数据库中删除会话记录

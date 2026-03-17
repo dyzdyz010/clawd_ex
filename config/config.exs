@@ -67,6 +67,14 @@ config :tesla,
   adapter: {Tesla.Adapter.Hackney, [recv_timeout: 40_000]},
   disable_deprecated_builder_warning: true
 
+# Ollama (local LLM inference)
+config :clawd_ex, :ollama,
+  host: "http://localhost:11434"
+
+# Groq (fast inference)
+config :clawd_ex, :groq,
+  api_key: System.get_env("GROQ_API_KEY")
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

@@ -19,21 +19,21 @@ defmodule ClawdEx.Tools.SessionsSendTest do
       params = SessionsSend.parameters()
 
       assert params[:type] == "object"
-      assert "sessionKey" in params[:required]
       assert "message" in params[:required]
 
       properties = params[:properties]
       assert Map.has_key?(properties, :sessionKey)
+      assert Map.has_key?(properties, :label)
       assert Map.has_key?(properties, :message)
       assert Map.has_key?(properties, :timeoutSeconds)
     end
   end
 
   describe "sessions_send validation" do
-    test "returns error when sessionKey is missing" do
+    test "returns error when neither sessionKey nor label is provided" do
       result = SessionsSend.execute(%{"message" => "hello"}, %{})
       assert {:error, message} = result
-      assert message =~ "sessionKey"
+      assert message =~ "sessionKey or label"
     end
 
     test "returns error when message is missing" do
@@ -42,10 +42,10 @@ defmodule ClawdEx.Tools.SessionsSendTest do
       assert message =~ "message"
     end
 
-    test "returns error when sessionKey is empty" do
+    test "returns error when sessionKey is empty and no label" do
       result = SessionsSend.execute(%{"sessionKey" => "", "message" => "hello"}, %{})
       assert {:error, message} = result
-      assert message =~ "sessionKey"
+      assert message =~ "sessionKey or label"
     end
 
     test "returns error when message is empty" do
@@ -72,7 +72,7 @@ defmodule ClawdEx.Tools.SessionsSendTest do
     test "accepts atom keys for parameters" do
       result = SessionsSend.execute(%{message: "hello"}, %{})
       assert {:error, message} = result
-      assert message =~ "sessionKey"
+      assert message =~ "sessionKey or label"
     end
   end
 
