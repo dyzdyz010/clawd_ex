@@ -20,5 +20,10 @@ config :clawd_ex, ClawdExWeb.Endpoint,
 # Do not print debug messages in production
 config :logger, level: :info
 
+# API authentication - enabled in production
+config :clawd_ex, :auth,
+  tokens: [System.get_env("CLAWD_AUTH_TOKEN")],
+  enabled: true
+
 # Runtime production configuration, including reading
 # of environment variables, is done on config/runtime.exs.

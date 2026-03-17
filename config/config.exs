@@ -75,6 +75,11 @@ config :clawd_ex, :ollama,
 config :clawd_ex, :groq,
   api_key: System.get_env("GROQ_API_KEY")
 
+# Authentication for API routes
+config :clawd_ex, :auth,
+  tokens: [],
+  enabled: false
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

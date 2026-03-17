@@ -22,9 +22,9 @@
 | `openclaw gateway start/stop/restart` | ✅ | ⬜ | Gateway 管理 |
 | `openclaw gateway status` | ✅ | ⬜ | Gateway 状态 |
 | `openclaw channels status/add/remove` | ✅ | ⬜ | 渠道管理 |
-| `openclaw cron list/add/remove/run` | ✅ | ⬜ | 定时任务 CLI |
-| `openclaw sessions list/history` | ✅ | ⬜ | 会话 CLI |
-| `openclaw agents list/add/delete` | ✅ | ⬜ | Agent CLI |
+| `openclaw cron list/add/remove/run` | ✅ | ✅ | 定时任务 CLI |
+| `openclaw sessions list/history` | ✅ | ✅ | 会话 CLI |
+| `openclaw agents list/add/delete` | ✅ | ✅ | Agent CLI |
 | `openclaw models list/set` | ✅ | ⬜ | 模型管理 |
 | `openclaw memory search` | ✅ | ⬜ | 记忆搜索 CLI |
 | `openclaw browser` | ✅ | ⬜ | 浏览器 CLI |
@@ -118,8 +118,8 @@
 | **GitHub Copilot** | ✅ | ⬜ | |
 | **Qwen** | ✅ | ⬜ | |
 | **MiniMax** | ✅ | ⬜ | |
-| **Ollama** | ✅ | ⬜ | 本地模型 |
-| **Groq** | ✅ | ⬜ | |
+| **Ollama** | ✅ | ✅ | 本地模型 |
+| **Groq** | ✅ | ✅ | |
 | 模型别名 | ✅ | ✅ | |
 | 流式响应 | ✅ | ✅ | |
 | 重试机制 | ✅ | ✅ | |
@@ -168,8 +168,8 @@
 | 跨会话消息 | ✅ | ✅ | sessions_send |
 | **子代理结果回调** | ✅ | 🚧 | announce/deliver |
 | **子代理超时处理** | ✅ | 🚧 | |
-| **子代理 cleanup** | ✅ | ⬜ | delete/keep |
-| **会话标签** | ✅ | ⬜ | label |
+| **子代理 cleanup** | ✅ | ✅ | delete/keep |
+| **会话标签** | ✅ | ✅ | label |
 | **会话模型覆盖** | ✅ | 🚧 | |
 
 ## 9. Cron 定时任务
@@ -338,14 +338,14 @@
 
 | 类别 | 完成 | 部分 | 未开始 | 总计 |
 |------|------|------|--------|------|
-| CLI 命令行 | 3 | 0 | 21 | 24 |
+| CLI 命令行 | 6 | 0 | 18 | 24 |
 | TUI 终端界面 | 0 | 0 | 7 | 7 |
 | Web 管理界面 | 9 | 0 | 8 | 17 |
 | Gateway 服务 | 1 | 2 | 8 | 11 |
 | 消息渠道 | 3 | 0 | 8 | 11 |
-| AI 提供商 | 5 | 0 | 5 | 10 |
+| AI 提供商 | 7 | 0 | 3 | 10 |
 | 工具系统 | 24 | 1 | 1 | 26 |
-| Sessions/Subagent | 6 | 2 | 2 | 10 |
+| Sessions/Subagent | 8 | 2 | 0 | 10 |
 | Cron 定时任务 | 7 | 0 | 1 | 8 |
 | 记忆系统 | 5 | 0 | 2 | 7 |
 | 浏览器自动化 | 6 | 0 | 3 | 9 |
@@ -359,9 +359,9 @@
 | Progressive Output | 6 | 0 | 0 | 6 |
 | Task Manager | 10 | 0 | 0 | 10 |
 | A2A 通信 | 10 | 0 | 0 | 10 |
-| **总计** | **108** | **6** | **95** | **209** |
+| **总计** | **115** | **6** | **88** | **209** |
 
-**当前完成度: 约 52% (核心工具+输出+任务+A2A+Web管理界面 已完成，周边功能部分缺失)**
+**当前完成度: 约 55% (核心工具+输出+任务+A2A+Web管理界面 已完成，CLI工具补强，周边功能部分缺失)**
 
 ---
 

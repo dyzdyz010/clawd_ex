@@ -195,6 +195,25 @@
 
 ## 更新日志
 
+### 2026-03-17 (v0.4.0) - 技术文档完善
+- 📚 **技术文档**
+  - 新增 `docs/API.md` - 完整 API 文档 (WebSocket/LiveView/CLI/AI Providers)
+  - 新增 `docs/DEPLOYMENT.md` - 部署指南 (系统要求/快速开始/生产部署/Docker)
+  - 涵盖所有 50+ 内置工具的使用说明
+  - 详细的环境变量配置指南
+- 🔧 **架构文档化**
+  - Phoenix LiveView 页面路由完整说明 (`/`, `/chat`, `/sessions`, `/agents` 等)
+  - WebSocket 实时通信协议规范
+  - CLI 命令行接口完整参考
+  - AI 提供商配置文档 (OpenRouter/Ollama/Groq)
+- 🚀 **部署优化**
+  - 系统要求明确化 (Elixir 1.19+, PostgreSQL 14+, pgvector)
+  - Systemd 服务配置示例
+  - Nginx 反向代理配置
+  - Docker 容器化部署方案
+  - 故障排查和维护指南
+- ✅ **文档工程**: API 文档、部署指南、运维手册
+
 ### 2026-02-09 (v0.3.3) - Prompt System & Memory Refactor
 - 🔧 **Prompt 系统重构**
   - 移植 OpenClaw 风格的 prompt 系统

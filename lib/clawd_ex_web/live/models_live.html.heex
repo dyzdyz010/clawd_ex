@@ -1,0 +1,111 @@
+<div class="max-w-7xl mx-auto px-4 py-8">
+  <h1 class="text-3xl font-bold mb-2">Models</h1>
+  <p class="text-gray-400 mb-8">AI provider configuration and available models</p>
+
+  <%!-- Default Models --%>
+  <div class="bg-gray-800 rounded-lg p-6 mb-8">
+    <h2 class="text-xl font-semibold mb-4">Default Models</h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="bg-gray-700 rounded-lg p-4">
+        <div class="text-sm text-gray-400 mb-1">Default Model</div>
+        <div class="text-sm font-mono text-blue-400">{@default_model}</div>
+      </div>
+      <div class="bg-gray-700 rounded-lg p-4">
+        <div class="text-sm text-gray-400 mb-1">Vision Model</div>
+        <div class="text-sm font-mono text-purple-400">{@default_vision}</div>
+      </div>
+      <div class="bg-gray-700 rounded-lg p-4">
+        <div class="text-sm text-gray-400 mb-1">Fast Model</div>
+        <div class="text-sm font-mono text-green-400">{@default_fast}</div>
+      </div>
+    </div>
+  </div>
+
+  <%!-- Providers --%>
+  <div class="space-y-4">
+    <%= for provider <- @providers do %>
+      <div class="bg-gray-800 rounded-lg overflow-hidden">
+        <%!-- Provider Header --%>
+        <button
+          phx-click="toggle_provider"
+          phx-value-provider={provider.id}
+          class="w-full flex items-center justify-between p-6 hover:bg-gray-750 transition-colors text-left"
+        >
+          <div class="flex items-center gap-4">
+            <span class="text-3xl">{provider.icon}</span>
+            <div>
+              <h3 class="text-xl font-semibold text-white">{provider.name}</h3>
+              <div class="text-sm text-gray-400">
+                {provider.model_count} model{if provider.model_count != 1, do: "s"}
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-4">
+            <span class={"px-3 py-1 rounded-full text-xs font-medium border #{status_badge_class(provider.configured)}"}>
+              {status_text(provider.configured)}
+            </span>
+            <span class={"text-gray-400 transition-transform #{if @expanded_provider == provider.id, do: "rotate-180"}"}>
+              ▼
+            </span>
+          </div>
+        </button>
+
+        <%!-- Provider Models (expandable) --%>
+        <%= if @expanded_provider == provider.id do %>
+          <div class="border-t border-gray-700 p-6">
+            <%= if provider.env_key do %>
+              <div class="mb-4 text-sm text-gray-400">
+                API Key: <code class="text-gray-300 bg-gray-700 px-2 py-0.5 rounded">{provider.env_key}</code>
+                <%= if provider.configured do %>
+                  <span class="text-green-400 ml-2">✓ Set</span>
+                <% else %>
+                  <span class="text-red-400 ml-2">✗ Not set</span>
+                <% end %>
+              </div>
+            <% end %>
+
+            <%= if Enum.empty?(provider.models) do %>
+              <div class="text-gray-500 text-center py-4">
+                No models registered for this provider
+              </div>
+            <% else %>
+              <div class="space-y-3">
+                <%= for model <- provider.models do %>
+                  <div class="bg-gray-700 rounded-lg p-4 hover:bg-gray-600/50 transition-colors">
+                    <div class="flex items-start justify-between mb-2">
+                      <div class="flex items-center gap-2">
+                        <span class="font-mono text-sm text-white">{model.id}</span>
+                        <%= if is_default?(model.id, assigns) do %>
+                          <span class="px-2 py-0.5 bg-blue-500/20 text-blue-300 text-xs rounded-full">
+                            {default_label(model.id, assigns)}
+                          </span>
+                        <% end %>
+                      </div>
+                      <div class="text-xs text-gray-400">
+                        ctx: {format_number(model.context_window)} · max: {format_number(model.max_tokens)}
+                      </div>
+                    </div>
+
+                    <div class="flex items-center gap-2 mb-2">
+                      <%= for cap <- model.capabilities do %>
+                        <span class={"px-2 py-0.5 rounded text-xs #{capability_color(cap)}"}>
+                          {cap}
+                        </span>
+                      <% end %>
+                    </div>
+
+                    <%= if model[:aliases] && model.aliases != [] do %>
+                      <div class="text-xs text-gray-500">
+                        Aliases: {Enum.join(model.aliases, ", ")}
+                      </div>
+                    <% end %>
+                  </div>
+                <% end %>
+              </div>
+            <% end %>
+          </div>
+        <% end %>
+      </div>
+    <% end %>
+  </div>
+</div>

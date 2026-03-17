@@ -14,6 +14,11 @@ defmodule ClawdExWeb.Router do
     plug :accepts, ["json"]
   end
 
+  pipeline :api_auth do
+    plug :accepts, ["json"]
+    plug ClawdExWeb.Plugs.Auth
+  end
+
   scope "/", ClawdExWeb do
     pipe_through :browser
 
@@ -53,6 +58,12 @@ defmodule ClawdExWeb.Router do
 
     # Logs
     live "/logs", LogsLive, :index
+
+    # Gateway
+    live "/gateway", GatewayLive, :index
+
+    # Models
+    live "/models", ModelsLive, :index
 
     # Settings
     live "/settings", SettingsLive, :index

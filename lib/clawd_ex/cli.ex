@@ -16,7 +16,7 @@ defmodule ClawdEx.CLI do
     clawd_ex stop               - Stop the application
   """
 
-  alias ClawdEx.CLI.{Status, Health, Configure, Sessions, Agents, Cron}
+  alias ClawdEx.CLI.{Status, Health, Configure, Sessions, Agents, Cron, Models, Logs, Gateway}
 
   def main(args \\ []) do
     {opts, args, _} =
@@ -50,6 +50,9 @@ defmodule ClawdEx.CLI do
   defp run_command(["sessions" | rest], opts), do: Sessions.run(rest, opts)
   defp run_command(["agents" | rest], opts), do: Agents.run(rest, opts)
   defp run_command(["cron" | rest], opts), do: Cron.run(rest, opts)
+  defp run_command(["models" | rest], opts), do: Models.run(rest, opts)
+  defp run_command(["logs" | rest], opts), do: Logs.run(rest, opts)
+  defp run_command(["gateway" | rest], opts), do: Gateway.run(rest, opts)
   defp run_command(["start" | _rest], _opts), do: start_app()
   defp run_command(["stop" | _rest], _opts), do: stop_app()
   defp run_command(["version" | _rest], _opts), do: print_version()
@@ -72,6 +75,9 @@ defmodule ClawdEx.CLI do
       sessions   Manage sessions (list, history)
       agents     Manage agents (list, add)
       cron       Manage cron jobs (list, run)
+      models     Manage AI models (list)
+      logs       View application logs
+      gateway    Manage gateway (status, restart)
       start      Start the application (server mode)
       stop       Stop a running application
       version    Show version information

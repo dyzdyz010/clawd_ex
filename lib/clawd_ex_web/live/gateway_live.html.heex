@@ -1,0 +1,126 @@
+<div class="max-w-7xl mx-auto px-4 py-8">
+  <div class="flex justify-between items-center mb-8">
+    <h1 class="text-3xl font-bold">Gateway</h1>
+    <div class="flex items-center gap-4">
+      <span class="text-sm text-gray-400">Auto-refresh: 5s</span>
+      <button
+        phx-click="restart"
+        class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors flex items-center gap-2"
+        {if @restarting, do: [disabled: true], else: []}
+      >
+        <%= if @restarting do %>
+          <span class="animate-spin">⟳</span>
+          <span>Restarting...</span>
+        <% else %>
+          <span>🔄</span>
+          <span>Restart</span>
+        <% end %>
+      </button>
+    </div>
+  </div>
+
+  <%!-- Status Overview --%>
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+    <%!-- Endpoint Status --%>
+    <div class={"bg-gray-800 rounded-lg p-6 border #{status_bg(@endpoint_status)}"}>
+      <div class="flex items-center gap-3 mb-2">
+        <div class={"w-3 h-3 rounded-full #{status_dot(@endpoint_status)} animate-pulse"}></div>
+        <h3 class="text-sm font-medium text-gray-400 uppercase tracking-wide">Status</h3>
+      </div>
+      <div class={"text-2xl font-bold #{status_color(@endpoint_status)}"}>
+        {to_string(@endpoint_status) |> String.capitalize()}
+      </div>
+      <div class="text-sm text-gray-500 mt-1">
+        Phoenix Endpoint
+      </div>
+    </div>
+
+    <%!-- Listen Address --%>
+    <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+      <div class="flex items-center gap-3 mb-2">
+        <span class="text-xl">🌐</span>
+        <h3 class="text-sm font-medium text-gray-400 uppercase tracking-wide">Listen</h3>
+      </div>
+      <div class="text-2xl font-bold text-white">
+        :{@config.port}
+      </div>
+      <div class="text-sm text-gray-500 mt-1">
+        {@config.host}
+      </div>
+    </div>
+
+    <%!-- Connections --%>
+    <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+      <div class="flex items-center gap-3 mb-2">
+        <span class="text-xl">🔌</span>
+        <h3 class="text-sm font-medium text-gray-400 uppercase tracking-wide">Connections</h3>
+      </div>
+      <div class="text-2xl font-bold text-white">
+        {@connections.websocket + @connections.http}
+      </div>
+      <div class="text-sm text-gray-500 mt-1">
+        WS: {@connections.websocket} · HTTP: {@connections.http}
+      </div>
+    </div>
+
+    <%!-- Uptime --%>
+    <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+      <div class="flex items-center gap-3 mb-2">
+        <span class="text-xl">⏱️</span>
+        <h3 class="text-sm font-medium text-gray-400 uppercase tracking-wide">Uptime</h3>
+      </div>
+      <div class="text-2xl font-bold text-white">
+        {@uptime}
+      </div>
+      <div class="text-sm text-gray-500 mt-1">
+        BEAM VM
+      </div>
+    </div>
+  </div>
+
+  <%!-- Memory Usage --%>
+  <div class="bg-gray-800 rounded-lg p-6 mb-8">
+    <h2 class="text-xl font-semibold mb-4">Memory Usage</h2>
+    <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+      <div class="bg-gray-700 rounded-lg p-4">
+        <div class="text-sm text-gray-400 mb-1">Total</div>
+        <div class="text-lg font-bold text-blue-400">{@memory.total}</div>
+      </div>
+      <div class="bg-gray-700 rounded-lg p-4">
+        <div class="text-sm text-gray-400 mb-1">Processes</div>
+        <div class="text-lg font-bold text-green-400">{@memory.processes}</div>
+      </div>
+      <div class="bg-gray-700 rounded-lg p-4">
+        <div class="text-sm text-gray-400 mb-1">ETS</div>
+        <div class="text-lg font-bold text-yellow-400">{@memory.ets}</div>
+      </div>
+      <div class="bg-gray-700 rounded-lg p-4">
+        <div class="text-sm text-gray-400 mb-1">Atoms</div>
+        <div class="text-lg font-bold text-purple-400">{@memory.atom}</div>
+      </div>
+      <div class="bg-gray-700 rounded-lg p-4">
+        <div class="text-sm text-gray-400 mb-1">Binary</div>
+        <div class="text-lg font-bold text-pink-400">{@memory.binary}</div>
+      </div>
+    </div>
+  </div>
+
+  <%!-- BEAM VM Info --%>
+  <div class="bg-gray-800 rounded-lg p-6">
+    <h2 class="text-xl font-semibold mb-4">BEAM VM Info</h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="bg-gray-700 rounded-lg p-4">
+        <div class="text-sm text-gray-400 mb-1">Schedulers</div>
+        <div class="text-lg font-bold text-white">{:erlang.system_info(:schedulers_online)}</div>
+      </div>
+      <div class="bg-gray-700 rounded-lg p-4">
+        <div class="text-sm text-gray-400 mb-1">Process Count</div>
+        <div class="text-lg font-bold text-white">{:erlang.system_info(:process_count)}</div>
+      </div>
+      <div class="bg-gray-700 rounded-lg p-4">
+        <div class="text-sm text-gray-400 mb-1">OTP Release</div>
+        <div class="text-lg font-bold text-white">{:erlang.system_info(:otp_release) |> List.to_string()}</div>
+      </div>
+    </div>
+  </div>
+</div>
