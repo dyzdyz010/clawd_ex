@@ -74,5 +74,6 @@ defmodule ClawdExWeb.Router do
     pipe_through :api
 
     post "/webhooks/inbound", WebhookController, :inbound
+    get "/health", HealthController, :index
   end
 end

@@ -197,7 +197,7 @@ defmodule ClawdEx.Tools.SessionsSpawn do
       channel_to: channel_to
     } = opts
 
-    spawn(fn ->
+    Task.Supervisor.start_child(ClawdEx.AgentTaskSupervisor, fn ->
       started_at = DateTime.utc_now()
 
       result =
@@ -206,7 +206,7 @@ defmodule ClawdEx.Tools.SessionsSpawn do
           SessionWorker.send_message(child_session_key, task, run_opts)
         rescue
           e ->
-            Logger.error("Subagent execution error: #{Exception.message(e)}")
+            Logger.error("Subagent task failed: #{inspect(e)}")
             {:error, {:exception, Exception.message(e)}}
         catch
           :exit, reason ->

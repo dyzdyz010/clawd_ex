@@ -12,15 +12,24 @@ defmodule ClawdExWeb.SessionDetailLive do
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
-    session = Repo.get!(Session, id) |> Repo.preload(:agent)
+    case Repo.get(Session, id) do
+      nil ->
+        {:ok,
+         socket
+         |> put_flash(:error, "Session not found")
+         |> push_navigate(to: ~p"/sessions")}
 
-    socket =
-      socket
-      |> assign(:page_title, "Session: #{truncate(session.session_key, 20)}")
-      |> assign(:session, session)
-      |> load_messages()
+      session ->
+        session = Repo.preload(session, :agent)
 
-    {:ok, socket}
+        socket =
+          socket
+          |> assign(:page_title, "Session: #{truncate(session.session_key, 20)}")
+          |> assign(:session, session)
+          |> load_messages()
+
+        {:ok, socket}
+    end
   end
 
   @impl true
@@ -30,15 +39,20 @@ defmodule ClawdExWeb.SessionDetailLive do
 
   @impl true
   def handle_event("delete_message", %{"id" => id}, socket) do
-    message = Repo.get!(Message, id)
-    {:ok, _} = Repo.delete(message)
+    case Repo.get(Message, id) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Message not found")}
 
-    socket =
-      socket
-      |> put_flash(:info, "Message deleted")
-      |> load_messages()
+      message ->
+        {:ok, _} = Repo.delete(message)
 
-    {:noreply, socket}
+        socket =
+          socket
+          |> put_flash(:info, "Message deleted")
+          |> load_messages()
+
+        {:noreply, socket}
+    end
   end
 
   defp load_messages(socket, offset \\ 0) do

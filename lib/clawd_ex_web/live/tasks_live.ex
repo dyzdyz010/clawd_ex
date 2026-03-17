@@ -134,14 +134,18 @@ defmodule ClawdExWeb.TasksLive do
 
   @impl true
   def handle_event("delete_task", %{"id" => id}, socket) do
-    task = Repo.get!(Task, id)
+    case Repo.get(Task, id) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Task not found")}
 
-    case Repo.delete(task) do
-      {:ok, _} ->
-        {:noreply, socket |> put_flash(:info, "Task deleted") |> load_tasks() |> load_stats()}
+      task ->
+        case Repo.delete(task) do
+          {:ok, _} ->
+            {:noreply, socket |> put_flash(:info, "Task deleted") |> load_tasks() |> load_stats()}
 
-      {:error, _} ->
-        {:noreply, put_flash(socket, :error, "Failed to delete task")}
+          {:error, _} ->
+            {:noreply, put_flash(socket, :error, "Failed to delete task")}
+        end
     end
   end
 
@@ -214,10 +218,6 @@ defmodule ClawdExWeb.TasksLive do
   # ============================================================================
   # Helpers
   # ============================================================================
-
-  defp priority_color(priority) when priority <= 3, do: "text-red-400"
-  defp priority_color(priority) when priority <= 6, do: "text-yellow-400"
-  defp priority_color(_priority), do: "text-green-400"
 
   defp priority_bg(priority) when priority <= 3, do: "bg-red-500/20 text-red-400"
   defp priority_bg(priority) when priority <= 6, do: "bg-yellow-500/20 text-yellow-400"

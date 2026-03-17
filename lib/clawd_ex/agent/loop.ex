@@ -24,11 +24,10 @@ defmodule ClawdEx.Agent.Loop do
   alias ClawdEx.Sessions.Message
   alias ClawdEx.Repo
 
-  # Maximum tool iterations before forcing completion (prevent infinite loops)
-  @max_tool_iterations 50
-
-  @doc "Get the maximum tool iterations limit"
-  def max_tool_iterations, do: @max_tool_iterations
+  @doc "Get the maximum tool iterations limit (configurable via :clawd_ex, :max_tool_iterations)"
+  def max_tool_iterations do
+    Application.get_env(:clawd_ex, :max_tool_iterations, 50)
+  end
 
   # State data structure
   defstruct [
@@ -523,9 +522,11 @@ defmodule ClawdEx.Agent.Loop do
     }
 
     # Check max iterations to prevent infinite loops
-    if new_iterations >= @max_tool_iterations do
+    max_iters = max_tool_iterations()
+
+    if new_iterations >= max_iters do
       Logger.warning(
-        "Run #{data.run_id} hit max tool iterations (#{@max_tool_iterations}), forcing completion"
+        "Run #{data.run_id} hit max tool iterations (#{max_iters}), forcing completion"
       )
 
       finish_run(new_data, "[Stopped: too many tool calls]", %{})
@@ -826,7 +827,7 @@ defmodule ClawdEx.Agent.Loop do
 
   # 广播消息段 - 当 AI 输出完整文本段落时（工具调用前）
   # 这样渠道可以立即发送，而不是等待整个运行完成
-  defp broadcast_segment(data, content, opts \\ []) do
+  defp broadcast_segment(data, content, opts) do
     Phoenix.PubSub.broadcast(
       ClawdEx.PubSub,
       "agent:#{data.session_id}",

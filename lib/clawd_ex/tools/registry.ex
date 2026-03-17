@@ -51,7 +51,9 @@ defmodule ClawdEx.Tools.Registry do
     # 任务管理
     "task" => ClawdEx.Tools.TaskTool,
     # Agent-to-Agent 通信
-    "a2a" => ClawdEx.Tools.A2A
+    "a2a" => ClawdEx.Tools.A2A,
+    # Patch
+    "apply_patch" => ClawdEx.Tools.ApplyPatch
   }
 
   @doc """
@@ -97,7 +99,8 @@ defmodule ClawdEx.Tools.Registry do
     "Tts" => "tts",
     "Compact" => "compact",
     "Task" => "task",
-    "A2A" => "a2a"
+    "A2A" => "a2a",
+    "ApplyPatch" => "apply_patch"
   }
 
   @doc """

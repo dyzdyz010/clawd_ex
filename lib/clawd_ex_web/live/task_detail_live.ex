@@ -2,31 +2,35 @@ defmodule ClawdExWeb.TaskDetailLive do
   @moduledoc "Task detail page with subtasks, timeline, and heartbeat status"
   use ClawdExWeb, :live_view
 
-  import Ecto.Query
-
   alias ClawdEx.Repo
   alias ClawdEx.Tasks.Task
   alias ClawdEx.Tasks.Manager, as: TaskManager
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
-    task =
-      Task
-      |> Repo.get!(id)
-      |> Repo.preload([:agent, :parent_task, subtasks: :agent])
+    case Task |> Repo.get(id) do
+      nil ->
+        {:ok,
+         socket
+         |> put_flash(:error, "Task not found")
+         |> push_navigate(to: ~p"/tasks")}
 
-    if connected?(socket) do
-      Phoenix.PubSub.subscribe(ClawdEx.PubSub, "tasks:updates")
-      # Poll heartbeat status every 10s
-      :timer.send_interval(10_000, self(), :refresh)
+      task ->
+        task = Repo.preload(task, [:agent, :parent_task, subtasks: :agent])
+
+        if connected?(socket) do
+          Phoenix.PubSub.subscribe(ClawdEx.PubSub, "tasks:updates")
+          # Poll heartbeat status every 10s
+          :timer.send_interval(10_000, self(), :refresh)
+        end
+
+        socket =
+          socket
+          |> assign(:page_title, task.title)
+          |> assign(:task, task)
+
+        {:ok, socket}
     end
-
-    socket =
-      socket
-      |> assign(:page_title, task.title)
-      |> assign(:task, task)
-
-    {:ok, socket}
   end
 
   @impl true
@@ -72,12 +76,16 @@ defmodule ClawdExWeb.TaskDetailLive do
   end
 
   defp reload_task(socket) do
-    task =
-      Task
-      |> Repo.get!(socket.assigns.task.id)
-      |> Repo.preload([:agent, :parent_task, subtasks: :agent])
+    case Task |> Repo.get(socket.assigns.task.id) do
+      nil ->
+        socket
+        |> put_flash(:error, "Task no longer exists")
+        |> push_navigate(to: ~p"/tasks")
 
-    assign(socket, :task, task)
+      task ->
+        task = Repo.preload(task, [:agent, :parent_task, subtasks: :agent])
+        assign(socket, :task, task)
+    end
   end
 
   # ============================================================================

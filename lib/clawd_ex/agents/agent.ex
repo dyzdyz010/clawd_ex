@@ -16,6 +16,8 @@ defmodule ClawdEx.Agents.Agent do
     field :system_prompt, :string
     field :config, :map, default: %{}
     field :active, :boolean, default: true
+    field :allowed_tools, {:array, :string}, default: []
+    field :denied_tools, {:array, :string}, default: []
 
     has_many :sessions, ClawdEx.Sessions.Session
     has_many :memory_chunks, ClawdEx.Memory.Chunk
@@ -24,7 +26,7 @@ defmodule ClawdEx.Agents.Agent do
   end
 
   @required_fields ~w(name)a
-  @optional_fields ~w(workspace_path default_model system_prompt config active)a
+  @optional_fields ~w(workspace_path default_model system_prompt config active allowed_tools denied_tools)a
 
   def changeset(agent, attrs) do
     agent

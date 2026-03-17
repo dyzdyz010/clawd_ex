@@ -45,28 +45,38 @@ defmodule ClawdExWeb.SessionsLive do
 
   @impl true
   def handle_event("delete", %{"id" => id}, socket) do
-    session = Repo.get!(Session, id)
-    {:ok, _} = Repo.delete(session)
+    case Repo.get(Session, id) do
+      nil ->
+        {:noreply, socket |> put_flash(:error, "Session not found") |> load_sessions()}
 
-    socket =
-      socket
-      |> put_flash(:info, "Session deleted")
-      |> load_sessions()
+      session ->
+        {:ok, _} = Repo.delete(session)
 
-    {:noreply, socket}
+        socket =
+          socket
+          |> put_flash(:info, "Session deleted")
+          |> load_sessions()
+
+        {:noreply, socket}
+    end
   end
 
   @impl true
   def handle_event("archive", %{"id" => id}, socket) do
-    session = Repo.get!(Session, id)
-    {:ok, _} = session |> Session.changeset(%{state: :archived}) |> Repo.update()
+    case Repo.get(Session, id) do
+      nil ->
+        {:noreply, socket |> put_flash(:error, "Session not found") |> load_sessions()}
 
-    socket =
-      socket
-      |> put_flash(:info, "Session archived")
-      |> load_sessions()
+      session ->
+        {:ok, _} = session |> Session.changeset(%{state: :archived}) |> Repo.update()
 
-    {:noreply, socket}
+        socket =
+          socket
+          |> put_flash(:info, "Session archived")
+          |> load_sessions()
+
+        {:noreply, socket}
+    end
   end
 
   defp load_sessions(socket) do

@@ -15,29 +15,47 @@ defmodule ClawdExWeb.AgentFormLive do
 
   @impl true
   def mount(params, _session, socket) do
-    {agent, title, is_new} =
-      case params do
-        %{"id" => id} ->
-          agent = Repo.get!(Agent, id)
-          {agent, "Edit Agent: #{agent.name}", false}
+    case params do
+      %{"id" => id} ->
+        case Repo.get(Agent, id) do
+          nil ->
+            {:ok,
+             socket
+             |> put_flash(:error, "Agent not found")
+             |> push_navigate(to: ~p"/agents")}
 
-        _ ->
-          {%Agent{}, "New Agent", true}
-      end
+          agent ->
+            changeset = Agent.changeset(agent, %{})
 
-    changeset = Agent.changeset(agent, %{})
+            socket =
+              socket
+              |> assign(:page_title, "Edit Agent: #{agent.name}")
+              |> assign(:agent, agent)
+              |> assign(:is_new, false)
+              |> assign(:form, to_form(changeset))
+              |> assign(:available_models, Models.all() |> Map.keys() |> Enum.sort())
+              |> assign(:workspace_auto_generated, false)
+              |> assign(:suggested_workspace, nil)
 
-    socket =
-      socket
-      |> assign(:page_title, title)
-      |> assign(:agent, agent)
-      |> assign(:is_new, is_new)
-      |> assign(:form, to_form(changeset))
-      |> assign(:available_models, Models.all() |> Map.keys() |> Enum.sort())
-      |> assign(:workspace_auto_generated, is_new)
-      |> assign(:suggested_workspace, nil)
+            {:ok, socket}
+        end
 
-    {:ok, socket}
+      _ ->
+        agent = %Agent{}
+        changeset = Agent.changeset(agent, %{})
+
+        socket =
+          socket
+          |> assign(:page_title, "New Agent")
+          |> assign(:agent, agent)
+          |> assign(:is_new, true)
+          |> assign(:form, to_form(changeset))
+          |> assign(:available_models, Models.all() |> Map.keys() |> Enum.sort())
+          |> assign(:workspace_auto_generated, true)
+          |> assign(:suggested_workspace, nil)
+
+        {:ok, socket}
+    end
   end
 
   @impl true

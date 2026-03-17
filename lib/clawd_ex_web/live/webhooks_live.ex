@@ -37,9 +37,14 @@ defmodule ClawdExWeb.WebhooksLive do
 
   @impl true
   def handle_event("toggle", %{"id" => id}, socket) do
-    webhook = Repo.get!(Webhook, id)
-    {:ok, _} = Manager.update_webhook(webhook.id, %{enabled: !webhook.enabled})
-    {:noreply, assign(socket, webhooks: Manager.list_webhooks())}
+    case Repo.get(Webhook, id) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Webhook not found")}
+
+      webhook ->
+        {:ok, _} = Manager.update_webhook(webhook.id, %{enabled: !webhook.enabled})
+        {:noreply, assign(socket, webhooks: Manager.list_webhooks())}
+    end
   end
 
   @impl true
@@ -65,16 +70,20 @@ defmodule ClawdExWeb.WebhooksLive do
 
   @impl true
   def handle_event("edit", %{"id" => id}, socket) do
-    webhook = Repo.get!(Webhook, String.to_integer(id))
+    case Repo.get(Webhook, String.to_integer(id)) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Webhook not found")}
 
-    form = %{
-      "name" => webhook.name,
-      "url" => webhook.url,
-      "secret" => webhook.secret,
-      "events" => webhook.events
-    }
+      webhook ->
+        form = %{
+          "name" => webhook.name,
+          "url" => webhook.url,
+          "secret" => webhook.secret,
+          "events" => webhook.events
+        }
 
-    {:noreply, assign(socket, show_form: true, editing: webhook.id, form: form, form_errors: %{})}
+        {:noreply, assign(socket, show_form: true, editing: webhook.id, form: form, form_errors: %{})}
+    end
   end
 
   @impl true
@@ -174,34 +183,38 @@ defmodule ClawdExWeb.WebhooksLive do
 
   @impl true
   def handle_event("test_webhook", %{"id" => id}, socket) do
-    webhook = Repo.get!(Webhook, String.to_integer(id))
+    case Repo.get(Webhook, String.to_integer(id)) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Webhook not found")}
 
-    test_payload = %{
-      "event" => "webhook.test",
-      "timestamp" => DateTime.utc_now() |> DateTime.to_iso8601(),
-      "data" => %{"message" => "Test delivery from ClawdEx"}
-    }
+      webhook ->
+        test_payload = %{
+          "event" => "webhook.test",
+          "timestamp" => DateTime.utc_now() |> DateTime.to_iso8601(),
+          "data" => %{"message" => "Test delivery from ClawdEx"}
+        }
 
-    case Manager.trigger("webhook.test", test_payload) do
-      {:ok, _deliveries} ->
-        socket =
-          socket
-          |> assign(webhooks: Manager.list_webhooks())
-          |> put_flash(:info, "Test webhook sent to #{webhook.name}")
+        case Manager.trigger("webhook.test", test_payload) do
+          {:ok, _deliveries} ->
+            socket =
+              socket
+              |> assign(webhooks: Manager.list_webhooks())
+              |> put_flash(:info, "Test webhook sent to #{webhook.name}")
 
-        socket =
-          if socket.assigns.expanded == webhook.id do
-            assign(socket, deliveries: load_deliveries(webhook.id))
-          else
-            socket
-          end
+            socket =
+              if socket.assigns.expanded == webhook.id do
+                assign(socket, deliveries: load_deliveries(webhook.id))
+              else
+                socket
+              end
 
-        {:noreply, socket}
+            {:noreply, socket}
 
-      _ ->
-        {:noreply,
-         socket
-         |> put_flash(:error, "No matching webhooks for test event. Ensure 'webhook.test' is in the events list.")}
+          _ ->
+            {:noreply,
+             socket
+             |> put_flash(:error, "No matching webhooks for test event. Ensure 'webhook.test' is in the events list.")}
+        end
     end
   end
 

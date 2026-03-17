@@ -68,7 +68,7 @@ defmodule ClawdEx.Channels.ChannelDispatcher do
 
   # 处理消息段 - 当 AI 输出完整文本段落时
   @impl true
-  def handle_info({:agent_segment, run_id, content, opts}, state) do
+  def handle_info({:agent_segment, _run_id, content, opts}, state) do
     session_key = opts[:session_key]
 
     case get_in(state, [:sessions, session_key]) do

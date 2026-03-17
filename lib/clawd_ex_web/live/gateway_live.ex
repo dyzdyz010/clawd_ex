@@ -107,7 +107,7 @@ defmodule ClawdExWeb.GatewayLive do
   defp get_http_connections do
     # Try to get active connections from ranch listeners
     try do
-      :ranch.info()
+      apply(:ranch, :info, [])
       |> Enum.reduce(0, fn {_ref, info}, acc ->
         acc + Keyword.get(info, :active_connections, 0)
       end)

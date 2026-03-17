@@ -20,32 +20,41 @@ defmodule ClawdExWeb.AgentsLive do
 
   @impl true
   def handle_event("toggle_active", %{"id" => id}, socket) do
-    agent = Repo.get!(Agent, id)
-    {:ok, _} = agent |> Agent.changeset(%{active: !agent.active}) |> Repo.update()
+    case Repo.get(Agent, id) do
+      nil ->
+        {:noreply, socket |> put_flash(:error, "Agent not found") |> load_agents()}
 
-    socket =
-      socket
-      |> put_flash(:info, "Agent #{if agent.active, do: "deactivated", else: "activated"}")
-      |> load_agents()
+      agent ->
+        {:ok, _} = agent |> Agent.changeset(%{active: !agent.active}) |> Repo.update()
 
-    {:noreply, socket}
+        socket =
+          socket
+          |> put_flash(:info, "Agent #{if agent.active, do: "deactivated", else: "activated"}")
+          |> load_agents()
+
+        {:noreply, socket}
+    end
   end
 
   @impl true
   def handle_event("delete", %{"id" => id}, socket) do
-    agent = Repo.get!(Agent, id)
+    case Repo.get(Agent, id) do
+      nil ->
+        {:noreply, socket |> put_flash(:error, "Agent not found") |> load_agents()}
 
-    case Repo.delete(agent) do
-      {:ok, _} ->
-        socket =
-          socket
-          |> put_flash(:info, "Agent deleted")
-          |> load_agents()
+      agent ->
+        case Repo.delete(agent) do
+          {:ok, _} ->
+            socket =
+              socket
+              |> put_flash(:info, "Agent deleted")
+              |> load_agents()
 
-        {:noreply, socket}
+            {:noreply, socket}
 
-      {:error, _changeset} ->
-        {:noreply, put_flash(socket, :error, "Cannot delete agent with active sessions")}
+          {:error, _changeset} ->
+            {:noreply, put_flash(socket, :error, "Cannot delete agent with active sessions")}
+        end
     end
   end
 

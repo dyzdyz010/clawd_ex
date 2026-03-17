@@ -184,12 +184,12 @@
 
 ### 📊 统计
 - **整体完成度**: ~50% (89/181 功能)
-- **工具数量**: 22/24 个
-- **测试用例**: 556 个
+- **工具数量**: 29 个
+- **测试用例**: 903 个
 - **渠道数量**: 3/11 个
-- **AI 提供商**: 5/10 个
-- **LiveView 页面**: 11/17 个 (Dashboard/Chat/Sessions/Agents/Cron/Logs/Settings/Tasks/A2A/Skills/Webhooks)
-- **CLI 命令**: 3/24 个 (status/health/configure)
+- **AI 提供商**: 6 个 (Anthropic/OpenAI/Google/Groq/Ollama/OpenRouter)
+- **LiveView 页面**: 11 个 (Dashboard/Chat/Sessions/Agents/Cron/Logs/Settings 等)
+- **CLI 命令**: 12 个 (status/health/configure/sessions/agents/cron/models/logs/gateway/start/stop/version)
 
 ---
 

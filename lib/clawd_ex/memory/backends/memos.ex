@@ -239,17 +239,6 @@ defmodule ClawdEx.Memory.Backends.MemOS do
   defp parse_memory_type("WorkingMemory"), do: :episodic
   defp parse_memory_type(_), do: :episodic
 
-  defp parse_datetime(nil), do: DateTime.utc_now()
-
-  defp parse_datetime(str) when is_binary(str) do
-    case DateTime.from_iso8601(str) do
-      {:ok, dt, _} -> dt
-      _ -> DateTime.utc_now()
-    end
-  end
-
-  defp parse_datetime(_), do: DateTime.utc_now()
-
   # 解析毫秒时间戳
   defp parse_timestamp(nil), do: DateTime.utc_now()
 
