@@ -10,7 +10,7 @@ defmodule ClawdExWeb.HealthControllerTest do
 
       body = json_response(conn, status_code)
       assert %{"status" => status, "checks" => checks} = body
-      assert status in ["healthy", "unhealthy"]
+      assert status in ["ok", "degraded", "error"]
       assert is_map(checks)
     end
 

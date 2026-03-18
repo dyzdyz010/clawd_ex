@@ -1,13 +1,15 @@
 defmodule ClawdEx.CLI.Logs do
   @moduledoc """
-  CLI logs command - view application logs.
+  CLI logs command - view application logs and control log level.
 
   Usage:
     clawd_ex logs [options]
 
   Options:
-    --level LEVEL    Filter by log level (error, warn, info, debug)
-    --tail N         Show last N lines (default: 50)
+    --level LEVEL       Filter displayed logs by level (error, warn, info, debug)
+    --tail N            Show last N lines (default: 50)
+    --set-level LEVEL   Set the runtime log level (debug, info, warning, error)
+    --get-level         Show the current runtime log level
   """
 
   @default_tail 50
@@ -22,14 +24,64 @@ defmodule ClawdEx.CLI.Logs do
     else
       {parsed, _rest, _} =
         OptionParser.parse(args,
-          switches: [level: :string, tail: :integer],
+          switches: [
+            level: :string,
+            tail: :integer,
+            set_level: :string,
+            get_level: :boolean
+          ],
           aliases: [l: :level, n: :tail]
         )
 
-      level = parsed[:level] || opts[:level]
-      tail = parsed[:tail] || opts[:tail] || @default_tail
+      cond do
+        parsed[:set_level] ->
+          set_level(parsed[:set_level])
 
-      show_logs(level, tail)
+        parsed[:get_level] ->
+          show_level()
+
+        true ->
+          level = parsed[:level] || opts[:level]
+          tail = parsed[:tail] || opts[:tail] || @default_tail
+          show_logs(level, tail)
+      end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Level control
+  # ---------------------------------------------------------------------------
+
+  defp set_level(level_str) do
+    level = parse_level(level_str)
+
+    if level do
+      case ClawdEx.Logging.set_level(level) do
+        :ok ->
+          IO.puts("Log level set to: #{level}")
+
+        {:error, :invalid_level} ->
+          IO.puts("Error: invalid log level '#{level_str}'")
+          IO.puts("Valid levels: #{Enum.join(ClawdEx.Logging.valid_levels(), ", ")}")
+      end
+    else
+      IO.puts("Error: unknown log level '#{level_str}'")
+      IO.puts("Valid levels: #{Enum.join(ClawdEx.Logging.valid_levels(), ", ")}")
+    end
+  end
+
+  defp show_level do
+    IO.puts("Current log level: #{ClawdEx.Logging.get_level()}")
+  end
+
+  defp parse_level(str) do
+    case String.downcase(str) do
+      "debug" -> :debug
+      "info" -> :info
+      "warn" -> :warning
+      "warning" -> :warning
+      "error" -> :error
+      _ -> nil
     end
   end
 
@@ -97,12 +149,8 @@ defmodule ClawdEx.CLI.Logs do
 
   @doc false
   def get_log_path do
-    Application.get_env(:clawd_ex, :log_path) || default_log_path()
-  end
-
-  defp default_log_path do
-    env = Mix.env()
-    "log/#{env}.log"
+    # Prefer the file handler path, fall back to config or default
+    ClawdEx.Logging.log_file()
   end
 
   # ---------------------------------------------------------------------------
@@ -113,18 +161,22 @@ defmodule ClawdEx.CLI.Logs do
     IO.puts("""
     Usage: clawd_ex logs [options]
 
-    View application logs.
+    View application logs and control log level.
 
     Options:
-      --level LEVEL    Filter by log level (error, warn, info, debug)
-      --tail N         Show last N lines (default: 50)
-      --help           Show this help message
+      --level LEVEL       Filter displayed logs by level (error, warn, info, debug)
+      --tail N            Show last N lines (default: 50)
+      --set-level LEVEL   Set the runtime log level (debug, info, warning, error)
+      --get-level         Show the current runtime log level
+      --help              Show this help message
 
     Examples:
       clawd_ex logs
       clawd_ex logs --level error
       clawd_ex logs --tail 100
       clawd_ex logs --level warn --tail 20
+      clawd_ex logs --set-level debug
+      clawd_ex logs --get-level
     """)
   end
 end

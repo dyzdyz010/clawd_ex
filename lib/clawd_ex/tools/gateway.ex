@@ -89,8 +89,21 @@ defmodule ClawdEx.Tools.Gateway do
       properties: %{
         action: %{
           type: "string",
-          enum: ["restart", "config.get", "config.schema", "config.apply", "config.patch"],
+          enum: [
+            "restart",
+            "config.get",
+            "config.schema",
+            "config.apply",
+            "config.patch",
+            "config_reload",
+            "config_set",
+            "config_list"
+          ],
           description: "Action to perform"
+        },
+        value: %{
+          type: "string",
+          description: "Value for config_set action"
         },
         config: %{
           type: "object",
@@ -115,6 +128,9 @@ defmodule ClawdEx.Tools.Gateway do
       "config.schema" -> do_config_schema()
       "config.apply" -> do_config_apply(params)
       "config.patch" -> do_config_patch(params)
+      "config_reload" -> do_config_reload()
+      "config_set" -> do_config_set(params)
+      "config_list" -> do_config_list()
       _ -> {:error, "Unknown action: #{action}"}
     end
   end
@@ -216,6 +232,45 @@ defmodule ClawdEx.Tools.Gateway do
           {:error, "Invalid configuration: #{reason}"}
       end
     end
+  end
+
+  # ============================================================================
+  # Hot Reload Actions
+  # ============================================================================
+
+  defp do_config_reload do
+    {:ok, results} = ClawdEx.Config.HotReload.reload()
+    {:ok, %{status: "reloaded", changes: format_hot_reload_changes(results)}}
+  end
+
+  defp do_config_set(params) do
+    key_str = params["key"] || params[:key]
+
+    if is_nil(key_str) do
+      {:error, "key parameter is required for config_set"}
+    else
+      try do
+        key = String.to_existing_atom(key_str)
+        value = params["value"] || params[:value]
+
+        case ClawdEx.Config.HotReload.put(key, value) do
+          :ok -> {:ok, %{status: "updated", key: key_str, value: value}}
+          {:error, reason} -> {:error, reason}
+        end
+      rescue
+        ArgumentError -> {:error, "Unknown config key: #{key_str}"}
+      end
+    end
+  end
+
+  defp do_config_list do
+    {:ok, %{config: ClawdEx.Config.HotReload.list()}}
+  end
+
+  defp format_hot_reload_changes(results) do
+    Enum.map(results, fn {key, status} ->
+      %{key: key, status: status}
+    end)
   end
 
   # ============================================================================

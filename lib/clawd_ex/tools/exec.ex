@@ -58,6 +58,29 @@ defmodule ClawdEx.Tools.Exec do
   @impl true
   def execute(params, context) do
     command = params["command"] || params[:command]
+
+    # Exec Guard: check for dangerous commands before executing
+    case ClawdEx.Security.ExecGuard.check(command) do
+      :ok ->
+        do_execute(params, context)
+
+      {:needs_approval, reason} ->
+        if Map.get(context, :exec_approved, false) do
+          do_execute(params, context)
+        else
+          {:ok,
+           %{
+             status: "approval_required",
+             command: command,
+             reason: reason,
+             message: "⚠️ This command requires approval. Reply with /approve to execute."
+           }}
+        end
+    end
+  end
+
+  defp do_execute(params, context) do
+    command = params["command"] || params[:command]
     workdir = params["workdir"] || params[:workdir] || context[:workspace] || "."
     timeout = min((params["timeout"] || params[:timeout] || 30) * 1000, 1_800_000)
     yield_ms = params["yieldMs"] || params[:yieldMs] || 10_000

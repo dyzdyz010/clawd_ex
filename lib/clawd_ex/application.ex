@@ -7,6 +7,9 @@ defmodule ClawdEx.Application do
 
   @impl true
   def start(_type, _args) do
+    # 初始化文件日志
+    ClawdEx.Logging.setup_file_handler()
+
     # 初始化工作区
     init_workspace()
 
