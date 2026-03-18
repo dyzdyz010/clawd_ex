@@ -86,5 +86,7 @@ defmodule ClawdExWeb.Router do
     pipe_through [:api, :gateway_auth]
 
     post "/webhooks/inbound", WebhookController, :inbound
+    post "/webhooks/inbound/generic", WebhookController, :inbound_generic
+    post "/webhooks/:webhook_id/trigger", WebhookController, :trigger
   end
 end

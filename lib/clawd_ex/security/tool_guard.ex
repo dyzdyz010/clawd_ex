@@ -13,12 +13,69 @@ defmodule ClawdEx.Security.ToolGuard do
   """
   @spec check_permission(String.t(), map(), map()) :: :ok | {:error, term()}
   def check_permission(tool_name, params, context) do
-    with :ok <- check_session_restrictions(tool_name, context),
+    with :ok <- check_agent_permissions(tool_name, context),
+         :ok <- check_session_restrictions(tool_name, context),
          :ok <- check_tool_lists(tool_name, context),
          :ok <- check_command_blocklist(tool_name, params) do
       check_elevated_commands(tool_name, params, context)
     end
   end
+
+  @doc """
+  Check whether a tool is allowed for a given agent based on its
+  `allowed_tools` and `denied_tools` lists.
+
+  Rules:
+  - If agent has no permission config (both lists empty), all tools allowed
+  - `denied_tools` takes priority over `allowed_tools`
+  - `["*"]` in `allowed_tools` means allow everything (except denied)
+  - `["*"]` in `denied_tools` means deny everything
+  """
+  @spec tool_allowed_for_agent?(String.t(), map() | struct()) :: boolean()
+  def tool_allowed_for_agent?(tool_name, agent) do
+    allowed = get_agent_allowed(agent)
+    denied = get_agent_denied(agent)
+
+    # No config at all → allow everything
+    if allowed == [] and denied == [] do
+      true
+    else
+      not tool_in_list?(tool_name, denied) and tool_in_list?(tool_name, allowed)
+    end
+  end
+
+  # ============================================================================
+  # Agent-level tool permissions
+  # ============================================================================
+
+  defp check_agent_permissions(tool_name, context) do
+    case Map.get(context, :agent) do
+      nil ->
+        :ok
+
+      agent ->
+        if tool_allowed_for_agent?(tool_name, agent) do
+          :ok
+        else
+          {:error, {:tool_denied, "Tool '#{tool_name}' is not permitted for agent '#{agent_name(agent)}'"}}
+        end
+    end
+  end
+
+  defp get_agent_allowed(%{allowed_tools: allowed}) when is_list(allowed), do: allowed
+  defp get_agent_allowed(%{"allowed_tools" => allowed}) when is_list(allowed), do: allowed
+  defp get_agent_allowed(_), do: []
+
+  defp get_agent_denied(%{denied_tools: denied}) when is_list(denied), do: denied
+  defp get_agent_denied(%{"denied_tools" => denied}) when is_list(denied), do: denied
+  defp get_agent_denied(_), do: []
+
+  defp agent_name(%{name: name}), do: name
+  defp agent_name(%{"name" => name}), do: name
+  defp agent_name(_), do: "unknown"
+
+  defp tool_in_list?(_tool_name, []), do: false
+  defp tool_in_list?(tool_name, list), do: "*" in list or tool_name in list
 
   # ============================================================================
   # Session-level tool restrictions

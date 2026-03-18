@@ -30,6 +30,7 @@ defmodule ClawdEx.AI.Chat do
       :openrouter -> complete_openrouter(model_name, messages, opts)
       :ollama -> complete_ollama(model_name, messages, opts)
       :groq -> complete_groq(model_name, messages, opts)
+      :qwen -> complete_qwen(model_name, messages, opts)
       _ -> {:error, :unsupported_provider}
     end
   end
@@ -47,6 +48,7 @@ defmodule ClawdEx.AI.Chat do
       :openrouter -> stream_openrouter(model_name, messages, opts)
       :ollama -> stream_ollama(model_name, messages, opts)
       :groq -> stream_groq(model_name, messages, opts)
+      :qwen -> stream_qwen(model_name, messages, opts)
       _ -> {:error, :unsupported_provider}
     end
   end
@@ -185,6 +187,11 @@ defmodule ClawdEx.AI.Chat do
     ClawdEx.AI.Providers.Groq.chat(model, messages, opts)
   end
 
+  # Qwen API (via dedicated provider module)
+  defp complete_qwen(model, messages, opts) do
+    ClawdEx.AI.Providers.Qwen.chat(model, messages, opts)
+  end
+
   # Streaming implementations (placeholder)
   defp stream_anthropic(_model, _messages, _opts), do: Stream.cycle([:not_implemented])
   defp stream_openai(_model, _messages, _opts), do: Stream.cycle([:not_implemented])
@@ -201,6 +208,10 @@ defmodule ClawdEx.AI.Chat do
     ClawdEx.AI.Providers.Groq.stream(model, messages, opts)
   end
 
+  defp stream_qwen(model, messages, opts) do
+    ClawdEx.AI.Providers.Qwen.stream(model, messages, opts)
+  end
+
   # Helper functions
   defp parse_model(model) do
     case String.split(model, "/", parts: 2) do
@@ -210,6 +221,7 @@ defmodule ClawdEx.AI.Chat do
       ["openrouter", name] -> {:openrouter, "openrouter/" <> name}
       ["ollama", name] -> {:ollama, name}
       ["groq", name] -> {:groq, name}
+      ["qwen", name] -> {:qwen, name}
       # 默认 Anthropic
       [name] -> {:anthropic, name}
       _ -> {:unknown, model}

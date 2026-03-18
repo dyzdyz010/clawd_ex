@@ -1,12 +1,61 @@
 defmodule ClawdExWeb.WebhookController do
   @moduledoc """
-  Inbound webhook endpoint — 接收外部 webhook，验证签名，路由到处理器。
+  Webhook endpoints — 接收外部 webhook 触发 agent 执行，验证签名，路由到处理器。
   """
   use ClawdExWeb, :controller
 
   require Logger
 
   alias ClawdEx.Webhooks.Manager
+
+  # ============================================================================
+  # POST /api/webhooks/:webhook_id/trigger
+  # ============================================================================
+
+  @doc """
+  Trigger a webhook by ID — 外部 HTTP 触发 agent 执行。
+
+  Accepts an optional `session_key` in the payload to target a specific session.
+  """
+  def trigger(conn, %{"webhook_id" => webhook_id} = params) do
+    case Manager.trigger_webhook(webhook_id, params) do
+      {:ok, result} ->
+        json(conn, %{status: "triggered", result: result})
+
+      {:error, :not_found} ->
+        conn |> put_status(404) |> json(%{error: "Webhook not found"})
+
+      {:error, reason} ->
+        conn |> put_status(422) |> json(%{error: inspect(reason)})
+    end
+  end
+
+  # ============================================================================
+  # POST /api/webhooks/inbound/generic
+  # ============================================================================
+
+  @doc """
+  Generic inbound webhook — routes based on headers (GitHub, GitLab, etc.).
+  No signature verification required.
+  """
+  def inbound_generic(conn, params) do
+    source = detect_source(conn, params)
+
+    {:ok, result} = Manager.handle_inbound(source, params)
+    json(conn, %{status: "received", source: source, result: result})
+  end
+
+  defp detect_source(conn, _params) do
+    cond do
+      get_req_header(conn, "x-github-event") != [] -> "github"
+      get_req_header(conn, "x-gitlab-event") != [] -> "gitlab"
+      true -> "generic"
+    end
+  end
+
+  # ============================================================================
+  # POST /api/webhooks/inbound (signature-verified)
+  # ============================================================================
 
   @doc """
   POST /api/webhooks/inbound

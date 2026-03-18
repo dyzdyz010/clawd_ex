@@ -86,6 +86,39 @@ defmodule ClawdEx.Tools.Registry do
     builtin ++ plugin_tools
   end
 
+  @doc """
+  列出 agent 可用的工具（根据 agent 的 allowed_tools / denied_tools 过滤）
+  """
+  @spec list_tools_for_agent(map() | struct()) :: [tool_spec()]
+  def list_tools_for_agent(agent) do
+    allowed = agent_field(agent, :allowed_tools, [])
+    denied = agent_field(agent, :denied_tools, [])
+
+    # If no permissions configured, return all tools
+    if allowed == [] and denied == [] do
+      list_tools()
+    else
+      list_tools(allow: normalize_allow(allowed), deny: denied)
+    end
+  end
+
+  defp agent_field(agent, field, default) when is_atom(field) do
+    cond do
+      is_map(agent) and Map.has_key?(agent, field) ->
+        Map.get(agent, field, default)
+
+      is_map(agent) and Map.has_key?(agent, Atom.to_string(field)) ->
+        Map.get(agent, Atom.to_string(field), default)
+
+      true ->
+        default
+    end
+  end
+
+  # If allowed is empty list, treat as allow-all
+  defp normalize_allow([]), do: ["*"]
+  defp normalize_allow(allowed), do: allowed
+
   # Claude Code name -> ClawdEx name reverse mapping
   @claude_code_to_clawd %{
     "Bash" => "exec",

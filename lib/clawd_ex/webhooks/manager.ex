@@ -62,6 +62,77 @@ defmodule ClawdEx.Webhooks.Manager do
     Repo.all(query)
   end
 
+  @doc """
+  Trigger a specific webhook by ID — used by the webhook controller to let
+  external HTTP requests trigger agent execution.
+
+  Looks up the webhook, finds the target session (from params or webhook headers),
+  and injects a formatted message into that session.
+  """
+  @spec trigger_webhook(String.t() | integer(), map()) :: {:ok, map()} | {:error, term()}
+  def trigger_webhook(webhook_id, params) do
+    case Repo.get(Webhook, webhook_id) do
+      nil ->
+        {:error, :not_found}
+
+      webhook ->
+        message = format_webhook_message(webhook, params)
+        # Target session can come from the request payload or webhook headers
+        target_session =
+          params["session_key"] || Map.get(webhook.headers, "target_session")
+
+        if target_session do
+          case ClawdEx.Sessions.SessionManager.find_session(target_session) do
+            {:ok, pid} ->
+              GenServer.cast(pid, {:inject_message, message})
+              Logger.info("[Webhook] Triggered webhook #{webhook.name} → session #{target_session}")
+              {:ok, %{webhook_id: webhook.id, session_key: target_session, message: message}}
+
+            :not_found ->
+              Logger.warning("[Webhook] Target session #{target_session} not found")
+              {:error, :session_not_found}
+          end
+        else
+          # No target session — broadcast via PubSub for any listeners
+          Phoenix.PubSub.broadcast(
+            ClawdEx.PubSub,
+            "webhooks:trigger",
+            {:webhook_triggered, webhook, params}
+          )
+
+          Logger.info("[Webhook] Triggered webhook #{webhook.name} (broadcast, no target session)")
+          {:ok, %{webhook_id: webhook.id, broadcast: true}}
+        end
+    end
+  end
+
+  @doc """
+  Handle a generic inbound webhook from an external source (GitHub, GitLab, etc.).
+  Logs the event and broadcasts via PubSub.
+  """
+  @spec handle_inbound(String.t(), map()) :: {:ok, map()}
+  def handle_inbound(source, params) do
+    Logger.info("[Webhook] Inbound from #{source}")
+
+    Phoenix.PubSub.broadcast(
+      ClawdEx.PubSub,
+      "webhooks:inbound",
+      {:webhook_inbound, source, params}
+    )
+
+    {:ok, %{source: source, received: true}}
+  end
+
+  defp format_webhook_message(webhook, params) do
+    payload_preview =
+      params
+      |> Map.drop(["webhook_id", "session_key"])
+      |> Jason.encode!()
+      |> String.slice(0, 1000)
+
+    "[Webhook: #{webhook.name}] Triggered with payload: #{payload_preview}"
+  end
+
   @doc "Trigger an event — find matching webhooks, create deliveries, dispatch"
   @spec trigger(String.t(), map()) :: {:ok, [Delivery.t()]}
   def trigger(event_type, payload) do

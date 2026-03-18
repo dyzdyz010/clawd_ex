@@ -173,6 +173,56 @@ defmodule ClawdEx.AI.Models do
       aliases: ["groq-mixtral"]
     },
 
+    # Qwen (阿里通义千问 - DashScope 兼容模式)
+    "qwen/qwen-max" => %{
+      provider: :qwen,
+      api_model: "qwen-max",
+      capabilities: [:chat, :tools],
+      context_window: 32_768,
+      max_tokens: 8_192,
+      aliases: ["qwen-max", "qwen"]
+    },
+    "qwen/qwen-plus" => %{
+      provider: :qwen,
+      api_model: "qwen-plus",
+      capabilities: [:chat, :tools],
+      context_window: 128_000,
+      max_tokens: 8_192,
+      aliases: ["qwen-plus"]
+    },
+    "qwen/qwen-turbo" => %{
+      provider: :qwen,
+      api_model: "qwen-turbo",
+      capabilities: [:chat, :tools],
+      context_window: 128_000,
+      max_tokens: 8_192,
+      aliases: ["qwen-turbo"]
+    },
+    "qwen/qwen-long" => %{
+      provider: :qwen,
+      api_model: "qwen-long",
+      capabilities: [:chat, :tools],
+      context_window: 1_000_000,
+      max_tokens: 8_192,
+      aliases: ["qwen-long"]
+    },
+    "qwen/qwen-vl-max" => %{
+      provider: :qwen,
+      api_model: "qwen-vl-max",
+      capabilities: [:chat, :vision],
+      context_window: 32_768,
+      max_tokens: 2_048,
+      aliases: ["qwen-vl-max", "qwen-vision"]
+    },
+    "qwen/qwen-vl-plus" => %{
+      provider: :qwen,
+      api_model: "qwen-vl-plus",
+      capabilities: [:chat, :vision],
+      context_window: 32_768,
+      max_tokens: 2_048,
+      aliases: ["qwen-vl-plus"]
+    },
+
     # Ollama (local models - no fixed model list, these are common ones)
     "ollama/llama3" => %{
       provider: :ollama,
@@ -318,6 +368,7 @@ defmodule ClawdEx.AI.Models do
       ["openrouter", name] -> {:openrouter, "openrouter/" <> name}
       ["ollama", name] -> {:ollama, api_model_for(full_model, name)}
       ["groq", name] -> {:groq, api_model_for(full_model, name)}
+      ["qwen", name] -> {:qwen, api_model_for(full_model, name)}
       [name] -> {:anthropic, name}
       _ -> {:unknown, full_model}
     end
