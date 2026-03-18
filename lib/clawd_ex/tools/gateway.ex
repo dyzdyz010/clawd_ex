@@ -130,7 +130,7 @@ defmodule ClawdEx.Tools.Gateway do
     unless Application.get_env(:clawd_ex, :env) == :test do
       # 在生产环境中，使用 Application.stop/start 或信号
       # 这里我们调度一个异步重启
-      spawn(fn ->
+      Task.Supervisor.start_child(ClawdEx.AgentTaskSupervisor, fn ->
         :timer.sleep(1000)
         Logger.info("[Gateway] Executing restart...")
 

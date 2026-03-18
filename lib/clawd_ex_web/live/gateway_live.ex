@@ -45,6 +45,7 @@ defmodule ClawdExWeb.GatewayLive do
     connections = get_connection_info()
     config = get_endpoint_config()
     uptime = get_uptime()
+    auth_mode = get_auth_mode()
 
     assign(socket,
       endpoint_status: endpoint_status,
@@ -52,6 +53,7 @@ defmodule ClawdExWeb.GatewayLive do
       connections: connections,
       config: config,
       uptime: uptime,
+      auth_mode: auth_mode,
       restarting: false
     )
   end
@@ -156,4 +158,13 @@ defmodule ClawdExWeb.GatewayLive do
   defp status_dot(:running), do: "bg-green-400"
   defp status_dot(:stopped), do: "bg-red-400"
   defp status_dot(_), do: "bg-gray-400"
+
+  defp get_auth_mode do
+    config = Application.get_env(:clawd_ex, ClawdExWeb.Endpoint, [])
+
+    cond do
+      Keyword.has_key?(config, :secret_key_base) -> "token"
+      true -> "none"
+    end
+  end
 end

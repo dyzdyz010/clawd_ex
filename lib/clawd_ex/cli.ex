@@ -12,11 +12,16 @@ defmodule ClawdEx.CLI do
     clawd_ex agents add <name>  - Create a new agent
     clawd_ex cron list          - List cron jobs
     clawd_ex cron run <id>      - Manually trigger a cron job
+    clawd_ex models list        - List available models
+    clawd_ex models set <model> - Set default model
+    clawd_ex memory search <q>  - Search agent memory
+    clawd_ex skills list        - List loaded skills
+    clawd_ex message send <t> m - Send a message
     clawd_ex start              - Start the application
     clawd_ex stop               - Stop the application
   """
 
-  alias ClawdEx.CLI.{Status, Health, Configure, Sessions, Agents, Cron, Models, Logs, Gateway}
+  alias ClawdEx.CLI.{Status, Health, Configure, Sessions, Agents, Cron, Models, Logs, Gateway, Memory, Skills, Message}
 
   def main(args \\ []) do
     {opts, args, _} =
@@ -27,7 +32,8 @@ defmodule ClawdEx.CLI do
           format: :string,
           limit: :integer,
           model: :string,
-          system_prompt: :string
+          system_prompt: :string,
+          channel: :string
         ],
         aliases: [
           h: :help,
@@ -51,6 +57,9 @@ defmodule ClawdEx.CLI do
   defp run_command(["agents" | rest], opts), do: Agents.run(rest, opts)
   defp run_command(["cron" | rest], opts), do: Cron.run(rest, opts)
   defp run_command(["models" | rest], opts), do: Models.run(rest, opts)
+  defp run_command(["memory" | rest], opts), do: Memory.run(rest, opts)
+  defp run_command(["skills" | rest], opts), do: Skills.run(rest, opts)
+  defp run_command(["message" | rest], opts), do: Message.run(rest, opts)
   defp run_command(["logs" | rest], opts), do: Logs.run(rest, opts)
   defp run_command(["gateway" | rest], opts), do: Gateway.run(rest, opts)
   defp run_command(["start" | _rest], _opts), do: start_app()
@@ -75,7 +84,10 @@ defmodule ClawdEx.CLI do
       sessions   Manage sessions (list, history)
       agents     Manage agents (list, add)
       cron       Manage cron jobs (list, run)
-      models     Manage AI models (list)
+      models     Manage AI models (list, set)
+      memory     Search agent memory
+      skills     Manage skills (list)
+      message    Send messages (send)
       logs       View application logs
       gateway    Manage gateway (status, restart)
       start      Start the application (server mode)

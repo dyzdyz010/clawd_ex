@@ -54,7 +54,8 @@ config :phoenix, :json_library, Jason
 # Discord channel configuration
 # Set discord_enabled to true and configure nostrum token to enable
 config :clawd_ex,
-  discord_enabled: false
+  discord_enabled: false,
+  max_tool_iterations: 200
 
 # Nostrum (Discord) configuration
 # Token should be set via environment variable DISCORD_BOT_TOKEN

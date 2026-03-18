@@ -89,6 +89,32 @@ defmodule ClawdExWeb.ModelsLive do
     {:noreply, assign(socket, :expanded_provider, expanded)}
   end
 
+  @impl true
+  def handle_event("set_default", %{"role" => role, "model" => model_id}, socket) do
+    config_key =
+      case role do
+        "default" -> :default_model
+        "vision" -> :default_vision_model
+        "fast" -> :default_fast_model
+        _ -> nil
+      end
+
+    if config_key do
+      Application.put_env(:clawd_ex, config_key, model_id)
+
+      socket =
+        socket
+        |> assign(:default_model, Models.default())
+        |> assign(:default_vision, Models.default_vision())
+        |> assign(:default_fast, Models.default_fast())
+        |> put_flash(:info, "Set #{role} model to #{model_id}")
+
+      {:noreply, socket}
+    else
+      {:noreply, put_flash(socket, :error, "Unknown role: #{role}")}
+    end
+  end
+
   defp load_providers do
     Enum.map(@providers, fn provider ->
       configured = check_configured(provider)
@@ -155,4 +181,5 @@ defmodule ClawdExWeb.ModelsLive do
       true -> nil
     end
   end
+
 end

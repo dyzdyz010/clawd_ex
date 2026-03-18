@@ -81,24 +81,64 @@
                           </span>
                         <% end %>
                       </div>
-                      <div class="text-xs text-gray-400">
-                        ctx: {format_number(model.context_window)} · max: {format_number(model.max_tokens)}
+                      <div class="flex items-center gap-2">
+                        <div class="text-xs text-gray-400">
+                          ctx: {format_number(model.context_window)} · max: {format_number(model.max_tokens)}
+                        </div>
                       </div>
                     </div>
 
-                    <div class="flex items-center gap-2 mb-2">
-                      <%= for cap <- model.capabilities do %>
-                        <span class={"px-2 py-0.5 rounded text-xs #{capability_color(cap)}"}>
-                          {cap}
-                        </span>
-                      <% end %>
-                    </div>
-
-                    <%= if model[:aliases] && model.aliases != [] do %>
-                      <div class="text-xs text-gray-500">
-                        Aliases: {Enum.join(model.aliases, ", ")}
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-2 flex-wrap">
+                        <%= for cap <- model.capabilities do %>
+                          <span class={"px-2 py-0.5 rounded text-xs #{capability_color(cap)}"}>
+                            {cap}
+                          </span>
+                        <% end %>
+                        <%= if model[:aliases] && model.aliases != [] do %>
+                          <span class="text-xs text-gray-500 ml-1">
+                            ({Enum.join(model.aliases, ", ")})
+                          </span>
+                        <% end %>
                       </div>
-                    <% end %>
+
+                      <%!-- Set Default Buttons --%>
+                      <div class="flex items-center gap-2 flex-shrink-0 ml-4">
+                        <%= unless model.id == @default_model do %>
+                          <button
+                            phx-click="set_default"
+                            phx-value-role="default"
+                            phx-value-model={model.id}
+                            class="text-xs px-2 py-1 rounded bg-gray-600 text-gray-300 hover:bg-blue-600 hover:text-white transition-colors"
+                            title="Set as default chat model"
+                          >
+                            Set Default
+                          </button>
+                        <% end %>
+                        <%= if :vision in model.capabilities && model.id != @default_vision do %>
+                          <button
+                            phx-click="set_default"
+                            phx-value-role="vision"
+                            phx-value-model={model.id}
+                            class="text-xs px-2 py-1 rounded bg-gray-600 text-gray-300 hover:bg-purple-600 hover:text-white transition-colors"
+                            title="Set as default vision model"
+                          >
+                            Set Vision
+                          </button>
+                        <% end %>
+                        <%= unless model.id == @default_fast do %>
+                          <button
+                            phx-click="set_default"
+                            phx-value-role="fast"
+                            phx-value-model={model.id}
+                            class="text-xs px-2 py-1 rounded bg-gray-600 text-gray-300 hover:bg-green-600 hover:text-white transition-colors"
+                            title="Set as default fast model"
+                          >
+                            Set Fast
+                          </button>
+                        <% end %>
+                      </div>
+                    </div>
                   </div>
                 <% end %>
               </div>

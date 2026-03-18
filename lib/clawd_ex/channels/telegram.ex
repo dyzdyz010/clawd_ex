@@ -248,8 +248,8 @@ defmodule ClawdEx.Channels.Telegram do
     parent = self()
     ref = make_ref()
 
-    pid =
-      spawn(fn ->
+    {:ok, pid} =
+      Task.Supervisor.start_child(ClawdEx.AgentTaskSupervisor, fn ->
         typing_loop(chat_id, parent, ref)
       end)
 

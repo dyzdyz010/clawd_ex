@@ -1,9 +1,10 @@
 defmodule ClawdEx.CLI.Models do
   @moduledoc """
-  CLI models command - list available AI models.
+  CLI models command - list and configure AI models.
 
   Usage:
     clawd_ex models list
+    clawd_ex models set <model>
   """
 
   alias ClawdEx.AI.Models
@@ -17,6 +18,19 @@ defmodule ClawdEx.CLI.Models do
     else
       list_models(opts)
     end
+  end
+
+  def run(["set", model | _rest], opts) do
+    if opts[:help] do
+      print_set_help()
+    else
+      set_default_model(model)
+    end
+  end
+
+  def run(["set" | _rest], _opts) do
+    IO.puts("Error: model name is required.\n")
+    print_set_help()
   end
 
   def run(["--help" | _], _opts), do: print_help()
@@ -163,6 +177,45 @@ defmodule ClawdEx.CLI.Models do
   end
 
   # ---------------------------------------------------------------------------
+  # models set
+  # ---------------------------------------------------------------------------
+
+  defp set_default_model(model) do
+    resolved = Models.resolve(model)
+
+    case Models.get(resolved) do
+      nil ->
+        IO.puts("✗ Unknown model: #{model}")
+        IO.puts("")
+        IO.puts("  Could not resolve '#{model}' to a known model.")
+        IO.puts("  Run 'clawd_ex models list' to see available models.")
+
+      meta ->
+        Application.put_env(:clawd_ex, :default_model, resolved)
+
+        IO.puts("""
+        ✓ Default model set to: #{resolved}
+
+          Provider:       #{meta.provider |> to_string() |> String.upcase()}
+          API Model:      #{meta.api_model}
+          Context Window: #{format_number(meta.context_window)} tokens
+          Capabilities:   #{meta.capabilities |> Enum.map(&to_string/1) |> Enum.join(", ")}
+        """)
+    end
+  end
+
+  defp format_number(n) when is_integer(n) do
+    n
+    |> Integer.to_string()
+    |> String.graphemes()
+    |> Enum.reverse()
+    |> Enum.chunk_every(3)
+    |> Enum.map(&Enum.join/1)
+    |> Enum.join(",")
+    |> String.reverse()
+  end
+
+  # ---------------------------------------------------------------------------
   # Help
   # ---------------------------------------------------------------------------
 
@@ -171,7 +224,8 @@ defmodule ClawdEx.CLI.Models do
     Usage: clawd_ex models <subcommand> [options]
 
     Subcommands:
-      list    List all available models
+      list           List all available models
+      set <model>    Set the default model
 
     Options:
       --help  Show this help message
@@ -184,6 +238,22 @@ defmodule ClawdEx.CLI.Models do
 
     List all available AI models grouped by provider.
     Shows which providers are configured (have API keys).
+
+    Options:
+      --help  Show this help message
+    """)
+  end
+
+  defp print_set_help do
+    IO.puts("""
+    Usage: clawd_ex models set <model> [options]
+
+    Set the default AI model. Accepts full model IDs or aliases.
+
+    Examples:
+      clawd_ex models set anthropic/claude-opus-4-5
+      clawd_ex models set sonnet
+      clawd_ex models set gpt-5
 
     Options:
       --help  Show this help message

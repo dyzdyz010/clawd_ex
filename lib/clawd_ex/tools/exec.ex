@@ -119,8 +119,8 @@ defmodule ClawdEx.Tools.Exec do
         if output != "", do: ProcessTool.append_output(agent_id, session_id, output)
 
         # 启动后台监控，并转移 Port 控制权
-        monitor_pid =
-          spawn(fn ->
+        {:ok, monitor_pid} =
+          Task.Supervisor.start_child(ClawdEx.AgentTaskSupervisor, fn ->
             receive do
               :start -> monitor_port_with_timeout(port, agent_id, session_id, remaining_timeout)
             end
@@ -224,8 +224,8 @@ defmodule ClawdEx.Tools.Exec do
     ProcessTool.register_process(agent_id, session_id, port, command)
 
     # 启动监控进程（无限超时），并转移 Port 控制权
-    monitor_pid =
-      spawn(fn ->
+    {:ok, monitor_pid} =
+      Task.Supervisor.start_child(ClawdEx.AgentTaskSupervisor, fn ->
         receive do
           :start -> do_monitor_port(port, agent_id, session_id, :infinity)
         end

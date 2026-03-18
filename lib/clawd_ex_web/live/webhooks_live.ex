@@ -49,7 +49,7 @@ defmodule ClawdExWeb.WebhooksLive do
 
   @impl true
   def handle_event("expand", %{"id" => id}, socket) do
-    id = String.to_integer(id)
+    id = safe_to_integer(id)
     expanded = if socket.assigns.expanded == id, do: nil, else: id
 
     socket =
@@ -70,7 +70,7 @@ defmodule ClawdExWeb.WebhooksLive do
 
   @impl true
   def handle_event("edit", %{"id" => id}, socket) do
-    case Repo.get(Webhook, String.to_integer(id)) do
+    case Repo.get(Webhook, safe_to_integer(id)) do
       nil ->
         {:noreply, put_flash(socket, :error, "Webhook not found")}
 
@@ -169,7 +169,7 @@ defmodule ClawdExWeb.WebhooksLive do
 
   @impl true
   def handle_event("delete", %{"id" => id}, socket) do
-    case Manager.delete_webhook(String.to_integer(id)) do
+    case Manager.delete_webhook(safe_to_integer(id)) do
       {:ok, _} ->
         {:noreply,
          socket
@@ -183,7 +183,7 @@ defmodule ClawdExWeb.WebhooksLive do
 
   @impl true
   def handle_event("test_webhook", %{"id" => id}, socket) do
-    case Repo.get(Webhook, String.to_integer(id)) do
+    case Repo.get(Webhook, safe_to_integer(id)) do
       nil ->
         {:noreply, put_flash(socket, :error, "Webhook not found")}
 
@@ -242,6 +242,17 @@ defmodule ClawdExWeb.WebhooksLive do
       "events" => []
     }
   end
+
+  defp safe_to_integer(id) when is_integer(id), do: id
+
+  defp safe_to_integer(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {int, ""} -> int
+      _ -> nil
+    end
+  end
+
+  defp safe_to_integer(_), do: nil
 
   defp status_color(true), do: "bg-green-500"
   defp status_color(false), do: "bg-gray-500"

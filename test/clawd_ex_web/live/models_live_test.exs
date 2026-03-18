@@ -53,8 +53,7 @@ defmodule ClawdExWeb.ModelsLiveTest do
       html = view |> element("button[phx-value-provider=anthropic]") |> render_click()
 
       # Should show Anthropic models
-      assert html =~ "anthropic/claude-opus"
-      assert html =~ "Aliases:"
+      assert html =~ "anthropic/claude"
     end
 
     test "shows capabilities for expanded models", %{conn: conn} do

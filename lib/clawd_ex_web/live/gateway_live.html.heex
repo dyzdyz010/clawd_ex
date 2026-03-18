@@ -20,7 +20,7 @@
   </div>
 
   <%!-- Status Overview --%>
-  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
     <%!-- Endpoint Status --%>
     <div class={"bg-gray-800 rounded-lg p-6 border #{status_bg(@endpoint_status)}"}>
       <div class="flex items-center gap-3 mb-2">
@@ -46,6 +46,20 @@
       </div>
       <div class="text-sm text-gray-500 mt-1">
         {@config.host}
+      </div>
+    </div>
+
+    <%!-- Auth Mode --%>
+    <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+      <div class="flex items-center gap-3 mb-2">
+        <span class="text-xl">🔒</span>
+        <h3 class="text-sm font-medium text-gray-400 uppercase tracking-wide">Auth</h3>
+      </div>
+      <div class={"text-2xl font-bold #{if @auth_mode == "token", do: "text-green-400", else: "text-yellow-400"}"}>
+        <%= if @auth_mode == "token", do: "Token", else: "None" %>
+      </div>
+      <div class="text-sm text-gray-500 mt-1">
+        <%= if @auth_mode == "token", do: "Secret key configured", else: "No authentication" %>
       </div>
     </div>
 
