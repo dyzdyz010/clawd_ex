@@ -19,6 +19,11 @@ defmodule ClawdExWeb.Router do
     plug ClawdExWeb.Plugs.Auth
   end
 
+  pipeline :gateway_auth do
+    plug :accepts, ["json"]
+    plug ClawdExWeb.Plugs.BearerAuth
+  end
+
   scope "/", ClawdExWeb do
     pipe_through :browser
 
@@ -69,11 +74,17 @@ defmodule ClawdExWeb.Router do
     live "/settings", SettingsLive, :index
   end
 
-  # API endpoints
+  # Public API endpoints (no auth required)
   scope "/api", ClawdExWeb do
     pipe_through :api
 
-    post "/webhooks/inbound", WebhookController, :inbound
     get "/health", HealthController, :index
+  end
+
+  # Authenticated API endpoints
+  scope "/api", ClawdExWeb do
+    pipe_through [:api, :gateway_auth]
+
+    post "/webhooks/inbound", WebhookController, :inbound
   end
 end

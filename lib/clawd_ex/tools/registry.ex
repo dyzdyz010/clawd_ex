@@ -64,11 +64,26 @@ defmodule ClawdEx.Tools.Registry do
     allowed = Keyword.get(opts, :allow, ["*"])
     denied = Keyword.get(opts, :deny, [])
 
-    @tools
-    |> Map.keys()
-    |> Enum.filter(&tool_allowed?(&1, allowed, denied))
-    |> Enum.map(&get_tool_spec/1)
-    |> Enum.reject(&is_nil/1)
+    builtin =
+      @tools
+      |> Map.keys()
+      |> Enum.filter(&tool_allowed?(&1, allowed, denied))
+      |> Enum.map(&get_tool_spec/1)
+      |> Enum.reject(&is_nil/1)
+
+    # Merge plugin-provided tools
+    plugin_tools =
+      try do
+        ClawdEx.Plugins.Manager.get_tools()
+        |> Enum.map(fn mod ->
+          %{name: mod.name(), description: mod.description(), parameters: mod.parameters()}
+        end)
+        |> Enum.filter(&tool_allowed?(&1.name, allowed, denied))
+      rescue
+        _ -> []
+      end
+
+    builtin ++ plugin_tools
   end
 
   # Claude Code name -> ClawdEx name reverse mapping
@@ -111,7 +126,9 @@ defmodule ClawdEx.Tools.Registry do
     # Resolve canonical tool name
     canonical = resolve_tool_name(tool_name)
 
-    case Map.get(@tools, canonical) do
+    module = Map.get(@tools, canonical) || find_plugin_tool(canonical)
+
+    case module do
       nil ->
         Logger.warning("Tool not found: #{tool_name}")
         {:error, :tool_not_found}
@@ -173,6 +190,15 @@ defmodule ClawdEx.Tools.Registry do
   # ============================================================================
   # Private
   # ============================================================================
+
+  defp find_plugin_tool(name) do
+    try do
+      ClawdEx.Plugins.Manager.get_tools()
+      |> Enum.find(fn mod -> mod.name() == name end)
+    rescue
+      _ -> nil
+    end
+  end
 
   defp tool_allowed?(name, allowed, denied) do
     # Deny 优先

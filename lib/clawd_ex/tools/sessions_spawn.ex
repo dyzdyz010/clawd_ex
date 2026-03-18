@@ -202,8 +202,23 @@ defmodule ClawdEx.Tools.SessionsSpawn do
 
       result =
         try do
-          run_opts = build_run_opts(model, thinking, timeout_seconds)
-          SessionWorker.send_message(child_session_key, task, run_opts)
+          # Use Task.async + Task.yield to enforce timeout even if
+          # SessionWorker.send_message itself hangs (e.g. AI provider unresponsive)
+          inner_task =
+            Task.async(fn ->
+              run_opts = build_run_opts(model, thinking, timeout_seconds)
+              SessionWorker.send_message(child_session_key, task, run_opts)
+            end)
+
+          case Task.yield(inner_task, timeout_seconds * 1000) do
+            {:ok, result} ->
+              result
+
+            nil ->
+              Logger.error("Subagent #{label || child_session_key} timed out after #{timeout_seconds}s")
+              Task.shutdown(inner_task, :brutal_kill)
+              {:error, :timeout}
+          end
         rescue
           e ->
             Logger.error("Subagent task failed: #{inspect(e)}")

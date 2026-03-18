@@ -34,6 +34,8 @@ defmodule ClawdEx.Application do
       ClawdEx.Browser.Supervisor,
       # Skills subsystem (Manager → Registry → Watcher)
       ClawdEx.Skills.Supervisor,
+      # Plugins subsystem (Manager)
+      ClawdEx.Plugins.Supervisor,
       # Progressive Output Manager
       ClawdEx.Agent.OutputManager,
       # Task Manager (periodic task health checks)
