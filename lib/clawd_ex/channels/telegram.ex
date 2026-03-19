@@ -308,7 +308,9 @@ defmodule ClawdEx.Channels.Telegram do
 
     task =
       Task.async(fn ->
-        result = SessionWorker.send_message(session_key, message.content)
+        result = SessionWorker.send_message(session_key, message.content,
+          inbound_metadata: message.metadata
+        )
         send(parent, {:result, ref, result})
       end)
 
@@ -326,11 +328,14 @@ defmodule ClawdEx.Channels.Telegram do
 
     case final_result do
       {:ok, response} when is_binary(response) ->
+        # Parse reply tags from response
+        {response, effective_reply_to} = parse_reply_tags(response, reply_to)
+
         Logger.info(
           "Sending Telegram final response to #{chat_id}: #{String.slice(response, 0, 50)}..."
         )
 
-        send_response_with_media(chat_id, response, reply_to: reply_to)
+        send_response_with_media(chat_id, response, reply_to: effective_reply_to)
         :ok
 
       {:error, reason} ->
@@ -821,19 +826,62 @@ defmodule ClawdEx.Channels.Telegram do
   defp format_message(message) do
     from = message["from"] || %{}
     chat = message["chat"] || %{}
+    chat_type = chat["type"] || "private"
+    is_group = chat_type in ["group", "supergroup"]
+    is_forum = chat["is_forum"] == true
 
     %{
       id: to_string(message["message_id"]),
       content: message["text"] || "",
       author_id: to_string(from["id"]),
-      author_name: from["first_name"] || "",
+      author_name: build_display_name(from),
       channel_id: to_string(chat["id"]),
       timestamp: DateTime.from_unix!(message["date"] || 0),
       metadata: %{
-        chat_type: chat["type"],
-        username: from["username"]
+        chat_type: chat_type,
+        is_group: is_group,
+        is_forum: is_forum,
+        topic_id: message["message_thread_id"],
+        username: from["username"],
+        sender_id: to_string(from["id"]),
+        sender_name: build_display_name(from),
+        sender_username: from["username"],
+        group_subject: chat["title"],
+        reply_to_message_id: get_in(message, ["reply_to_message", "message_id"]),
+        channel: "telegram"
       }
     }
+  end
+
+  defp build_display_name(from) do
+    first = from["first_name"] || ""
+    last = from["last_name"] || ""
+    String.trim("#{first} #{last}")
+  end
+
+  # Parse reply tags like [[reply_to_current]] or [[reply_to:<id>]]
+  defp parse_reply_tags(response, current_reply_to) do
+    cond do
+      # [[reply_to_current]] — reply to the triggering message
+      String.starts_with?(response, "[[reply_to_current]]") ->
+        cleaned = String.replace_prefix(response, "[[reply_to_current]]", "") |> String.trim_leading()
+        {cleaned, current_reply_to}
+
+      # [[reply_to:<id>]] — reply to a specific message
+      Regex.match?(~r/^\[\[\s*reply_to:\s*(\d+)\s*\]\]/, response) ->
+        case Regex.run(~r/^\[\[\s*reply_to:\s*(\d+)\s*\]\]/, response) do
+          [full_match, msg_id] ->
+            cleaned = String.replace_prefix(response, full_match, "") |> String.trim_leading()
+            {cleaned, msg_id}
+
+          _ ->
+            {response, current_reply_to}
+        end
+
+      # No reply tag
+      true ->
+        {response, current_reply_to}
+    end
   end
 
   defp ensure_integer(value) when is_integer(value), do: value
