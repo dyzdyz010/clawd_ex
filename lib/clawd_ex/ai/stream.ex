@@ -29,17 +29,20 @@ defmodule ClawdEx.AI.Stream do
   """
   @spec complete(String.t(), [message()], stream_opts()) :: {:ok, map()} | {:error, term()}
   def complete(model, messages, opts \\ []) do
-    {provider, model_name} = parse_model(model)
+    {provider, model_name} = Models.parse(model)
     stream_to = Keyword.get(opts, :stream_to)
 
     case provider do
+      # Anthropic & Google have unique SSE formats — keep native implementation
       :anthropic -> stream_anthropic(model_name, messages, opts, stream_to)
-      :openai -> stream_openai(model_name, messages, opts, stream_to)
       :google -> stream_google(model_name, messages, opts, stream_to)
-      :openrouter -> stream_openrouter(model_name, messages, opts)
-      :ollama -> stream_ollama(model_name, messages, opts)
-      :groq -> stream_groq(model_name, messages, opts)
-      _ -> {:error, :unsupported_provider}
+
+      # All OpenAI-compatible providers route through their provider modules
+      provider_atom ->
+        case ClawdEx.AI.ProviderRegistry.get(provider_atom) do
+          nil -> {:error, :unsupported_provider}
+          provider_mod -> provider_mod.stream(model_name, messages, opts)
+        end
     end
   end
 
@@ -127,60 +130,7 @@ defmodule ClawdEx.AI.Stream do
     end
   end
 
-  # ============================================================================
-  # OpenAI Streaming
-  # ============================================================================
-
-  defp stream_openai(model, messages, opts, stream_to) do
-    api_key = get_api_key(:openai)
-
-    if is_nil(api_key) do
-      {:error, :missing_api_key}
-    else
-      system_prompt = Keyword.get(opts, :system)
-      tools = Keyword.get(opts, :tools, [])
-      max_tokens = Keyword.get(opts, :max_tokens, 4096)
-
-      # 将系统提示添加到消息开头
-      messages =
-        if system_prompt do
-          [%{role: "system", content: system_prompt} | messages]
-        else
-          messages
-        end
-
-      body = %{
-        model: model,
-        max_tokens: max_tokens,
-        messages: messages,
-        stream: true
-      }
-
-      body =
-        if tools != [] do
-          Map.put(body, :tools, format_tools_openai(tools))
-        else
-          body
-        end
-
-      headers = [
-        {"Authorization", "Bearer #{api_key}"},
-        {"content-type", "application/json"},
-        {"accept", "text/event-stream"}
-      ]
-
-      case stream_request(
-             "https://api.openai.com/v1/chat/completions",
-             body,
-             headers,
-             stream_to,
-             :openai
-           ) do
-        {:ok, accumulated} -> {:ok, accumulated}
-        {:error, reason} -> {:error, reason}
-      end
-    end
-  end
+  # OpenAI streaming now routes through ProviderRegistry → Providers.OpenAI.stream/3
 
   # ============================================================================
   # Google Gemini Streaming
@@ -613,26 +563,8 @@ defmodule ClawdEx.AI.Stream do
   # Helpers
   # ============================================================================
 
-  defp parse_model(model) do
-    # 使用中心化的 Models 模块解析
-    Models.parse(model)
-  end
-
-  # ============================================================================
-  # OpenRouter Streaming (via dedicated provider module)
-  # ============================================================================
-
-  defp stream_openrouter(model, messages, opts) do
-    ClawdEx.AI.Providers.OpenRouter.stream(model, messages, opts)
-  end
-
-  defp stream_ollama(model, messages, opts) do
-    ClawdEx.AI.Providers.Ollama.stream(model, messages, opts)
-  end
-
-  defp stream_groq(model, messages, opts) do
-    ClawdEx.AI.Providers.Groq.stream(model, messages, opts)
-  end
+  # parse_model and provider delegations removed — routing handled by
+  # Models.parse + ProviderRegistry in complete/3
 
   defp format_messages_anthropic(messages) do
     Enum.map(messages, fn msg ->
@@ -698,25 +630,7 @@ defmodule ClawdEx.AI.Stream do
     end)
   end
 
-  defp format_tools_openai(tools) do
-    Enum.map(tools, fn tool ->
-      %{
-        type: "function",
-        function: %{
-          name: tool[:name] || tool["name"],
-          description: tool[:description] || tool["description"],
-          parameters: tool[:input_schema] || tool[:parameters] || tool["parameters"] || %{}
-        }
-      }
-    end)
-  end
-
-  defp get_api_key(:openai) do
-    case OAuth.get_api_key(:openai) do
-      {:ok, key} -> key
-      _ -> nil
-    end
-  end
+  # format_tools_openai removed — OpenAI streaming routes through Provider
 
   defp get_api_key(:gemini) do
     case OAuth.get_api_key(:gemini) do
