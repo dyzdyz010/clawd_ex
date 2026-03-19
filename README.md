@@ -163,6 +163,52 @@ Open http://localhost:4000 🎉
 
 ---
 
+## 🧩 Skills System
+
+ClawdEx extends agent capabilities through a powerful Skills system. Skills are text-based instruction files that get injected into agent contexts when their requirements are met.
+
+### Key Features
+
+- **49 Built-in Skills** - GitHub, Docker, file operations, web tools, and more
+- **Hot Reloadable** - Changes take effect via `Skills.Registry.refresh()`
+- **Dependency Aware** - Only loads when system requirements are satisfied
+- **Hierarchical Priority** - Workspace > managed > bundled skill precedence
+
+### Directory Structure
+
+```
+priv/skills/          → bundled (built-in, lowest priority)
+~/.clawd/skills/      → managed (user-installed, medium priority) 
+<workspace>/skills/   → workspace (project-specific, highest priority)
+```
+
+### Creating Custom Skills
+
+1. **Create skill directory**: `mkdir <workspace>/skills/my-skill`
+2. **Write SKILL.md** with YAML frontmatter and markdown instructions
+3. **Hot reload**: `Skills.Registry.refresh()`
+
+Example `SKILL.md`:
+```yaml
+---
+name: my-tool
+description: "Tool description and usage guidelines."
+metadata:
+  clawd_ex:
+    emoji: "🔧"
+    requires:
+      bins: ["required-binary"]
+      env: ["API_KEY"]
+---
+
+# My Tool Skill
+Instructions for using this tool...
+```
+
+See **[docs/skills.md](docs/skills.md)** for complete documentation.
+
+---
+
 ## 🔐 OAuth Support
 
 Compatible with Claude Code CLI credentials:

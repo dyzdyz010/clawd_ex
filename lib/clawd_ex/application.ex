@@ -41,6 +41,8 @@ defmodule ClawdEx.Application do
       ClawdEx.Skills.Supervisor,
       # Plugins subsystem (Manager)
       ClawdEx.Plugins.Supervisor,
+      # MCP subsystem (Server connections + Tool proxy)
+      ClawdEx.MCP.Supervisor,
       # Progressive Output Manager
       ClawdEx.Agent.OutputManager,
       # Task Manager (periodic task health checks)

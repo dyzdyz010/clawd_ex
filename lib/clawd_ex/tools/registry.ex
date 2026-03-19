@@ -122,7 +122,16 @@ defmodule ClawdEx.Tools.Registry do
         _ -> []
       end
 
-    builtin ++ plugin_tools
+    # Merge MCP-provided tools (lowest priority: builtin > plugin > mcp)
+    mcp_tools =
+      try do
+        ClawdEx.MCP.ToolProxy.list_tools()
+        |> Enum.filter(&tool_allowed?(&1.name, allowed, denied))
+      rescue
+        _ -> []
+      end
+
+    builtin ++ plugin_tools ++ mcp_tools
   end
 
   @doc "List tools for an agent (filtered by agent's allowed/denied tools)"
@@ -146,8 +155,19 @@ defmodule ClawdEx.Tools.Registry do
 
     case module do
       nil ->
-        Logger.warning("Tool not found: #{tool_name}")
-        {:error, :tool_not_found}
+        # Check if it's an MCP tool before giving up
+        if find_mcp_tool(canonical) do
+          try do
+            ClawdEx.MCP.ToolProxy.execute(canonical, params, context)
+          rescue
+            e ->
+              Logger.error("MCP tool execution error: #{inspect(e)}")
+              {:error, {:execution_error, Exception.message(e)}}
+          end
+        else
+          Logger.warning("Tool not found: #{tool_name}")
+          {:error, :tool_not_found}
+        end
 
       mod ->
         case ClawdEx.Security.ToolGuard.check_permission(canonical, params, context) do
@@ -217,6 +237,14 @@ defmodule ClawdEx.Tools.Registry do
       |> Enum.find(fn mod -> mod.name() == name end)
     rescue
       _ -> nil
+    end
+  end
+
+  defp find_mcp_tool(name) do
+    try do
+      ClawdEx.MCP.ToolProxy.mcp_tool?(name)
+    rescue
+      _ -> false
     end
   end
 

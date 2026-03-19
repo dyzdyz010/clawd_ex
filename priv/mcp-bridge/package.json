@@ -1,0 +1,9 @@
+{
+  "name": "@clawd_ex/mcp-bridge",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "bridge.js",
+  "bin": {
+    "clawd-mcp-bridge": "./bridge.js"
+  }
+}

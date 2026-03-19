@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "servers": [
+    {
+      "id": "feishu",
+      "name": "Feishu Plugin",
+      "enabled": true,
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "~/.clawd/bridge/mcp-bridge.js",
+        "--plugin",
+        "~/.clawd/extensions/node_modules/@larksuiteoapi/feishu-openclaw-plugin"
+      ],
+      "env": {
+        "FEISHU_APP_ID": "cli_xxx",
+        "FEISHU_APP_SECRET": "xxx"
+      },
+      "timeout_ms": 30000,
+      "auto_restart": true,
+      "source": {
+        "type": "openclaw-plugin",
+        "spec": "@larksuiteoapi/feishu-openclaw-plugin",
+        "version": "2026.3.8",
+        "installed_at": "2026-03-19T10:00:00Z"
+      }
+    },
+    {
+      "id": "postgres-tools",
+      "name": "PostgreSQL Database Tools", 
+      "enabled": true,
+      "transport": "stdio",
+      "command": "uvx",
+      "args": [
+        "mcp-server-postgres",
+        "--connection-string",
+        "${DATABASE_URL}"
+      ],
+      "env": {
+        "DATABASE_URL": "postgresql://user:pass@localhost:5432/mydb"
+      },
+      "timeout_ms": 60000,
+      "auto_restart": false
+    },
+    {
+      "id": "filesystem",
+      "name": "File System Tools",
+      "enabled": true,
+      "transport": "stdio", 
+      "command": "npx",
+      "args": [
+        "@modelcontextprotocol/server-filesystem",
+        "/Users/username/projects"
+      ],
+      "env": {},
+      "timeout_ms": 15000,
+      "auto_restart": true
+    },
+    {
+      "id": "web-search",
+      "name": "Web Search Tools",
+      "enabled": false,
+      "transport": "stdio",
+      "command": "python",
+      "args": [
+        "-m", "mcp_server_brave_search"
+      ],
+      "env": {
+        "BRAVE_API_KEY": "your_api_key_here"
+      },
+      "timeout_ms": 30000,
+      "auto_restart": true
+    }
+  ]
+}

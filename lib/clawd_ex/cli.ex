@@ -16,12 +16,13 @@ defmodule ClawdEx.CLI do
     clawd_ex models set <model> - Set default model
     clawd_ex memory search <q>  - Search agent memory
     clawd_ex skills list        - List loaded skills
+    clawd_ex plugins list       - List installed plugins
     clawd_ex message send <t> m - Send a message
     clawd_ex start              - Start the application
     clawd_ex stop               - Stop the application
   """
 
-  alias ClawdEx.CLI.{Status, Health, Configure, Sessions, Agents, Cron, Models, Logs, Gateway, Memory, Skills, Message}
+  alias ClawdEx.CLI.{Status, Health, Configure, Sessions, Agents, Cron, Models, Logs, Gateway, Memory, Skills, Message, Plugins}
 
   def main(args \\ []) do
     {opts, args, _} =
@@ -59,6 +60,7 @@ defmodule ClawdEx.CLI do
   defp run_command(["models" | rest], opts), do: Models.run(rest, opts)
   defp run_command(["memory" | rest], opts), do: Memory.run(rest, opts)
   defp run_command(["skills" | rest], opts), do: Skills.run(rest, opts)
+  defp run_command(["plugins" | rest], opts), do: Plugins.run(rest, opts)
   defp run_command(["message" | rest], opts), do: Message.run(rest, opts)
   defp run_command(["logs" | rest], opts), do: Logs.run(rest, opts)
   defp run_command(["gateway" | rest], opts), do: Gateway.run(rest, opts)
@@ -87,6 +89,7 @@ defmodule ClawdEx.CLI do
       models     Manage AI models (list, set)
       memory     Search agent memory
       skills     Manage skills (list)
+      plugins    Manage MCP plugins (list, install, enable, info, doctor)
       message    Send messages (send)
       logs       View application logs
       gateway    Manage gateway (status, restart)

@@ -51,6 +51,11 @@ config :logger, :default_formatter,
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
+# Skills system configuration
+config :clawd_ex,
+  extra_skill_dirs: [],
+  skills_enabled: true
+
 # Discord channel configuration
 # Set discord_enabled to true and configure nostrum token to enable
 config :clawd_ex,
@@ -75,6 +80,10 @@ config :clawd_ex, :ollama,
 # Groq (fast inference)
 config :clawd_ex, :groq,
   api_key: System.get_env("GROQ_API_KEY")
+
+# MCP (Model Context Protocol) server connections
+# Runtime override: ~/.clawd/mcp_servers.json
+config :clawd_ex, :mcp_servers, []
 
 # Authentication for API routes
 config :clawd_ex, :auth,
