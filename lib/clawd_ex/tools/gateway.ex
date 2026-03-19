@@ -97,7 +97,8 @@ defmodule ClawdEx.Tools.Gateway do
             "config.patch",
             "config_reload",
             "config_set",
-            "config_list"
+            "config_list",
+            "broadcast"
           ],
           description: "Action to perform"
         },
@@ -112,6 +113,10 @@ defmodule ClawdEx.Tools.Gateway do
         key: %{
           type: "string",
           description: "Dot-notation key path (for config.get, e.g., 'features.discord')"
+        },
+        message: %{
+          type: "string",
+          description: "Message to broadcast (for broadcast action)"
         }
       },
       required: ["action"]
@@ -131,6 +136,7 @@ defmodule ClawdEx.Tools.Gateway do
       "config_reload" -> do_config_reload()
       "config_set" -> do_config_set(params)
       "config_list" -> do_config_list()
+      "broadcast" -> do_broadcast(params)
       _ -> {:error, "Unknown action: #{action}"}
     end
   end
@@ -271,6 +277,35 @@ defmodule ClawdEx.Tools.Gateway do
     Enum.map(results, fn {key, status} ->
       %{key: key, status: status}
     end)
+  end
+
+  # ============================================================================
+  # Broadcast
+  # ============================================================================
+
+  defp do_broadcast(params) do
+    message = params["message"] || params[:message]
+
+    if is_nil(message) || message == "" do
+      {:error, "message parameter is required for broadcast"}
+    else
+      # Broadcast to global topic
+      Phoenix.PubSub.broadcast(ClawdEx.PubSub, "sessions:broadcast", {:broadcast_message, message})
+
+      # Also broadcast to each individual registered session
+      session_keys =
+        Registry.select(ClawdEx.SessionRegistry, [{{:"$1", :_, :_}, [], [:"$1"]}])
+
+      Enum.each(session_keys, fn key ->
+        Phoenix.PubSub.broadcast(
+          ClawdEx.PubSub,
+          "session:#{key}",
+          {:system_message, message}
+        )
+      end)
+
+      {:ok, %{status: "broadcasted", sessions_notified: length(session_keys), message: message}}
+    end
   end
 
   # ============================================================================

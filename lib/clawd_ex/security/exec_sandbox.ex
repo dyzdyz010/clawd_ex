@@ -99,6 +99,90 @@ defmodule ClawdEx.Security.ExecSandbox do
     {:ok, Map.put(params, "command", wrapped)}
   end
 
+  # ============================================================================
+  # Pre-execution command check (mode-based policy)
+  # ============================================================================
+
+  @network_commands ~w(curl wget ssh scp rsync nc ncat netcat telnet ftp)
+  @blocked_paths ["/etc", "/usr", "/proc", "/sys", "/var"]
+
+  @doc """
+  Check whether a command is allowed under the given sandbox mode.
+
+  Modes:
+  - `:unrestricted` — allow everything
+  - `:workspace` — only allow commands whose workdir is inside the workspace
+  - `:strict` — workspace check + block network commands + block system paths
+
+  Returns `:ok` or `{:error, reason}`.
+  """
+  @spec check(String.t(), String.t(), atom()) :: :ok | {:error, String.t()}
+  def check(command, workdir, mode \\ nil)
+
+  def check(_command, _workdir, :unrestricted), do: :ok
+
+  def check(command, workdir, :workspace) do
+    check_workspace(command, workdir)
+  end
+
+  def check(command, workdir, :strict) do
+    with :ok <- check_workspace(command, workdir),
+         :ok <- check_network_commands(command),
+         :ok <- check_blocked_paths(command) do
+      :ok
+    end
+  end
+
+  def check(command, workdir, nil) do
+    mode = Application.get_env(:clawd_ex, :exec_sandbox, :unrestricted)
+    check(command, workdir, mode)
+  end
+
+  # Unknown modes default to allowing
+  def check(_command, _workdir, _unknown_mode), do: :ok
+
+  defp check_workspace(_command, workdir) do
+    workspace = Application.get_env(:clawd_ex, :workspace, ".")
+    resolved = Path.expand(workdir)
+    ws_expanded = Path.expand(workspace)
+
+    if String.starts_with?(resolved, ws_expanded) do
+      :ok
+    else
+      {:error, "Command workdir '#{resolved}' is outside workspace '#{ws_expanded}'"}
+    end
+  end
+
+  defp check_network_commands(command) do
+    # Match whole-word network commands (not substrings like "curling")
+    found =
+      Enum.find(@network_commands, fn cmd ->
+        # Match at word boundary: start of string or after non-word char
+        Regex.match?(~r/(^|\s|[|;&])#{Regex.escape(cmd)}(\s|$)/, command)
+      end)
+
+    case found do
+      nil -> :ok
+      cmd -> {:error, "Network command blocked in strict mode: #{cmd}"}
+    end
+  end
+
+  defp check_blocked_paths(command) do
+    # Match path references like /etc/ or /etc<space> or /etc at end
+    # Sorted longest-first to avoid /sys matching /syslog before /var
+    found =
+      @blocked_paths
+      |> Enum.sort_by(&(-String.length(&1)))
+      |> Enum.find(fn path ->
+        Regex.match?(~r"#{Regex.escape(path)}(/|\s|$)", command)
+      end)
+
+    case found do
+      nil -> :ok
+      path -> {:error, "Command references blocked path in strict mode: #{path}"}
+    end
+  end
+
   @doc "Get the maximum output bytes limit"
   @spec max_output_bytes() :: integer()
   def max_output_bytes, do: @max_output_bytes

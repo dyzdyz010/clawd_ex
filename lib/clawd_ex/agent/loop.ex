@@ -18,11 +18,10 @@ defmodule ClawdEx.Agent.Loop do
   require Logger
 
   alias ClawdEx.Agent.{OutputManager, Prompt}
+  alias ClawdEx.Agent.Loop.{Broadcaster, Persistence, ToolExecutor}
   alias ClawdEx.AI.Models
   alias ClawdEx.AI.Stream, as: AIStream
   alias ClawdEx.A2A.Mailbox, as: A2AMailbox
-  alias ClawdEx.Sessions.Message
-  alias ClawdEx.Repo
 
   @doc "Get the maximum tool iterations limit (configurable via :clawd_ex, :max_tool_iterations)"
   def max_tool_iterations do
@@ -251,20 +250,20 @@ defmodule ClawdEx.Agent.Loop do
     Logger.debug("Preparing context for run #{data.run_id}")
 
     # 1. 加载会话历史
-    messages = load_session_messages(data.session_id)
+    messages = Persistence.load_session_messages(data.session_id)
 
     # 2. 添加用户消息
     user_message = %{role: "user", content: content}
     messages = messages ++ [user_message]
 
     # 3. 保存用户消息到数据库
-    save_message(data.session_id, :user, content)
+    Persistence.save_message(data.session_id, :user, content)
 
     # 4. 构建系统提示
     system_prompt = Prompt.build(data.agent_id, Map.put(data.config, :model, data.model))
 
     # 5. 加载可用工具
-    tools = load_tools(data.config)
+    tools = ToolExecutor.load_tools(data.config)
     Logger.info("Loaded #{length(tools)} tools for run #{data.run_id}")
 
     new_data = %{data | messages: messages, system_prompt: system_prompt, tools: tools}
@@ -273,7 +272,7 @@ defmodule ClawdEx.Agent.Loop do
     OutputManager.start_run(data.run_id, data.session_id)
 
     # 广播运行开始
-    broadcast_run_started(new_data)
+    Broadcaster.broadcast_run_started(new_data)
 
     {:next_state, :inferring, new_data, [{:next_event, :internal, :call_ai}]}
   end
@@ -305,7 +304,7 @@ defmodule ClawdEx.Agent.Loop do
     Logger.debug("Calling AI for run #{data.run_id}")
 
     # 广播正在调用 AI
-    broadcast_inferring(data)
+    Broadcaster.broadcast_inferring(data)
 
     # 启动流式 AI 调用 (supervised for cancellation on stop/timeout)
     parent = self()
@@ -317,7 +316,7 @@ defmodule ClawdEx.Agent.Loop do
             data.model,
             data.messages,
             system: data.system_prompt,
-            tools: format_tools(data.tools),
+            tools: ToolExecutor.format_tools(data.tools),
             stream_to: parent
           )
 
@@ -339,7 +338,7 @@ defmodule ClawdEx.Agent.Loop do
     new_data = %{data | stream_buffer: new_buffer}
 
     # 可以在这里发送流式更新到客户端
-    broadcast_chunk(data, chunk)
+    Broadcaster.broadcast_chunk(data, chunk)
 
     {:keep_state, new_data}
   end
@@ -359,7 +358,7 @@ defmodule ClawdEx.Agent.Loop do
             tool_calls_pending: length(response[:tool_calls])
           })
 
-          broadcast_segment(data, content, continuing: true)
+          Broadcaster.broadcast_segment(data, content, continuing: true)
         end
 
         new_data = %{
@@ -432,7 +431,7 @@ defmodule ClawdEx.Agent.Loop do
         tc["name"] || get_in(tc, ["function", "name"])
       end)
 
-    broadcast_status(data, :tools_start, %{tools: tool_names, count: length(tool_names)})
+    Broadcaster.broadcast_status(data, :tools_start, %{tools: tool_names, count: length(tool_names)})
 
     # 在单独的 Task 中并行执行所有工具 (supervised for cancellation)
     {:ok, pid} = Task.Supervisor.start_child(ClawdEx.AgentTaskSupervisor, fn ->
@@ -441,17 +440,17 @@ defmodule ClawdEx.Agent.Loop do
         |> Task.async_stream(
           fn tool_call ->
             tool_name = tool_call["name"] || get_in(tool_call, ["function", "name"])
-            params = extract_tool_params(tool_call)
+            params = ToolExecutor.extract_tool_params(tool_call)
 
             # 广播工具开始
             Phoenix.PubSub.broadcast(
               ClawdEx.PubSub,
               "agent:#{data.session_id}",
               {:agent_status, data.run_id, :tool_start,
-               %{tool: tool_name, params: sanitize_params(params)}}
+               %{tool: tool_name, params: ToolExecutor.sanitize_params(params)}}
             )
 
-            result = execute_tool(tool_call, data)
+            result = ToolExecutor.execute_tool(tool_call, data)
 
             # 广播工具完成
             Phoenix.PubSub.broadcast(
@@ -483,14 +482,14 @@ defmodule ClawdEx.Agent.Loop do
     new_iterations = data.tool_iterations + 1
 
     # Send progress summary via OutputManager
-    progress_summary = format_tools_progress(results, new_iterations)
+    progress_summary = ToolExecutor.format_tools_progress(results, new_iterations)
     OutputManager.deliver_progress(data.run_id, progress_summary, %{
       type: :tools_done,
       iteration: new_iterations
     })
 
     # 广播工具完成事件（让渠道可以发送中间结果）
-    broadcast_tools_done(data, results)
+    Broadcaster.broadcast_tools_done(data, results)
 
     # 构建工具结果消息
     tool_messages =
@@ -498,7 +497,7 @@ defmodule ClawdEx.Agent.Loop do
         %{
           role: "tool",
           tool_call_id: tool_call["id"],
-          content: format_tool_result(result)
+          content: ToolExecutor.format_tool_result(result)
         }
       end)
 
@@ -576,122 +575,6 @@ defmodule ClawdEx.Agent.Loop do
     :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
   end
 
-  defp load_session_messages(session_id) do
-    import Ecto.Query
-
-    # Subquery: get the latest 100 messages (desc), then re-order ascending
-    latest =
-      Message
-      |> where([m], m.session_id == ^session_id)
-      |> order_by([m], desc: m.inserted_at)
-      |> limit(100)
-
-    latest
-    |> subquery()
-    |> order_by([m], asc: m.inserted_at)
-    |> Repo.all()
-    |> Enum.map(fn m ->
-      base = %{role: to_string(m.role), content: m.content}
-
-      # 添加工具调用相关字段
-      base =
-        if m.tool_calls && m.tool_calls != [] do
-          Map.put(base, :tool_calls, m.tool_calls)
-        else
-          base
-        end
-
-      if m.tool_call_id do
-        Map.put(base, :tool_call_id, m.tool_call_id)
-      else
-        base
-      end
-    end)
-  end
-
-  defp save_message(session_id, role, content, opts \\ []) do
-    %Message{}
-    |> Message.changeset(%{
-      session_id: session_id,
-      role: role,
-      content: content,
-      tool_calls: Keyword.get(opts, :tool_calls, []),
-      tool_call_id: Keyword.get(opts, :tool_call_id),
-      model: Keyword.get(opts, :model),
-      tokens_in: Keyword.get(opts, :tokens_in),
-      tokens_out: Keyword.get(opts, :tokens_out)
-    })
-    |> Repo.insert!()
-  end
-
-  defp load_tools(config) do
-    # TODO: 从配置加载工具列表
-    allowed = Map.get(config, :tools_allow, ["*"])
-    denied = Map.get(config, :tools_deny, [])
-
-    ClawdEx.Tools.Registry.list_tools(allow: allowed, deny: denied)
-  end
-
-  defp format_tools(tools) do
-    Enum.map(tools, fn tool ->
-      %{
-        name: tool.name,
-        description: tool.description,
-        input_schema: tool.parameters
-      }
-    end)
-  end
-
-  defp execute_tool(tool_call, data) do
-    # 兼容两种格式：
-    # OpenAI: %{"id" => ..., "function" => %{"name" => ..., "arguments" => ...}}
-    # Anthropic: %{"name" => ..., "input" => ...}
-    tool_name = tool_call["name"] || get_in(tool_call, ["function", "name"])
-    params = extract_tool_params(tool_call)
-
-    context = %{
-      session_id: data.session_id,
-      agent_id: data.agent_id,
-      run_id: data.run_id
-    }
-
-    Logger.debug("Executing tool #{tool_name} with params: #{inspect(params)}")
-
-    case ClawdEx.Tools.Registry.execute(tool_name, params, context) do
-      {:ok, result} -> {:ok, result}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  # 提取工具参数，兼容 Anthropic (input) 和 OpenAI (function.arguments) 格式
-  defp extract_tool_params(tool_call) do
-    # 先尝试获取参数
-    raw_args =
-      tool_call["input"] ||
-        tool_call["arguments"] ||
-        get_in(tool_call, ["function", "arguments"])
-
-    cond do
-      # 已经是 map
-      is_map(raw_args) ->
-        raw_args
-
-      # JSON 字符串需要解析
-      is_binary(raw_args) ->
-        case Jason.decode(raw_args) do
-          {:ok, parsed} -> parsed
-          {:error, _} -> %{}
-        end
-
-      true ->
-        %{}
-    end
-  end
-
-  defp format_tool_result({:ok, result}) when is_binary(result), do: result
-  defp format_tool_result({:ok, result}), do: Jason.encode!(result)
-  defp format_tool_result({:error, reason}), do: "Error: #{inspect(reason)}"
-
   defp finish_run(data, content, response) do
     # 取消超时定时器
     if data.timeout_ref, do: Process.cancel_timer(data.timeout_ref)
@@ -705,14 +588,14 @@ defmodule ClawdEx.Agent.Loop do
       end
 
     # 保存助手消息
-    save_message(data.session_id, :assistant, final_content,
+    Persistence.save_message(data.session_id, :assistant, final_content,
       model: data.model,
       tokens_in: response[:tokens_in],
       tokens_out: response[:tokens_out]
     )
 
     # 广播运行完成
-    broadcast_run_done(data, final_content)
+    Broadcaster.broadcast_run_done(data, final_content)
 
     # Signal OutputManager that run is complete
     OutputManager.deliver_complete(data.run_id, final_content, %{
@@ -745,111 +628,9 @@ defmodule ClawdEx.Agent.Loop do
   end
 
   defp reply_error(from, reason, data) do
-    if data, do: broadcast_run_error(data, reason)
+    if data, do: Broadcaster.broadcast_run_error(data, reason)
     if from, do: GenStateMachine.reply(from, {:error, reason})
   end
-
-  defp broadcast_chunk(data, chunk) do
-    # 通过 PubSub 广播流式更新
-    Phoenix.PubSub.broadcast(
-      ClawdEx.PubSub,
-      "agent:#{data.session_id}",
-      {:agent_chunk, data.run_id, chunk}
-    )
-  end
-
-  # 广播运行状态更新
-  defp broadcast_status(data, status, details) do
-    Phoenix.PubSub.broadcast(
-      ClawdEx.PubSub,
-      "agent:#{data.session_id}",
-      {:agent_status, data.run_id, status, details}
-    )
-  end
-
-  defp broadcast_run_started(data) do
-    broadcast_status(data, :started, %{
-      model: data.model,
-      started_at: data.started_at
-    })
-  end
-
-  defp broadcast_inferring(data) do
-    broadcast_status(data, :inferring, %{
-      iteration: data.tool_iterations
-    })
-  end
-
-  defp broadcast_run_done(data, content) do
-    broadcast_status(data, :done, %{
-      content_preview: String.slice(content || "", 0..100)
-    })
-  end
-
-  defp broadcast_run_error(data, reason) do
-    broadcast_status(data, :error, %{
-      reason: inspect(reason)
-    })
-  end
-
-  # 广播工具执行完成事件 - 包含执行结果摘要
-  defp broadcast_tools_done(data, results) do
-    summaries =
-      Enum.map(results, fn {tool_call, result} ->
-        tool_name = tool_call["name"] || get_in(tool_call, ["function", "name"]) || "unknown"
-        result_summary = summarize_tool_result(result)
-        %{tool: tool_name, result: result_summary}
-      end)
-
-    broadcast_status(data, :tools_done, %{
-      tools: summaries,
-      count: length(results),
-      iteration: data.tool_iterations
-    })
-  end
-
-  # 生成工具结果摘要（避免发送过长内容）
-  defp summarize_tool_result({:ok, result}) when is_binary(result) do
-    if String.length(result) > 200 do
-      String.slice(result, 0..197) <> "..."
-    else
-      result
-    end
-  end
-
-  defp summarize_tool_result({:ok, result}) do
-    result |> inspect() |> String.slice(0..200)
-  end
-
-  defp summarize_tool_result({:error, reason}) do
-    "Error: #{inspect(reason)}" |> String.slice(0..200)
-  end
-
-  # 广播消息段 - 当 AI 输出完整文本段落时（工具调用前）
-  # 这样渠道可以立即发送，而不是等待整个运行完成
-  defp broadcast_segment(data, content, opts) do
-    Phoenix.PubSub.broadcast(
-      ClawdEx.PubSub,
-      "agent:#{data.session_id}",
-      {:agent_segment, data.run_id, content,
-       %{
-         session_id: data.session_id,
-         continuing: Keyword.get(opts, :continuing, false)
-       }}
-    )
-  end
-
-  # 清理敏感参数（不广播密码等）
-  defp sanitize_params(params) when is_map(params) do
-    params
-    |> Map.take(["action", "command", "path", "url", "query", "sessionId"])
-    |> Map.new(fn {k, v} ->
-      {k,
-       if(is_binary(v) && String.length(v) > 100, do: String.slice(v, 0..97) <> "...", else: v)}
-    end)
-  end
-
-  defp sanitize_params(_), do: %{}
 
   # ============================================================================
   # A2A Integration
@@ -896,16 +677,4 @@ defmodule ClawdEx.Agent.Loop do
     "#{header}\n\n#{msg.content}#{reply_hint}"
   end
 
-  # Format tool execution results as progress summary
-  defp format_tools_progress(results, iteration) do
-    tool_summaries =
-      Enum.map(results, fn {tool_call, result} ->
-        name = tool_call["name"] || get_in(tool_call, ["function", "name"]) || "unknown"
-        status = if match?({:ok, _}, result), do: "✓", else: "✗"
-        "#{status} #{name}"
-      end)
-      |> Enum.join(", ")
-
-    "Round #{iteration}: #{tool_summaries}"
-  end
 end

@@ -1,8 +1,9 @@
 defmodule ClawdEx.Tools.Registry do
   @moduledoc """
-  工具注册表
+  Tool Registry — manages tool discovery, lookup, and execution.
 
-  管理所有可用工具的注册、查找和执行。
+  Tools are auto-discovered from `ClawdEx.Tools.*` modules that implement
+  the `ClawdEx.Tools.Tool` behaviour. No manual registration needed.
   """
 
   require Logger
@@ -13,114 +14,55 @@ defmodule ClawdEx.Tools.Registry do
           parameters: map()
         }
 
-  # 工具模块映射
-  @tools %{
-    # 文件系统
-    "read" => ClawdEx.Tools.Read,
-    "write" => ClawdEx.Tools.Write,
-    "edit" => ClawdEx.Tools.Edit,
-    # 运行时
-    "exec" => ClawdEx.Tools.Exec,
-    "process" => ClawdEx.Tools.Process,
-    # 记忆（统一接口）
-    "memory" => ClawdEx.Tools.MemoryTool,
-    "memory_search" => ClawdEx.Tools.MemorySearch,
-    "memory_get" => ClawdEx.Tools.MemoryGet,
-    # 会话
-    "session_status" => ClawdEx.Tools.SessionStatus,
-    "sessions_history" => ClawdEx.Tools.SessionsHistory,
-    "sessions_list" => ClawdEx.Tools.SessionsList,
-    "sessions_send" => ClawdEx.Tools.SessionsSend,
-    "sessions_spawn" => ClawdEx.Tools.SessionsSpawn,
-    "agents_list" => ClawdEx.Tools.AgentsList,
+  # All tool modules — single source of truth.
+  # To add a new tool: create a module implementing ClawdEx.Tools.Tool, add it here.
+  @tool_modules [
+    # File system
+    ClawdEx.Tools.Read,
+    ClawdEx.Tools.Write,
+    ClawdEx.Tools.Edit,
+    # Runtime
+    ClawdEx.Tools.Exec,
+    ClawdEx.Tools.Process,
+    # Memory
+    ClawdEx.Tools.MemoryTool,
+    ClawdEx.Tools.MemorySearch,
+    ClawdEx.Tools.MemoryGet,
+    # Sessions
+    ClawdEx.Tools.SessionStatus,
+    ClawdEx.Tools.SessionsHistory,
+    ClawdEx.Tools.SessionsList,
+    ClawdEx.Tools.SessionsSend,
+    ClawdEx.Tools.SessionsSpawn,
+    ClawdEx.Tools.AgentsList,
     # Web
-    "web_search" => ClawdEx.Tools.WebSearch,
-    "web_fetch" => ClawdEx.Tools.WebFetch,
-    # 自动化
-    "compact" => ClawdEx.Tools.Compact,
-    "gateway" => ClawdEx.Tools.Gateway,
-    "cron" => ClawdEx.Tools.Cron,
-    "message" => ClawdEx.Tools.Message,
-    # 浏览器 & 节点
-    "browser" => ClawdEx.Tools.Browser,
-    "nodes" => ClawdEx.Tools.Nodes,
-    "canvas" => ClawdEx.Tools.Canvas,
-    # 媒体
-    "image" => ClawdEx.Tools.Image,
-    "tts" => ClawdEx.Tools.Tts,
-    # 任务管理
-    "task" => ClawdEx.Tools.TaskTool,
-    # Agent-to-Agent 通信
-    "a2a" => ClawdEx.Tools.A2A,
+    ClawdEx.Tools.WebSearch,
+    ClawdEx.Tools.WebFetch,
+    # Automation
+    ClawdEx.Tools.Compact,
+    ClawdEx.Tools.Gateway,
+    ClawdEx.Tools.Cron,
+    ClawdEx.Tools.Message,
+    # Browser & Nodes
+    ClawdEx.Tools.Browser,
+    ClawdEx.Tools.Nodes,
+    ClawdEx.Tools.Canvas,
+    # Media
+    ClawdEx.Tools.Image,
+    ClawdEx.Tools.Tts,
+    # Task management
+    ClawdEx.Tools.TaskTool,
+    # Agent-to-Agent
+    ClawdEx.Tools.A2A,
     # Patch
-    "apply_patch" => ClawdEx.Tools.ApplyPatch
-  }
+    ClawdEx.Tools.ApplyPatch
+  ]
 
-  @doc """
-  列出可用工具
-  """
-  @spec list_tools(keyword()) :: [tool_spec()]
-  def list_tools(opts \\ []) do
-    allowed = Keyword.get(opts, :allow, ["*"])
-    denied = Keyword.get(opts, :deny, [])
+  # Build name → module mapping at compile time
+  @tools Map.new(@tool_modules, fn mod -> {mod.name(), mod} end)
 
-    builtin =
-      @tools
-      |> Map.keys()
-      |> Enum.filter(&tool_allowed?(&1, allowed, denied))
-      |> Enum.map(&get_tool_spec/1)
-      |> Enum.reject(&is_nil/1)
-
-    # Merge plugin-provided tools
-    plugin_tools =
-      try do
-        ClawdEx.Plugins.Manager.get_tools()
-        |> Enum.map(fn mod ->
-          %{name: mod.name(), description: mod.description(), parameters: mod.parameters()}
-        end)
-        |> Enum.filter(&tool_allowed?(&1.name, allowed, denied))
-      rescue
-        _ -> []
-      end
-
-    builtin ++ plugin_tools
-  end
-
-  @doc """
-  列出 agent 可用的工具（根据 agent 的 allowed_tools / denied_tools 过滤）
-  """
-  @spec list_tools_for_agent(map() | struct()) :: [tool_spec()]
-  def list_tools_for_agent(agent) do
-    allowed = agent_field(agent, :allowed_tools, [])
-    denied = agent_field(agent, :denied_tools, [])
-
-    # If no permissions configured, return all tools
-    if allowed == [] and denied == [] do
-      list_tools()
-    else
-      list_tools(allow: normalize_allow(allowed), deny: denied)
-    end
-  end
-
-  defp agent_field(agent, field, default) when is_atom(field) do
-    cond do
-      is_map(agent) and Map.has_key?(agent, field) ->
-        Map.get(agent, field, default)
-
-      is_map(agent) and Map.has_key?(agent, Atom.to_string(field)) ->
-        Map.get(agent, Atom.to_string(field), default)
-
-      true ->
-        default
-    end
-  end
-
-  # If allowed is empty list, treat as allow-all
-  defp normalize_allow([]), do: ["*"]
-  defp normalize_allow(allowed), do: allowed
-
-  # Claude Code name -> ClawdEx name reverse mapping
-  @claude_code_to_clawd %{
+  # Claude Code name → internal name mapping (for OAuth/Claude Code interop)
+  @claude_code_to_internal %{
     "Bash" => "exec",
     "Read" => "read",
     "Write" => "write",
@@ -151,14 +93,55 @@ defmodule ClawdEx.Tools.Registry do
     "ApplyPatch" => "apply_patch"
   }
 
-  @doc """
-  执行工具
-  """
+  # ============================================================================
+  # Public API
+  # ============================================================================
+
+  @doc "List available tools (filtered by allow/deny)"
+  @spec list_tools(keyword()) :: [tool_spec()]
+  def list_tools(opts \\ []) do
+    allowed = Keyword.get(opts, :allow, ["*"])
+    denied = Keyword.get(opts, :deny, [])
+
+    builtin =
+      @tools
+      |> Map.keys()
+      |> Enum.filter(&tool_allowed?(&1, allowed, denied))
+      |> Enum.map(&get_tool_spec/1)
+      |> Enum.reject(&is_nil/1)
+
+    # Merge plugin-provided tools
+    plugin_tools =
+      try do
+        ClawdEx.Plugins.Manager.get_tools()
+        |> Enum.map(fn mod ->
+          %{name: mod.name(), description: mod.description(), parameters: mod.parameters()}
+        end)
+        |> Enum.filter(&tool_allowed?(&1.name, allowed, denied))
+      rescue
+        _ -> []
+      end
+
+    builtin ++ plugin_tools
+  end
+
+  @doc "List tools for an agent (filtered by agent's allowed/denied tools)"
+  @spec list_tools_for_agent(map() | struct()) :: [tool_spec()]
+  def list_tools_for_agent(agent) do
+    allowed = agent_field(agent, :allowed_tools, [])
+    denied = agent_field(agent, :denied_tools, [])
+
+    if allowed == [] and denied == [] do
+      list_tools()
+    else
+      list_tools(allow: normalize_allow(allowed), deny: denied)
+    end
+  end
+
+  @doc "Execute a tool by name"
   @spec execute(String.t(), map(), map()) :: {:ok, any()} | {:error, term()}
   def execute(tool_name, params, context) do
-    # Resolve canonical tool name
     canonical = resolve_tool_name(tool_name)
-
     module = Map.get(@tools, canonical) || find_plugin_tool(canonical)
 
     case module do
@@ -167,7 +150,6 @@ defmodule ClawdEx.Tools.Registry do
         {:error, :tool_not_found}
 
       mod ->
-        # Security check before execution
         case ClawdEx.Security.ToolGuard.check_permission(canonical, params, context) do
           :ok ->
             try do
@@ -185,22 +167,18 @@ defmodule ClawdEx.Tools.Registry do
     end
   end
 
-  @doc """
-  Resolve a tool name to its canonical internal name.
-  """
+  @doc "Resolve a tool name to its canonical internal name"
   @spec resolve_tool_name(String.t()) :: String.t()
   def resolve_tool_name(tool_name) do
     cond do
       Map.has_key?(@tools, tool_name) -> tool_name
       Map.has_key?(@tools, String.downcase(tool_name)) -> String.downcase(tool_name)
-      Map.has_key?(@claude_code_to_clawd, tool_name) -> Map.get(@claude_code_to_clawd, tool_name)
+      Map.has_key?(@claude_code_to_internal, tool_name) -> Map.get(@claude_code_to_internal, tool_name)
       true -> tool_name
     end
   end
 
-  @doc """
-  获取工具规格
-  """
+  @doc "Get a tool's spec (name, description, parameters)"
   @spec get_tool_spec(String.t()) :: tool_spec() | nil
   def get_tool_spec(tool_name) do
     module =
@@ -208,21 +186,30 @@ defmodule ClawdEx.Tools.Registry do
         Map.get(@tools, String.downcase(tool_name))
 
     case module do
-      nil ->
-        nil
-
-      mod ->
-        %{
-          name: mod.name(),
-          description: mod.description(),
-          parameters: mod.parameters()
-        }
+      nil -> nil
+      mod -> %{name: mod.name(), description: mod.description(), parameters: mod.parameters()}
     end
   end
 
   # ============================================================================
   # Private
   # ============================================================================
+
+  defp agent_field(agent, field, default) when is_atom(field) do
+    cond do
+      is_map(agent) and Map.has_key?(agent, field) ->
+        Map.get(agent, field, default)
+
+      is_map(agent) and Map.has_key?(agent, Atom.to_string(field)) ->
+        Map.get(agent, Atom.to_string(field), default)
+
+      true ->
+        default
+    end
+  end
+
+  defp normalize_allow([]), do: ["*"]
+  defp normalize_allow(allowed), do: allowed
 
   defp find_plugin_tool(name) do
     try do
@@ -234,7 +221,6 @@ defmodule ClawdEx.Tools.Registry do
   end
 
   defp tool_allowed?(name, allowed, denied) do
-    # Deny 优先
     if name in denied || "*" in denied do
       false
     else
@@ -249,7 +235,7 @@ end
 
 defmodule ClawdEx.Tools.Tool do
   @moduledoc """
-  工具行为定义
+  Tool behaviour — all tools must implement these callbacks.
   """
 
   @callback name() :: String.t()

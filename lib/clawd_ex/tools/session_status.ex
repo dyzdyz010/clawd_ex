@@ -23,6 +23,10 @@ defmodule ClawdEx.Tools.SessionStatus do
         session_key: %{
           type: "string",
           description: "Session key (optional, defaults to current session)"
+        },
+        model: %{
+          type: "string",
+          description: "Set model override for the session (optional)"
         }
       },
       required: []
@@ -41,9 +45,26 @@ defmodule ClawdEx.Tools.SessionStatus do
           {:error, "Session not found"}
 
         session ->
+          # Handle model override if provided
+          session = maybe_set_model_override(session, params)
           status = format_session_status(session)
           {:ok, status}
       end
+    end
+  end
+
+  defp maybe_set_model_override(session, params) do
+    model = params["model"] || params[:model]
+
+    if is_binary(model) && model != "" do
+      case session
+           |> Session.changeset(%{model_override: model})
+           |> Repo.update() do
+        {:ok, updated} -> updated
+        {:error, _} -> session
+      end
+    else
+      session
     end
   end
 
