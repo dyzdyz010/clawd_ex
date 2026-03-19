@@ -3,272 +3,344 @@
 /**
  * ClawdEx MCP Bridge
  * 
- * Bridges OpenClaw plugins to MCP (Model Context Protocol) format.
- * Loads an OpenClaw plugin and exposes its tools as MCP tools.
+ * Generic adapter that loads any OpenClaw-compatible plugin and exposes
+ * its registered tools as an MCP (Model Context Protocol) server over stdio.
+ * 
+ * Usage:
+ *   node bridge.js --plugin <path-or-dir>  [--config <json>]
+ * 
+ * Zero external dependencies — pure Node.js stdlib.
  */
 
-import { readFileSync } from 'fs';
+import { createInterface } from 'readline';
+import { readFileSync, existsSync } from 'fs';
+import { resolve, join, dirname } from 'path';
 import { pathToFileURL } from 'url';
-import path from 'path';
+import { homedir, platform, arch } from 'os';
 
-// MCP Server implementation
-class MCPServer {
-  constructor() {
-    this.tools = new Map();
-    this.initialized = false;
+// ============================================================================
+// Argument parsing
+// ============================================================================
+
+function parseArgs(argv) {
+  const result = { plugin: null, config: null, extensionsDir: null };
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--plugin' && argv[i + 1]) result.plugin = argv[++i];
+    else if (argv[i] === '--config' && argv[i + 1]) result.config = argv[++i];
+    else if (argv[i] === '--extensions-dir' && argv[i + 1]) result.extensionsDir = argv[++i];
+  }
+  return result;
+}
+
+function expandPath(p) {
+  if (p.startsWith('~/')) return join(homedir(), p.slice(2));
+  return resolve(p);
+}
+
+// ============================================================================
+// Plugin resolution
+// ============================================================================
+
+function resolvePlugin(spec, extensionsDir) {
+  if (!spec) throw new Error('--plugin is required');
+
+  // 1. Absolute or relative path
+  const expanded = expandPath(spec);
+  if (existsSync(expanded)) return expanded;
+
+  // 2. Check extensions directory
+  const extDir = extensionsDir || join(homedir(), '.clawd', 'extensions');
+  const inExt = join(extDir, spec);
+  if (existsSync(inExt)) return inExt;
+
+  // 3. Try as a Node module (bare specifier)
+  try {
+    const resolved = import.meta.resolve(spec);
+    return new URL(resolved).pathname;
+  } catch { /* fall through */ }
+
+  throw new Error(`Cannot resolve plugin: ${spec}`);
+}
+
+function findEntryPoint(pluginDir) {
+  // If pluginDir is already a .js/.mjs/.ts file, use it directly
+  if (/\.(js|mjs|ts)$/.test(pluginDir) && existsSync(pluginDir)) {
+    return resolve(pluginDir);
   }
 
-  async initialize(pluginPath) {
-    try {
-      // Load plugin package.json to get entry point
-      const packageJsonPath = path.join(pluginPath, 'package.json');
-      const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
-      
-      // Get entry point from openclaw field or main
-      const entryPoint = packageJson.openclaw?.entry || packageJson.main || 'index.js';
-      const pluginEntryPath = path.resolve(pluginPath, entryPoint);
-      
-      // Import the plugin module
-      const pluginModule = await import(pathToFileURL(pluginEntryPath));
-      const plugin = pluginModule.default || pluginModule;
-      
-      // Initialize plugin if it has an init method
-      if (typeof plugin.init === 'function') {
-        await plugin.init();
-      }
-      
-      // Register tools from plugin
-      if (plugin.tools && Array.isArray(plugin.tools)) {
-        for (const tool of plugin.tools) {
-          this.registerTool(tool);
+  // Read package.json to find entry
+  const pkgPath = join(pluginDir, 'package.json');
+  if (existsSync(pkgPath)) {
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+    // OpenClaw plugins declare entry in openclaw.extensions
+    const ocEntry = pkg.openclaw?.extensions?.[0];
+    if (ocEntry) return resolve(pluginDir, ocEntry);
+    // Fallback to main/module
+    if (pkg.module) return resolve(pluginDir, pkg.module);
+    if (pkg.main) return resolve(pluginDir, pkg.main);
+  }
+  // Default
+  if (existsSync(join(pluginDir, 'index.js'))) return join(pluginDir, 'index.js');
+  if (existsSync(join(pluginDir, 'index.mjs'))) return join(pluginDir, 'index.mjs');
+  throw new Error(`No entry point found in ${pluginDir}`);
+}
+
+// ============================================================================
+// Config loading
+// ============================================================================
+
+function loadConfig(configPath) {
+  if (!configPath) return {};
+  try {
+    const expanded = expandPath(configPath);
+    return JSON.parse(readFileSync(expanded, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+// ============================================================================
+// Fake OpenClaw Plugin API — captures registerTool calls
+// ============================================================================
+
+function createFakeApi(config) {
+  const capturedTools = [];
+
+  const logger = {
+    info: (msg) => process.stderr.write(`[bridge:info] ${msg}\n`),
+    warn: (msg) => process.stderr.write(`[bridge:warn] ${msg}\n`),
+    error: (msg) => process.stderr.write(`[bridge:error] ${msg}\n`),
+    debug: (msg) => { if (process.env.DEBUG) process.stderr.write(`[bridge:debug] ${msg}\n`); },
+  };
+
+  const mockContext = {
+    config: config,
+    workspaceDir: process.env.CLAWD_WORKSPACE || join(homedir(), '.clawd', 'workspace'),
+    agentDir: process.env.CLAWD_AGENT_DIR || join(homedir(), '.clawd'),
+    agentId: 'bridge',
+    sessionKey: 'mcp-bridge',
+  };
+
+  const api = {
+    id: 'clawd-mcp-bridge',
+    name: 'ClawdEx MCP Bridge',
+    version: '0.1.0',
+    description: 'MCP bridge for OpenClaw-compatible plugins',
+    source: 'mcp-bridge',
+    config: config,
+    pluginConfig: config.pluginConfig || config,
+    logger,
+    runtime: {
+      platform: platform(),
+      arch: arch(),
+      homeDir: homedir(),
+      getWorkspaceDir: () => mockContext.workspaceDir,
+      getAgentDir: () => mockContext.agentDir,
+    },
+
+    // === Core: capture tool registrations ===
+    registerTool(toolOrFactory, opts) {
+      if (typeof toolOrFactory === 'function') {
+        // Tool Factory — invoke with context to get actual tool(s)
+        try {
+          const result = toolOrFactory(mockContext);
+          if (Array.isArray(result)) {
+            result.forEach(t => { if (t) capturedTools.push(normalizeTool(t)); });
+          } else if (result) {
+            capturedTools.push(normalizeTool(result));
+          }
+        } catch (err) {
+          logger.warn(`Tool factory failed: ${err.message}`);
         }
-      } else if (typeof plugin.getTools === 'function') {
-        const tools = await plugin.getTools();
-        for (const tool of tools) {
-          this.registerTool(tool);
-        }
+      } else if (toolOrFactory) {
+        capturedTools.push(normalizeTool(toolOrFactory));
       }
-      
-      this.initialized = true;
-      this.logDebug(`Initialized plugin from ${pluginPath} with ${this.tools.size} tools`);
-      
-    } catch (error) {
-      this.logError(`Failed to initialize plugin: ${error.message}`);
-      throw error;
+    },
+
+    // === No-ops for capabilities we don't bridge ===
+    registerChannel() {},
+    registerProvider() {},
+    registerHook() {},
+    registerCli() {},
+    registerService() {},
+    registerCommand() {},
+    registerHttpRoute() {},
+    registerGatewayMethod() {},
+    registerContextEngine() {},
+    on() {},
+    resolvePath: (p) => resolve(p),
+  };
+
+  return { api, capturedTools };
+}
+
+function normalizeTool(tool) {
+  // Find the execute function (different plugins use different names)
+  const executeFn = tool.execute || tool.run || tool.handler;
+  return {
+    name: tool.name,
+    description: tool.description || `Tool: ${tool.name}`,
+    inputSchema: tool.parameters || tool.inputSchema || tool.schema || {
+      type: 'object',
+      properties: {},
+    },
+    execute: executeFn,
+  };
+}
+
+// ============================================================================
+// MCP Server over stdio
+// ============================================================================
+
+function startMcpServer(tools) {
+  const toolMap = new Map();
+  for (const tool of tools) {
+    if (tool.name && tool.execute) {
+      toolMap.set(tool.name, tool);
     }
   }
 
-  registerTool(tool) {
-    if (!tool.name || typeof tool.execute !== 'function') {
-      this.logError(`Invalid tool: missing name or execute function`);
+  process.stderr.write(`[bridge] MCP server ready with ${toolMap.size} tool(s): ${[...toolMap.keys()].join(', ')}\n`);
+
+  const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
+
+  rl.on('line', async (line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+
+    let msg;
+    try {
+      msg = JSON.parse(trimmed);
+    } catch {
+      respond(null, null, { code: -32700, message: 'Parse error' });
       return;
     }
 
-    const mcpTool = {
-      name: tool.name,
-      description: tool.description || `Tool: ${tool.name}`,
-      inputSchema: tool.schema || {
-        type: 'object',
-        properties: {},
-        additionalProperties: true
-      },
-      execute: tool.execute.bind(tool)
-    };
+    const { id, method, params } = msg;
 
-    this.tools.set(tool.name, mcpTool);
-    this.logDebug(`Registered tool: ${tool.name}`);
-  }
+    // Notifications (no id) — just acknowledge silently
+    if (id === undefined || id === null) {
+      // e.g. notifications/initialized
+      return;
+    }
 
-  async handleRequest(request) {
-    try {
-      const { id, method, params } = request;
+    switch (method) {
+      case 'initialize':
+        respond(id, {
+          protocolVersion: '2024-11-05',
+          capabilities: { tools: {} },
+          serverInfo: { name: 'clawd-mcp-bridge', version: '0.1.0' },
+        });
+        break;
 
-      switch (method) {
-        case 'initialize':
-          return {
-            id,
-            result: {
-              protocolVersion: '2024-11-05',
-              capabilities: {
-                tools: {}
-              },
-              serverInfo: {
-                name: 'clawd-ex-plugin-bridge',
-                version: '1.0.0'
-              }
-            }
-          };
+      case 'tools/list':
+        respond(id, {
+          tools: [...toolMap.values()].map(t => ({
+            name: t.name,
+            description: t.description,
+            inputSchema: t.inputSchema,
+          })),
+        });
+        break;
 
-        case 'tools/list':
-          const toolsList = Array.from(this.tools.values()).map(tool => ({
-            name: tool.name,
-            description: tool.description,
-            inputSchema: tool.inputSchema
-          }));
-          
-          return {
-            id,
-            result: {
-              tools: toolsList
-            }
-          };
-
-        case 'tools/call':
-          const { name, arguments: args } = params;
-          const tool = this.tools.get(name);
-          
-          if (!tool) {
-            return {
-              id,
-              error: {
-                code: -32601,
-                message: `Tool not found: ${name}`
-              }
-            };
-          }
-
-          try {
-            const result = await tool.execute(args);
-            return {
-              id,
-              result: {
-                content: [
-                  {
-                    type: 'text',
-                    text: typeof result === 'string' ? result : JSON.stringify(result, null, 2)
-                  }
-                ]
-              }
-            };
-          } catch (toolError) {
-            return {
-              id,
-              error: {
-                code: -32000,
-                message: `Tool execution failed: ${toolError.message}`,
-                data: { tool: name, error: toolError.message }
-              }
-            };
-          }
-
-        default:
-          return {
-            id,
-            error: {
-              code: -32601,
-              message: `Method not found: ${method}`
-            }
-          };
-      }
-    } catch (error) {
-      return {
-        id: request.id || null,
-        error: {
-          code: -32603,
-          message: `Internal error: ${error.message}`
+      case 'tools/call': {
+        const { name, arguments: args } = params || {};
+        const tool = toolMap.get(name);
+        if (!tool) {
+          respond(id, null, { code: -32601, message: `Tool not found: ${name}` });
+          break;
         }
-      };
-    }
-  }
+        try {
+          const result = await tool.execute(args || {}, {});
+          respond(id, { content: formatContent(result) });
+        } catch (err) {
+          respond(id, {
+            content: [{ type: 'text', text: `Error: ${err.message}` }],
+            isError: true,
+          });
+        }
+        break;
+      }
 
-  logDebug(message) {
-    if (process.env.DEBUG) {
-      console.error(`[DEBUG] ${message}`);
-    }
-  }
+      case 'ping':
+        respond(id, {});
+        break;
 
-  logError(message) {
-    console.error(`[ERROR] ${message}`);
-  }
+      default:
+        respond(id, null, { code: -32601, message: `Method not found: ${method}` });
+    }
+  });
+
+  rl.on('close', () => process.exit(0));
+  process.on('SIGTERM', () => process.exit(0));
+  process.on('SIGINT', () => process.exit(0));
 }
 
-// Main execution
+function respond(id, result, error) {
+  const msg = { jsonrpc: '2.0', id };
+  if (error) msg.error = error;
+  else msg.result = result;
+  process.stdout.write(JSON.stringify(msg) + '\n');
+}
+
+function formatContent(result) {
+  if (result === null || result === undefined) return [{ type: 'text', text: '' }];
+  if (typeof result === 'string') return [{ type: 'text', text: result }];
+  if (typeof result === 'object') {
+    // MCP native content format
+    if (Array.isArray(result.content)) return result.content;
+    return [{ type: 'text', text: JSON.stringify(result, null, 2) }];
+  }
+  return [{ type: 'text', text: String(result) }];
+}
+
+// ============================================================================
+// Main
+// ============================================================================
+
 async function main() {
-  const args = process.argv.slice(2);
-  
-  // Parse command line arguments
-  let pluginPath = null;
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--plugin' && i + 1 < args.length) {
-      pluginPath = args[i + 1];
-      break;
-    }
-  }
+  const args = parseArgs(process.argv.slice(2));
 
-  if (!pluginPath) {
-    console.error('Usage: bridge.js --plugin <plugin-path>');
+  if (!args.plugin) {
+    process.stderr.write('Usage: bridge.js --plugin <path-or-dir> [--config <json>]\n');
     process.exit(1);
   }
 
-  const server = new MCPServer();
-  
-  try {
-    // Initialize the plugin
-    await server.initialize(pluginPath);
-    
-    // Set up JSON-RPC communication over stdio
-    process.stdin.setEncoding('utf8');
-    
-    let buffer = '';
-    
-    process.stdin.on('data', async (chunk) => {
-      buffer += chunk;
-      
-      // Process complete JSON-RPC messages
-      let newlineIndex;
-      while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
-        const line = buffer.slice(0, newlineIndex).trim();
-        buffer = buffer.slice(newlineIndex + 1);
-        
-        if (line) {
-          try {
-            const request = JSON.parse(line);
-            const response = await server.handleRequest(request);
-            process.stdout.write(JSON.stringify(response) + '\n');
-          } catch (parseError) {
-            const errorResponse = {
-              id: null,
-              error: {
-                code: -32700,
-                message: `Parse error: ${parseError.message}`
-              }
-            };
-            process.stdout.write(JSON.stringify(errorResponse) + '\n');
-          }
-        }
-      }
-    });
+  // Resolve plugin path
+  const pluginDir = resolvePlugin(args.plugin, args.extensionsDir);
+  const entryPoint = findEntryPoint(pluginDir);
 
-    process.stdin.on('end', () => {
-      process.exit(0);
-    });
+  process.stderr.write(`[bridge] Loading plugin from ${entryPoint}\n`);
 
-    // Handle cleanup on exit
-    process.on('SIGINT', () => {
-      server.logDebug('Received SIGINT, shutting down...');
-      process.exit(0);
-    });
+  // Load plugin module
+  const pluginModule = await import(pathToFileURL(entryPoint));
+  const plugin = pluginModule.default || pluginModule;
 
-    process.on('SIGTERM', () => {
-      server.logDebug('Received SIGTERM, shutting down...');
-      process.exit(0);
-    });
+  // Create fake API and capture tools
+  const config = loadConfig(args.config);
+  const { api, capturedTools } = createFakeApi(config);
 
-    server.logDebug('MCP bridge started and ready');
-    
-  } catch (error) {
-    console.error(`Failed to start bridge: ${error.message}`);
-    process.exit(1);
+  // Call plugin registration
+  const pluginDef = typeof plugin === 'function' ? { register: plugin } : plugin;
+  if (pluginDef.register) await pluginDef.register(api);
+  if (pluginDef.activate) await pluginDef.activate(api);
+
+  process.stderr.write(`[bridge] Captured ${capturedTools.length} tool(s)\n`);
+
+  if (capturedTools.length === 0) {
+    process.stderr.write('[bridge:warn] No tools captured. Plugin may use an unsupported registration pattern.\n');
   }
+
+  // Start MCP server
+  startMcpServer(capturedTools);
 }
 
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+process.on('unhandledRejection', (reason) => {
+  process.stderr.write(`[bridge:error] Unhandled rejection: ${reason}\n`);
   process.exit(1);
 });
 
-main().catch(error => {
-  console.error(`Fatal error: ${error.message}`);
+main().catch(err => {
+  process.stderr.write(`[bridge:fatal] ${err.message}\n`);
   process.exit(1);
 });
