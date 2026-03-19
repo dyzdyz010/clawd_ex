@@ -99,7 +99,8 @@ defmodule ClawdEx.Sessions.SessionWorker do
       # 构建配置
       config = %{
         default_model: get_agent_model(session.agent_id),
-        workspace: get_agent_workspace(session.agent_id)
+        workspace: get_agent_workspace(session.agent_id),
+        channel: channel
       }
 
       # 启动 Agent Loop

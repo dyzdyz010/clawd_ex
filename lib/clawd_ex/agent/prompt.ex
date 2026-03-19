@@ -59,6 +59,8 @@ defmodule ClawdEx.Agent.Prompt do
   @spec build(integer() | nil, map()) :: String.t()
   def build(agent_id, config \\ %{}) do
     agent = if agent_id, do: Repo.get(Agent, agent_id), else: nil
+    metadata = config[:inbound_metadata] || %{}
+    is_group = metadata[:is_group] || false
 
     sections = [
       identity_section(),
@@ -68,10 +70,14 @@ defmodule ClawdEx.Agent.Prompt do
       skills_section(config),
       memory_section(config),
       workspace_section(agent, config),
-      bootstrap_section(agent, config),
+      bootstrap_section(agent, config, is_group),
+      inbound_context_section(metadata),
+      group_chat_section(metadata),
+      reply_tags_section(),
       messaging_section(config),
       silent_replies_section(),
       heartbeat_section(config),
+      session_startup_section(config, is_group),
       runtime_section(config)
     ]
 
@@ -186,7 +192,7 @@ defmodule ClawdEx.Agent.Prompt do
     """
   end
 
-  defp bootstrap_section(agent, config) do
+  defp bootstrap_section(agent, config, is_group \\ false) do
     workspace =
       cond do
         agent && agent.workspace_path -> agent.workspace_path
@@ -198,16 +204,29 @@ defmodule ClawdEx.Agent.Prompt do
       expanded = Path.expand(workspace)
       max_chars = config[:bootstrap_max_chars] || 20_000
 
+      # In group chats, skip MEMORY.md to prevent private data leakage
+      files_to_load =
+        if is_group do
+          Enum.reject(@bootstrap_files, fn {filename, _} -> filename == "MEMORY.md" end)
+        else
+          @bootstrap_files
+        end
+
       loaded_files =
-        @bootstrap_files
+        files_to_load
         |> Enum.map(fn {filename, _desc} ->
           path = Path.join(expanded, filename)
 
           if File.exists?(path) do
             case File.read(path) do
               {:ok, content} ->
+                # Check if BOOTSTRAP.md — schedule deletion after load
+                if filename == "BOOTSTRAP.md" do
+                  schedule_bootstrap_delete(path)
+                end
+
                 truncated = truncate_content(content, max_chars)
-                "## #{filename}\n#{truncated}"
+                "## #{path}\n#{truncated}"
 
               _ ->
                 "[MISSING] Expected at: #{path}"
@@ -218,11 +237,18 @@ defmodule ClawdEx.Agent.Prompt do
         end)
 
       if Enum.any?(loaded_files, &(!String.starts_with?(&1, "[MISSING]"))) do
+        privacy_note =
+          if is_group do
+            "\nNote: MEMORY.md is NOT loaded in group chats for privacy. Use memory_search tool if needed."
+          else
+            ""
+          end
+
         """
         # Project Context
         The following project context files have been loaded:
         If SOUL.md is present, embody its persona and tone. Avoid stiff, generic replies; follow its guidance unless higher-priority instructions override it.
-
+        #{privacy_note}
         #{Enum.join(loaded_files, "\n")}
         """
       else
@@ -231,6 +257,24 @@ defmodule ClawdEx.Agent.Prompt do
     else
       nil
     end
+  end
+
+  # Schedule BOOTSTRAP.md deletion (fire-and-forget, after the prompt is built)
+  defp schedule_bootstrap_delete(path) do
+    Task.start(fn ->
+      # Small delay to ensure the prompt was fully built before deleting
+      Process.sleep(5_000)
+
+      if File.exists?(path) do
+        case File.rm(path) do
+          :ok ->
+            Logger.info("BOOTSTRAP.md deleted after first load (ritual complete)")
+
+          {:error, reason} ->
+            Logger.warning("Failed to delete BOOTSTRAP.md: #{inspect(reason)}")
+        end
+      end
+    end)
   end
 
   defp messaging_section(config) do
@@ -301,6 +345,110 @@ defmodule ClawdEx.Agent.Prompt do
     - **Timezone:** #{timezone}
     - **Max Tool Iterations:** #{Loop.max_tool_iterations()}
     """
+  end
+
+  # ============================================================================
+  # Inbound Context — sender/chat metadata from the channel
+  # ============================================================================
+
+  defp inbound_context_section(metadata) when metadata == %{} or metadata == nil, do: nil
+
+  defp inbound_context_section(metadata) do
+    chat_type = metadata[:chat_type] || "private"
+    channel = metadata[:channel] || "unknown"
+
+    context = %{
+      schema: "clawdex.inbound_meta.v1",
+      channel: channel,
+      chat_type: chat_type,
+      sender_id: metadata[:sender_id],
+      sender_name: metadata[:sender_name],
+      sender_username: metadata[:sender_username],
+      is_group: metadata[:is_group] || false,
+      is_forum: metadata[:is_forum] || false,
+      topic_id: metadata[:topic_id],
+      group_subject: metadata[:group_subject]
+    }
+    |> Enum.reject(fn {_, v} -> is_nil(v) end)
+    |> Map.new()
+
+    """
+    ## Inbound Context (trusted metadata)
+    The following JSON describes the current message context.
+    ```json
+    #{Jason.encode!(context, pretty: true)}
+    ```
+    """
+  end
+
+  # ============================================================================
+  # Group Chat — behavioral guidelines
+  # ============================================================================
+
+  defp group_chat_section(metadata) do
+    if metadata[:is_group] do
+      group_name = metadata[:group_subject] || "this group"
+
+      """
+      ## Group Chat Context
+      You are in the group chat "#{group_name}". Your replies are automatically sent to this group.
+      Do not use the message tool to send to this same group — just reply normally.
+
+      ### Group Chat Rules
+      - You are a participant, not the user's voice or proxy
+      - Private info stays private — do not share MEMORY.md contents
+      - Respond when directly mentioned, asked a question, or can add genuine value
+      - Stay silent when it's casual banter or someone already answered
+      - Quality > quantity — if you wouldn't send it in a real group chat, don't send it
+      """
+    else
+      nil
+    end
+  end
+
+  # ============================================================================
+  # Reply Tags
+  # ============================================================================
+
+  defp reply_tags_section do
+    """
+    ## Reply Tags
+    To reply to a specific message, include a reply tag as the very first token:
+    - `[[reply_to_current]]` — replies to the triggering message
+    - `[[reply_to:<message_id>]]` — replies to a specific message by ID
+    Tags are stripped before sending. Example: `[[reply_to_current]] Here's your answer.`
+    """
+  end
+
+  # ============================================================================
+  # Session Startup Protocol
+  # ============================================================================
+
+  defp session_startup_section(config, is_group) do
+    workspace = config[:workspace]
+
+    if workspace do
+      memory_instruction =
+        if is_group do
+          "- Skip MEMORY.md in group chats (privacy)"
+        else
+          "- Read `MEMORY.md` for long-term context"
+        end
+
+      """
+      ## Session Startup
+      On your first message in a new session, read these workspace files (if they exist):
+      1. Read `SOUL.md` — this defines your personality
+      2. Read `USER.md` — this describes who you're helping
+      3. Read `memory/#{Date.utc_today() |> Date.to_iso8601()}.md` — today's notes
+      #{memory_instruction}
+
+      Do not ask permission. Just read them silently and incorporate the context.
+      If BOOTSTRAP.md exists, follow its instructions, then it will be deleted automatically.
+      """
+    else
+      nil
+    end
   end
 
   # ============================================================================

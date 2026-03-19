@@ -46,6 +46,7 @@ defmodule ClawdEx.Agent.Loop do
     :output_manager_pid,
     :a2a_message_id,
     :task_ref,
+    :inbound_metadata,
     tool_iterations: 0
   ]
 
@@ -160,7 +161,8 @@ defmodule ClawdEx.Agent.Loop do
         reply_to: from,
         started_at: DateTime.utc_now(),
         timeout_ref: timeout_ref,
-        model: Keyword.get(opts, :model, data.config[:default_model]) |> Models.resolve()
+        model: Keyword.get(opts, :model, data.config[:default_model]) |> Models.resolve(),
+        inbound_metadata: Keyword.get(opts, :inbound_metadata)
     }
 
     {:next_state, :preparing, new_data, [{:next_event, :internal, {:prepare, content}}]}
@@ -260,7 +262,13 @@ defmodule ClawdEx.Agent.Loop do
     Persistence.save_message(data.session_id, :user, content)
 
     # 4. 构建系统提示
-    system_prompt = Prompt.build(data.agent_id, Map.put(data.config, :model, data.model))
+    prompt_config =
+      data.config
+      |> Map.put(:model, data.model)
+      |> Map.put(:inbound_metadata, data.inbound_metadata)
+      |> Map.put(:channel, data.config[:channel] || get_in(data.inbound_metadata || %{}, [:channel]))
+
+    system_prompt = Prompt.build(data.agent_id, prompt_config)
 
     # 5. 加载可用工具
     tools = ToolExecutor.load_tools(data.config)

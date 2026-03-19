@@ -27,6 +27,8 @@ defmodule ClawdEx.Application do
       ClawdEx.A2A.Supervisor,
       # Agent Loop Task Supervisor (for supervised AI/tool tasks)
       {Task.Supervisor, name: ClawdEx.AgentTaskSupervisor},
+      # Memory Manager (unified memory backend coordination)
+      {ClawdEx.Memory.Manager, %{}},
       # OAuth credential manager (handles token refresh)
       ClawdEx.AI.OAuth,
       # Background process manager
