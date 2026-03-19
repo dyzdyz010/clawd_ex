@@ -1,11 +1,30 @@
-# Script for populating the database. You can run it as:
+# Script for populating the database with seed data.
 #
-#     mix run priv/repo/seeds.exs
+# Run with: mix run priv/repo/seeds.exs
 #
-# Inside the script, you can read and write to any of your
-# repositories directly:
-#
-#     ClawdEx.Repo.insert!(%ClawdEx.SomeSchema{})
-#
-# We recommend using the bang functions (`insert!`, `update!`
-# and so on) as they will fail if something goes wrong.
+# Creates:
+# - Default agent with a sensible configuration
+
+alias ClawdEx.Repo
+alias ClawdEx.Agents.Agent
+
+# Create default agent if it doesn't exist
+case Repo.get_by(Agent, name: "default") do
+  nil ->
+    %Agent{}
+    |> Agent.changeset(%{
+      name: "default",
+      system_prompt: """
+      You are a helpful AI assistant running on ClawdEx.
+      You have access to tools for file operations, web search, code execution, and more.
+      Be concise and helpful. Use tools when they would help answer the question better.
+      """,
+      active: true
+    })
+    |> Repo.insert!()
+
+    IO.puts("✅ Created default agent")
+
+  _agent ->
+    IO.puts("ℹ️  Default agent already exists, skipping")
+end
