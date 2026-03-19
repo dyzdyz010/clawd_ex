@@ -1,24 +1,23 @@
-defmodule ClawdEx.AI.Providers.Groq do
+defmodule ClawdEx.AI.Providers.OpenAI do
   @moduledoc """
-  Groq AI Provider — ultra-fast inference via OpenAI-compatible API.
+  OpenAI GPT Provider — native OpenAI API.
 
-  API docs: https://console.groq.com/docs/api-reference
-
-  Config: GROQ_API_KEY env or Application config
+  Config: OPENAI_API_KEY env or Application config
   """
 
   @behaviour ClawdEx.AI.Provider
 
   alias ClawdEx.AI.Providers.OpenAICompat
+  alias ClawdEx.AI.OAuth
 
-  @base_url "https://api.groq.com/openai/v1"
+  @base_url "https://api.openai.com/v1"
 
   # ============================================================================
   # Provider Behaviour
   # ============================================================================
 
   @impl true
-  def name, do: :groq
+  def name, do: :openai
 
   @impl true
   def configured? do
@@ -40,8 +39,6 @@ defmodule ClawdEx.AI.Providers.Groq do
   def stream(model, messages, opts \\ []) do
     case get_api_key() do
       {:ok, api_key} ->
-        # Groq has x_groq usage field in addition to standard usage
-        opts = Keyword.put(opts, :usage_extractor, &groq_usage_extractor/1)
         OpenAICompat.stream(@base_url, api_key, model, messages, opts)
 
       {:error, reason} ->
@@ -57,24 +54,9 @@ defmodule ClawdEx.AI.Providers.Groq do
   # ============================================================================
 
   defp get_api_key do
-    key =
-      case Application.get_env(:clawd_ex, :groq) do
-        nil -> nil
-        config -> Keyword.get(config, :api_key)
-      end
-
-    key = key || System.get_env("GROQ_API_KEY")
-
-    case key do
-      nil -> {:error, :missing_api_key}
-      "" -> {:error, :missing_api_key}
-      k -> {:ok, k}
+    case OAuth.get_api_key(:openai) do
+      {:ok, key} -> {:ok, key}
+      _ -> {:error, :missing_api_key}
     end
-  end
-
-  # Groq includes usage in x_groq field during streaming
-  defp groq_usage_extractor(event) do
-    usage = event["usage"] || event["x_groq"] || %{}
-    {usage["prompt_tokens"], usage["completion_tokens"]}
   end
 end
