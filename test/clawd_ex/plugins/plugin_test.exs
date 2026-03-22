@@ -43,6 +43,9 @@ defmodule ClawdEx.Plugins.PluginTest do
     end
   end
 
+  # Builtin plugins (Telegram, Discord) are always loaded
+  @builtin_count 2
+
   describe "Manager" do
     setup do
       # Ensure no plugins configured for clean tests
@@ -70,17 +73,17 @@ defmodule ClawdEx.Plugins.PluginTest do
       end
     end
 
-    test "list_plugins returns empty list when no plugins configured" do
+    test "list_plugins returns only builtins when no extra plugins configured" do
       result = Manager.list_plugins()
-      assert result == []
+      assert length(result) == @builtin_count
     end
 
-    test "get_tools returns empty list when no plugins configured" do
+    test "get_tools returns empty list when no extra plugins configured" do
       result = Manager.get_tools()
       assert result == []
     end
 
-    test "get_providers returns empty list when no plugins configured" do
+    test "get_providers returns empty list when no extra plugins configured" do
       result = Manager.get_providers()
       assert result == []
     end
@@ -95,11 +98,10 @@ defmodule ClawdEx.Plugins.PluginTest do
       assert result == {:error, :not_found}
     end
 
-    test "reload resets state" do
-      # Call reload and verify it returns :ok
+    test "reload resets state to builtins only" do
       assert :ok = Manager.reload()
-      # After reload with empty config, should have no plugins
-      assert Manager.list_plugins() == []
+      # After reload with empty config, should have only builtins
+      assert length(Manager.list_plugins()) == @builtin_count
     end
   end
 
@@ -129,9 +131,8 @@ defmodule ClawdEx.Plugins.PluginTest do
 
     test "loads a plugin and lists it" do
       plugins = Manager.list_plugins()
-      assert length(plugins) == 1
-      assert hd(plugins).name == "test-plugin"
-      assert hd(plugins).version == "0.1.0"
+      assert length(plugins) == @builtin_count + 1
+      assert Enum.any?(plugins, &(&1.name == "test-plugin" && &1.version == "0.1.0"))
     end
 
     test "get_tools returns tools from plugin" do
@@ -147,9 +148,8 @@ defmodule ClawdEx.Plugins.PluginTest do
     test "disable_plugin disables it" do
       assert :ok = Manager.disable_plugin("test-plugin")
 
-      plugins = Manager.list_plugins()
-      assert length(plugins) == 1
-      refute hd(plugins).enabled
+      plugin = Manager.get_plugin("test-plugin")
+      refute plugin.enabled
 
       # Disabled plugins should not contribute tools
       assert Manager.get_tools() == []
@@ -160,8 +160,8 @@ defmodule ClawdEx.Plugins.PluginTest do
       Manager.disable_plugin("test-plugin")
       assert :ok = Manager.enable_plugin("test-plugin")
 
-      plugins = Manager.list_plugins()
-      assert hd(plugins).enabled
+      plugin = Manager.get_plugin("test-plugin")
+      assert plugin.enabled
       assert Manager.get_tools() == [:mock_tool_module]
     end
   end
@@ -172,6 +172,9 @@ defmodule ClawdEx.Plugins.TestPlugin do
   @behaviour ClawdEx.Plugins.Plugin
 
   @impl true
+  def id, do: "test-plugin"
+
+  @impl true
   def name, do: "test-plugin"
 
   @impl true
@@ -179,6 +182,12 @@ defmodule ClawdEx.Plugins.TestPlugin do
 
   @impl true
   def description, do: "A test plugin for unit tests"
+
+  @impl true
+  def plugin_type, do: :beam
+
+  @impl true
+  def capabilities, do: [:tools, :providers]
 
   @impl true
   def init(_config), do: {:ok, %{}}

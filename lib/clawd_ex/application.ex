@@ -39,7 +39,9 @@ defmodule ClawdEx.Application do
       ClawdEx.Browser.Supervisor,
       # Skills subsystem (Manager → Registry → Watcher)
       ClawdEx.Skills.Supervisor,
-      # Plugins subsystem (Manager)
+      # Channel Registry (dynamic channel lookup) — must start before Plugins
+      ClawdEx.Channels.Registry,
+      # Plugins subsystem (Manager — registers builtin channels on init)
       ClawdEx.Plugins.Supervisor,
       # MCP subsystem (Server connections + Tool proxy)
       ClawdEx.MCP.Supervisor,
@@ -52,8 +54,6 @@ defmodule ClawdEx.Application do
       ClawdEx.Webhooks.Manager,
       # Session Manager (DynamicSupervisor)
       ClawdEx.Sessions.SessionManager,
-      # Channel Registry (dynamic channel lookup)
-      ClawdEx.Channels.Registry,
       # Discord channel (optional, starts if configured)
       ClawdEx.Channels.DiscordSupervisor,
       # Telegram channel (optional, starts if configured)

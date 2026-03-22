@@ -293,9 +293,22 @@ defmodule ClawdEx.Plugins.Manager do
 
   defp load_all_plugins(state) do
     state
+    |> load_builtin_plugins()
     |> load_config_plugins()
     |> load_registry_plugins()
     |> register_all_channels()
+  end
+
+  # Load built-in channel plugins (Telegram, Discord)
+  defp load_builtin_plugins(state) do
+    builtin_modules = [
+      ClawdEx.Plugins.Builtin.TelegramPlugin,
+      ClawdEx.Plugins.Builtin.DiscordPlugin
+    ]
+
+    Enum.reduce(builtin_modules, state, fn module, acc ->
+      load_beam_plugin(acc, module, %{})
+    end)
   end
 
   # Load plugins from Application config (backwards compatible)
@@ -470,34 +483,13 @@ defmodule ClawdEx.Plugins.Manager do
   # ============================================================================
 
   defp register_all_channels(state) do
-    # Register builtin channels
-    register_builtin_channels()
-
-    # Register plugin channels
+    # Register channels from all enabled plugins (builtin + external)
     state.plugins
     |> Map.values()
     |> Enum.filter(&(&1.enabled && :channels in &1.capabilities))
     |> Enum.each(&register_plugin_channels/1)
 
     state
-  end
-
-  defp register_builtin_channels do
-    # Register Telegram if running
-    if Process.whereis(ClawdEx.Channels.Telegram) do
-      ClawdEx.Channels.Registry.register("telegram", ClawdEx.Channels.Telegram,
-        label: "Telegram",
-        source: :builtin
-      )
-    end
-
-    # Register Discord if running
-    if Process.whereis(ClawdEx.Channels.Discord) do
-      ClawdEx.Channels.Registry.register("discord", ClawdEx.Channels.Discord,
-        label: "Discord",
-        source: :builtin
-      )
-    end
   end
 
   defp register_plugin_channels(%Plugin{plugin_type: :beam, module: module, id: plugin_id})
@@ -511,9 +503,11 @@ defmodule ClawdEx.Plugins.Manager do
           label = Map.get(channel_spec, :label, channel_id)
 
           if channel_id && channel_module do
+            source = Map.get(channel_spec, :source, :plugin)
+
             ClawdEx.Channels.Registry.register(channel_id, channel_module,
               label: label,
-              source: :plugin,
+              source: source,
               plugin_id: plugin_id
             )
           end

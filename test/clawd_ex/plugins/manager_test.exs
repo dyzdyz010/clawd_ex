@@ -102,17 +102,23 @@ defmodule ClawdEx.Plugins.ManagerTest do
     end
   end
 
+  # Builtin plugins (Telegram, Discord) are always loaded
+  @builtin_count 2
+
   describe "list_plugins/0" do
-    test "returns empty list when no plugins configured" do
+    test "returns only builtin plugins when no extra plugins configured" do
       ensure_manager_with([])
-      assert Manager.list_plugins() == []
+      plugins = Manager.list_plugins()
+      assert length(plugins) == @builtin_count
+      ids = Enum.map(plugins, & &1.id) |> Enum.sort()
+      assert ids == ["discord", "telegram"]
     end
 
-    test "returns loaded plugins" do
+    test "returns loaded plugins including builtins" do
       ensure_manager_with([{@test_plugin, %{}}])
       plugins = Manager.list_plugins()
-      assert length(plugins) == 1
-      assert hd(plugins).name == "manager-test-plugin"
+      assert length(plugins) == @builtin_count + 1
+      assert Enum.any?(plugins, &(&1.name == "manager-test-plugin"))
     end
   end
 
@@ -128,7 +134,7 @@ defmodule ClawdEx.Plugins.ManagerTest do
 
       assert :ok = Manager.enable_plugin("manager-test-plugin")
 
-      [plugin] = Manager.list_plugins()
+      plugin = Manager.get_plugin("manager-test-plugin")
       assert plugin.enabled == true
       assert plugin.status == :loaded
     end
@@ -145,7 +151,7 @@ defmodule ClawdEx.Plugins.ManagerTest do
 
       assert :ok = Manager.disable_plugin("manager-test-plugin")
 
-      [plugin] = Manager.list_plugins()
+      plugin = Manager.get_plugin("manager-test-plugin")
       assert plugin.enabled == false
       assert plugin.status == :disabled
     end
@@ -191,20 +197,21 @@ defmodule ClawdEx.Plugins.ManagerTest do
   describe "reload/0" do
     test "reloads all plugins from config" do
       ensure_manager_with([{@test_plugin, %{}}])
-      assert length(Manager.list_plugins()) == 1
+      assert length(Manager.list_plugins()) == @builtin_count + 1
 
       Application.put_env(:clawd_ex, :plugins, [])
       assert :ok = Manager.reload()
-      assert Manager.list_plugins() == []
+      # Only builtins remain
+      assert length(Manager.list_plugins()) == @builtin_count
     end
 
     test "picks up newly configured plugins" do
       ensure_manager_with([])
-      assert Manager.list_plugins() == []
+      assert length(Manager.list_plugins()) == @builtin_count
 
       Application.put_env(:clawd_ex, :plugins, [{@test_plugin, %{}}])
       assert :ok = Manager.reload()
-      assert length(Manager.list_plugins()) == 1
+      assert length(Manager.list_plugins()) == @builtin_count + 1
     end
   end
 
@@ -242,9 +249,12 @@ defmodule ClawdEx.Plugins.ManagerTest do
   end
 
   describe "get_channels/0" do
-    test "returns empty when no plugins" do
+    test "returns builtin channels when no extra plugins" do
       ensure_manager_with([])
-      assert Manager.get_channels() == []
+      channels = Manager.get_channels()
+      assert length(channels) == @builtin_count
+      ids = Enum.map(channels, & &1.id) |> Enum.sort()
+      assert ids == ["discord", "telegram"]
     end
   end
 end
