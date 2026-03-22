@@ -34,6 +34,11 @@ defmodule ClawdExWeb.Router do
     plug ClawdExWeb.Plugs.BearerAuth
   end
 
+  pipeline :api_v1_auth do
+    plug :accepts, ["json"]
+    plug ClawdExWeb.Plugs.ApiAuthPlug
+  end
+
   # Public routes (login, auth callback, logout)
   scope "/", ClawdExWeb do
     pipe_through :browser
@@ -90,6 +95,9 @@ defmodule ClawdExWeb.Router do
       # Gateway
       live "/gateway", GatewayLive, :index
 
+      # Plugins
+      live "/plugins", PluginsLive, :index
+
       # Models
       live "/models", ModelsLive, :index
 
@@ -112,5 +120,30 @@ defmodule ClawdExWeb.Router do
     post "/webhooks/inbound", WebhookController, :inbound
     post "/webhooks/inbound/generic", WebhookController, :inbound_generic
     post "/webhooks/:webhook_id/trigger", WebhookController, :trigger
+  end
+
+  # Gateway REST API v1
+  scope "/api/v1", ClawdExWeb.Api do
+    pipe_through [:api, :api_v1_auth]
+
+    # Gateway status
+    get "/gateway/status", GatewayController, :status
+    get "/gateway/health", GatewayController, :health
+
+    # Sessions
+    get "/sessions", SessionController, :index
+    get "/sessions/:key", SessionController, :show
+    post "/sessions/:key/messages", SessionController, :send_message
+    delete "/sessions/:key", SessionController, :delete
+
+    # Agents
+    get "/agents", AgentController, :index
+    get "/agents/:id", AgentController, :show
+    post "/agents", AgentController, :create
+    put "/agents/:id", AgentController, :update
+
+    # Tools
+    get "/tools", ToolController, :index
+    post "/tools/:name/execute", ToolController, :execute
   end
 end

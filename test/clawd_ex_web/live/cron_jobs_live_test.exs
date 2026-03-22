@@ -32,7 +32,7 @@ defmodule ClawdExWeb.CronJobsLiveTest do
     test "shows empty state when no jobs", %{conn: conn} do
       {:ok, _view, html} = live(conn, "/cron")
 
-      assert html =~ "No cron jobs yet"
+      assert html =~ "No Cron Jobs"
       assert html =~ "Create your first job"
     end
 
@@ -60,7 +60,7 @@ defmodule ClawdExWeb.CronJobsLiveTest do
 
       assert html =~ "My Cron Job"
       assert html =~ "*/5 * * * *"
-      refute html =~ "No cron jobs yet"
+      refute html =~ "No Cron Jobs"
     end
   end
 

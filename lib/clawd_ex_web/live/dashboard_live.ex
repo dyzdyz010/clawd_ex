@@ -12,6 +12,8 @@ defmodule ClawdExWeb.DashboardLive do
   alias ClawdEx.Agents.Agent
   alias ClawdEx.Sessions.{Session, Message}
   alias ClawdEx.Health
+  alias ClawdEx.Plugins.Manager, as: PluginManager
+  alias ClawdEx.Automation
 
   @impl true
   def mount(_params, _session, socket) do
@@ -26,6 +28,8 @@ defmodule ClawdExWeb.DashboardLive do
       |> load_stats()
       |> load_recent_activity()
       |> load_health()
+      |> load_plugin_stats()
+      |> load_cron_stats()
 
     {:ok, socket}
   end
@@ -37,6 +41,8 @@ defmodule ClawdExWeb.DashboardLive do
       |> load_stats()
       |> load_recent_activity()
       |> load_health()
+      |> load_plugin_stats()
+      |> load_cron_stats()
 
     {:noreply, socket}
   end
@@ -134,4 +140,19 @@ defmodule ClawdExWeb.DashboardLive do
   defp health_check_bg(:warning), do: "bg-yellow-500/10"
   defp health_check_bg(:error), do: "bg-red-500/10"
   defp health_check_bg(_), do: "bg-gray-500/10"
+
+  defp load_plugin_stats(socket) do
+    plugins = PluginManager.list_plugins()
+    loaded_count = Enum.count(plugins, &(&1.status == :loaded))
+    assign(socket, plugins_loaded: loaded_count, plugins_total: length(plugins))
+  end
+
+  defp load_cron_stats(socket) do
+    try do
+      stats = Automation.get_stats()
+      assign(socket, cron_enabled: stats.enabled_jobs, cron_total: stats.total_jobs)
+    rescue
+      _ -> assign(socket, cron_enabled: 0, cron_total: 0)
+    end
+  end
 end

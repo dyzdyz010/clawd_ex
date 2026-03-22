@@ -1,0 +1,179 @@
+<Layouts.app flash={@flash}>
+  <div class="max-w-7xl mx-auto px-4 py-8">
+    <div class="flex justify-between items-center mb-8">
+      <h1 class="text-3xl font-bold">Plugins</h1>
+      <div class="text-sm text-gray-400">
+        Auto-refreshes every 10s
+      </div>
+    </div>
+
+    <%!-- Stats Cards --%>
+    <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-8">
+      <div class="bg-gray-800 rounded-lg p-4">
+        <div class="text-2xl font-bold text-white"><%= @plugin_stats.total %></div>
+        <div class="text-xs text-gray-500 mt-1">Total Plugins</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-4">
+        <div class="text-2xl font-bold text-green-400"><%= @plugin_stats.loaded %></div>
+        <div class="text-xs text-gray-500 mt-1">Loaded</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-4">
+        <div class="text-2xl font-bold text-gray-400"><%= @plugin_stats.disabled %></div>
+        <div class="text-xs text-gray-500 mt-1">Disabled</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-4">
+        <div class="text-2xl font-bold text-red-400"><%= @plugin_stats.error %></div>
+        <div class="text-xs text-gray-500 mt-1">Errors</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-4">
+        <div class="text-2xl font-bold text-blue-400"><%= @plugin_stats.beam %></div>
+        <div class="text-xs text-gray-500 mt-1">Beam</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-4">
+        <div class="text-2xl font-bold text-yellow-400"><%= @plugin_stats.node %></div>
+        <div class="text-xs text-gray-500 mt-1">Node.js</div>
+      </div>
+    </div>
+
+    <%!-- Plugins Table --%>
+    <div class="bg-gray-800 rounded-lg overflow-hidden mb-8">
+      <div class="px-6 py-4 border-b border-gray-700">
+        <h2 class="text-xl font-semibold">Plugins</h2>
+      </div>
+      <%= if Enum.empty?(@plugins) do %>
+        <div class="text-center py-12">
+          <div class="text-5xl mb-4">🧩</div>
+          <h3 class="text-lg font-semibold mb-2">No Plugins Loaded</h3>
+          <p class="text-gray-400 text-sm">Plugins will appear here once configured</p>
+        </div>
+      <% else %>
+        <table class="w-full">
+          <thead class="bg-gray-700/50">
+            <tr>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Name</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Version</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Type</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Status</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Capabilities</th>
+              <th class="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Actions</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-700">
+            <%= for plugin <- @plugins do %>
+              <tr class="hover:bg-gray-700/30">
+                <td class="px-4 py-3">
+                  <div class="font-medium text-white"><%= plugin.name %></div>
+                  <div class="text-xs text-gray-500 truncate max-w-xs"><%= plugin.description || "-" %></div>
+                </td>
+                <td class="px-4 py-3">
+                  <code class="text-sm text-gray-300 bg-gray-700 px-2 py-1 rounded">
+                    <%= plugin.version %>
+                  </code>
+                </td>
+                <td class="px-4 py-3">
+                  <span class={"px-2 py-1 rounded text-xs font-medium " <>
+                    if(plugin.plugin_type == :beam, do: "bg-blue-500/20 text-blue-400", else: "bg-yellow-500/20 text-yellow-400")}>
+                    <%= plugin.plugin_type %>
+                  </span>
+                </td>
+                <td class="px-4 py-3">
+                  <span class={"px-2 py-1 rounded text-xs font-medium " <>
+                    case plugin.status do
+                      :loaded -> "bg-green-500/20 text-green-400"
+                      :disabled -> "bg-gray-500/20 text-gray-400"
+                      :error -> "bg-red-500/20 text-red-400"
+                      _ -> "bg-gray-500/20 text-gray-400"
+                    end}>
+                    <%= plugin.status %>
+                  </span>
+                  <%= if plugin.error do %>
+                    <div class="text-xs text-red-400 mt-1 truncate max-w-xs" title={plugin.error}>
+                      <%= plugin.error %>
+                    </div>
+                  <% end %>
+                </td>
+                <td class="px-4 py-3">
+                  <div class="flex flex-wrap gap-1">
+                    <%= for cap <- plugin.capabilities do %>
+                      <span class="px-2 py-0.5 rounded text-xs bg-gray-700 text-gray-300">
+                        <%= cap %>
+                      </span>
+                    <% end %>
+                    <%= if Enum.empty?(plugin.capabilities) do %>
+                      <span class="text-xs text-gray-500">-</span>
+                    <% end %>
+                  </div>
+                </td>
+                <td class="px-4 py-3 text-right">
+                  <button
+                    phx-click="toggle_plugin"
+                    phx-value-id={plugin.id}
+                    class={"text-sm px-3 py-1.5 rounded-lg " <>
+                      if(plugin.enabled, do: "bg-yellow-600 hover:bg-yellow-700", else: "bg-green-600 hover:bg-green-700")}
+                  >
+                    <%= if plugin.enabled, do: "Disable", else: "Enable" %>
+                  </button>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      <% end %>
+    </div>
+
+    <%!-- MCP Servers --%>
+    <div class="bg-gray-800 rounded-lg overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-700 flex justify-between items-center">
+        <h2 class="text-xl font-semibold">MCP Servers</h2>
+        <span class="text-sm text-gray-400">
+          <%= @mcp_stats.ready %>/<%= @mcp_stats.total %> ready
+        </span>
+      </div>
+      <%= if Enum.empty?(@mcp_servers) do %>
+        <div class="text-center py-12">
+          <div class="text-5xl mb-4">🔌</div>
+          <h3 class="text-lg font-semibold mb-2">No MCP Servers</h3>
+          <p class="text-gray-400 text-sm">Configure MCP servers in ~/.clawd/mcp_servers.json</p>
+        </div>
+      <% else %>
+        <table class="w-full">
+          <thead class="bg-gray-700/50">
+            <tr>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Name</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Status</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Started</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-700">
+            <%= for {name, info} <- @mcp_servers do %>
+              <tr class="hover:bg-gray-700/30">
+                <td class="px-4 py-3">
+                  <div class="font-medium text-white"><%= name %></div>
+                </td>
+                <td class="px-4 py-3">
+                  <span class={"px-2 py-1 rounded text-xs font-medium " <>
+                    case info.status do
+                      :ready -> "bg-green-500/20 text-green-400"
+                      :connecting -> "bg-yellow-500/20 text-yellow-400"
+                      :error -> "bg-red-500/20 text-red-400"
+                      :closed -> "bg-gray-500/20 text-gray-400"
+                      _ -> "bg-gray-500/20 text-gray-400"
+                    end}>
+                    <%= info.status %>
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-sm text-gray-400">
+                  <%= if info.started_at do %>
+                    <%= Calendar.strftime(info.started_at, "%Y-%m-%d %H:%M") %>
+                  <% else %>
+                    -
+                  <% end %>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      <% end %>
+    </div>
+  </div>
+</Layouts.app>

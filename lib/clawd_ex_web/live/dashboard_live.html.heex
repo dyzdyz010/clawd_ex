@@ -3,12 +3,18 @@
     <h1 class="text-3xl font-bold mb-8">Dashboard</h1>
 
     <%!-- Stats Cards --%>
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4 mb-8">
       <.stat_card title="Agents" value={@agents_count} icon="🤖" color="blue" />
       <.stat_card title="Total Sessions" value={@sessions_count} icon="💬" color="purple" />
       <.stat_card title="Active Sessions" value={@active_sessions} icon="🟢" color="green" />
       <.stat_card title="Total Messages" value={@messages_count} icon="📝" color="yellow" />
       <.stat_card title="Today's Messages" value={@today_messages} icon="📅" color="pink" />
+      <.link navigate={~p"/plugins"} class="block">
+        <.stat_card title="Plugins" value={"#{@plugins_loaded}/#{@plugins_total}"} icon="🧩" color="blue" />
+      </.link>
+      <.link navigate={~p"/cron"} class="block">
+        <.stat_card title="Cron Jobs" value={"#{@cron_enabled}/#{@cron_total}"} icon="⏰" color="purple" />
+      </.link>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -116,6 +122,9 @@
         </.link>
         <.link navigate={~p"/cron/new"} class="btn-secondary">
           ⏰ New Cron Job
+        </.link>
+        <.link navigate={~p"/plugins"} class="btn-secondary">
+          🧩 Plugins
         </.link>
         <.link navigate={~p"/settings"} class="btn-secondary">
           ⚙️ Settings

@@ -1,0 +1,150 @@
+<Layouts.app flash={@flash}>
+  <div class="max-w-7xl mx-auto px-4 py-8">
+    <%!-- Header --%>
+    <div class="flex items-center justify-between mb-8">
+      <div>
+        <h1 class="text-3xl font-bold">Cron Jobs</h1>
+        <p class="text-gray-400 text-sm mt-1">Manage scheduled tasks</p>
+      </div>
+      <.link navigate={~p"/cron/new"} class="btn-primary">
+        + New Job
+      </.link>
+    </div>
+
+    <%!-- Stats --%>
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+      <div class="bg-gray-800 rounded-lg p-4">
+        <div class="text-2xl font-bold text-white"><%= @stats.total_jobs %></div>
+        <div class="text-xs text-gray-500 mt-1">Total Jobs</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-4">
+        <div class="text-2xl font-bold text-green-400"><%= @stats.enabled_jobs %></div>
+        <div class="text-xs text-gray-500 mt-1">Enabled</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-4">
+        <div class="text-2xl font-bold text-gray-400"><%= @stats.disabled_jobs %></div>
+        <div class="text-xs text-gray-500 mt-1">Disabled</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-4">
+        <div class="text-2xl font-bold text-blue-400"><%= @stats.total_runs %></div>
+        <div class="text-xs text-gray-500 mt-1">Total Runs</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-4">
+        <div class="text-2xl font-bold text-red-400"><%= @stats.failed_runs %></div>
+        <div class="text-xs text-gray-500 mt-1">Failed Runs</div>
+      </div>
+    </div>
+
+    <%!-- Filters --%>
+    <div class="flex gap-2 mb-6">
+      <.link
+        patch={~p"/cron?filter=all"}
+        class={"px-4 py-2 rounded-lg text-sm " <>
+          if(@filter == "all", do: "bg-blue-600 text-white", else: "bg-gray-700 text-gray-300 hover:bg-gray-600")}
+      >
+        All
+      </.link>
+      <.link
+        patch={~p"/cron?filter=enabled"}
+        class={"px-4 py-2 rounded-lg text-sm " <>
+          if(@filter == "enabled", do: "bg-blue-600 text-white", else: "bg-gray-700 text-gray-300 hover:bg-gray-600")}
+      >
+        Enabled Only
+      </.link>
+    </div>
+
+    <%!-- Jobs Table --%>
+    <div class="bg-gray-800 rounded-lg overflow-hidden">
+      <%= if Enum.empty?(@jobs) do %>
+        <div class="text-center py-12">
+          <div class="text-5xl mb-4">⏰</div>
+          <h3 class="text-lg font-semibold mb-2">No Cron Jobs</h3>
+          <p class="text-gray-400 text-sm mb-4">Create your first scheduled job</p>
+          <.link navigate={~p"/cron/new"} class="text-blue-400 hover:underline">
+            Create your first job
+          </.link>
+        </div>
+      <% else %>
+        <table class="w-full">
+          <thead class="bg-gray-700/50">
+            <tr>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Name</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Schedule</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Last Run</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Runs</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Status</th>
+              <th class="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Actions</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-700">
+            <%= for job <- @jobs do %>
+              <tr class="hover:bg-gray-700/30">
+                <td class="px-4 py-3">
+                  <.link navigate={~p"/cron/#{job.id}"} class="font-medium text-white hover:text-blue-400">
+                    <%= job.name %>
+                  </.link>
+                  <%= if job.description do %>
+                    <p class="text-xs text-gray-500 truncate max-w-xs"><%= job.description %></p>
+                  <% end %>
+                </td>
+                <td class="px-4 py-3">
+                  <code class="text-sm text-gray-300 bg-gray-700 px-2 py-1 rounded">
+                    <%= job.schedule %>
+                  </code>
+                </td>
+                <td class="px-4 py-3 text-sm text-gray-400">
+                  <%= if job.last_run_at do %>
+                    <%= Calendar.strftime(job.last_run_at, "%Y-%m-%d %H:%M") %>
+                  <% else %>
+                    <span class="text-gray-500">Never</span>
+                  <% end %>
+                </td>
+                <td class="px-4 py-3 text-sm text-gray-400">
+                  <%= job.run_count %>
+                </td>
+                <td class="px-4 py-3">
+                  <span class={"px-2 py-1 rounded text-xs font-medium " <>
+                    if(job.enabled, do: "bg-green-500/20 text-green-400", else: "bg-gray-500/20 text-gray-400")}>
+                    <%= if job.enabled, do: "Enabled", else: "Disabled" %>
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-right">
+                  <div class="flex items-center justify-end gap-2">
+                    <button
+                      phx-click="run_now"
+                      phx-value-id={job.id}
+                      class="text-blue-400 hover:text-blue-300 text-sm"
+                      title="Run Now"
+                    >
+                      ▶
+                    </button>
+                    <button
+                      phx-click="toggle"
+                      phx-value-id={job.id}
+                      class={"text-sm " <>
+                        if(job.enabled, do: "text-yellow-400 hover:text-yellow-300", else: "text-green-400 hover:text-green-300")}
+                      title={if job.enabled, do: "Disable", else: "Enable"}
+                    >
+                      <%= if job.enabled, do: "⏸", else: "▶" %>
+                    </button>
+                    <.link navigate={~p"/cron/#{job.id}/edit"} class="text-gray-400 hover:text-white text-sm">
+                      ✏️
+                    </.link>
+                    <button
+                      phx-click="delete"
+                      phx-value-id={job.id}
+                      data-confirm="Are you sure you want to delete this job?"
+                      class="text-red-400 hover:text-red-300 text-sm"
+                    >
+                      🗑
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      <% end %>
+    </div>
+  </div>
+</Layouts.app>
