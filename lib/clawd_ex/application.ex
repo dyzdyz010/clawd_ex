@@ -33,6 +33,8 @@ defmodule ClawdEx.Application do
       ClawdEx.AI.OAuth,
       # Background process manager
       ClawdEx.Tools.Process,
+      # API Key manager (ETS-backed)
+      ClawdEx.Security.ApiKey,
       # Node registry for paired devices
       ClawdEx.Nodes.Registry,
       # Node pairing service (pair codes, token management)

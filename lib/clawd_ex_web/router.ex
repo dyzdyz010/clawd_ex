@@ -36,7 +36,12 @@ defmodule ClawdExWeb.Router do
 
   pipeline :api_v1_auth do
     plug :accepts, ["json"]
+    plug ClawdExWeb.Plugs.RateLimitPlug
     plug ClawdExWeb.Plugs.ApiAuthPlug
+  end
+
+  pipeline :require_admin do
+    plug ClawdExWeb.Plugs.RequireScopePlug, scope: :admin
   end
 
   # Public routes (login, auth callback, logout)
@@ -98,6 +103,9 @@ defmodule ClawdExWeb.Router do
       # Plugins
       live "/plugins", PluginsLive, :index
 
+      # Nodes
+      live "/nodes", NodesLive, :index
+
       # Models
       live "/models", ModelsLive, :index
 
@@ -120,6 +128,16 @@ defmodule ClawdExWeb.Router do
     post "/webhooks/inbound", WebhookController, :inbound
     post "/webhooks/inbound/generic", WebhookController, :inbound_generic
     post "/webhooks/:webhook_id/trigger", WebhookController, :trigger
+  end
+
+  # Gateway REST API v1 — Admin-only endpoints
+  scope "/api/v1", ClawdExWeb.Api do
+    pipe_through [:api, :api_v1_auth, :require_admin]
+
+    # API Key management (admin only)
+    get "/auth/keys", AuthController, :index
+    post "/auth/keys", AuthController, :create
+    delete "/auth/keys/:id", AuthController, :delete
   end
 
   # Gateway REST API v1
@@ -145,6 +163,10 @@ defmodule ClawdExWeb.Router do
     # Tools
     get "/tools", ToolController, :index
     post "/tools/:name/execute", ToolController, :execute
+
+    # SSE Streaming
+    get "/sessions/:key/stream", StreamController, :stream
+    post "/sessions/:key/chat", StreamController, :chat
 
     # Nodes (设备配对管理)
     post "/nodes/pair", NodeController, :pair

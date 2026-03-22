@@ -12,6 +12,7 @@ defmodule ClawdExWeb.Channels.GatewaySocket do
   channel "session:*", ClawdExWeb.Channels.SessionChannel
   channel "node:*", ClawdExWeb.Channels.NodeChannel
   channel "system:*", ClawdExWeb.Channels.SystemChannel
+  channel "admin:*", ClawdExWeb.Channels.AdminChannel
 
   @impl true
   def connect(%{"token" => token}, socket, _connect_info) do
