@@ -15,6 +15,13 @@ defmodule ClawdExWeb.Endpoint do
     websocket: [connect_info: [session: @session_options]],
     longpoll: [connect_info: [session: @session_options]]
 
+  # Gateway WebSocket for node connections, session channels, and API clients
+  socket "/gateway/ws", ClawdExWeb.Channels.GatewaySocket,
+    websocket: [
+      connect_info: [:peer_data, :x_headers],
+      timeout: 60_000
+    ]
+
   # Serve at "/" the static files from "priv/static" directory.
   #
   # When code reloading is disabled (e.g., in production),

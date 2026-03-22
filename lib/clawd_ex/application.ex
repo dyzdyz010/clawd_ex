@@ -35,6 +35,8 @@ defmodule ClawdEx.Application do
       ClawdEx.Tools.Process,
       # Node registry for paired devices
       ClawdEx.Nodes.Registry,
+      # Node pairing service (pair codes, token management)
+      ClawdEx.Nodes.Pairing,
       # Browser subsystem (CDP → Server)
       ClawdEx.Browser.Supervisor,
       # Skills subsystem (Manager → Registry → Watcher)

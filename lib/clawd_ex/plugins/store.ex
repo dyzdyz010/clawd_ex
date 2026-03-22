@@ -77,24 +77,34 @@ defmodule ClawdEx.Plugins.Store do
     end
   end
 
-  @doc "Save the plugin registry to disk"
+  @doc "Save the plugin registry to disk (atomic: write to tmp file then rename)"
   @spec save(registry()) :: :ok | {:error, term()}
   def save(registry) do
     path = registry_path()
+    dir = Path.dirname(path)
 
     # Ensure directory exists
-    path |> Path.dirname() |> File.mkdir_p!()
+    File.mkdir_p!(dir)
 
-    content = Jason.encode!(registry, pretty: true)
+    case Jason.encode(registry, pretty: true) do
+      {:ok, content} ->
+        tmp_path = path <> ".tmp"
 
-    case File.write(path, content) do
-      :ok ->
-        Logger.debug("Plugin registry saved: #{map_size(registry.plugins)} plugins")
-        :ok
+        with :ok <- File.write(tmp_path, content),
+             :ok <- File.rename(tmp_path, path) do
+          Logger.debug("Plugin registry saved: #{map_size(registry.plugins)} plugins")
+          :ok
+        else
+          {:error, reason} ->
+            # Clean up tmp file on failure
+            File.rm(tmp_path)
+            Logger.error("Failed to save plugin registry: #{inspect(reason)}")
+            {:error, reason}
+        end
 
       {:error, reason} ->
-        Logger.error("Failed to save plugin registry: #{inspect(reason)}")
-        {:error, reason}
+        Logger.error("Failed to encode plugin registry: #{inspect(reason)}")
+        {:error, {:encode_error, reason}}
     end
   end
 

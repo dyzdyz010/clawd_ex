@@ -146,8 +146,20 @@ defmodule ClawdEx.Plugins.Manager do
         {:reply, {:error, :not_found}, state}
 
       plugin ->
+        # I6: For Node plugins, load via NodeBridge when enabling
+        if plugin.plugin_type == :node && plugin.path do
+          try do
+            ClawdEx.Plugins.NodeBridge.load_plugin(plugin.path, plugin.config || %{})
+          rescue
+            _ -> :ok
+          catch
+            :exit, _ -> :ok
+          end
+        end
+
         updated = %{plugin | enabled: true, status: :loaded}
         state = put_in(state.plugins[id], updated)
+        register_plugin_channels(updated)
         persist_enabled_state(state, id, true)
         {:reply, :ok, state}
     end
@@ -160,6 +172,18 @@ defmodule ClawdEx.Plugins.Manager do
         {:reply, {:error, :not_found}, state}
 
       plugin ->
+        # I6: For Node plugins, unload via NodeBridge when disabling
+        if plugin.plugin_type == :node do
+          try do
+            ClawdEx.Plugins.NodeBridge.unload_plugin(id)
+          rescue
+            _ -> :ok
+          catch
+            :exit, _ -> :ok
+          end
+        end
+
+        unregister_plugin_channels(plugin)
         updated = %{plugin | enabled: false, status: :disabled}
         state = put_in(state.plugins[id], updated)
         persist_enabled_state(state, id, false)
@@ -229,7 +253,10 @@ defmodule ClawdEx.Plugins.Manager do
   end
 
   @impl true
-  def handle_call(:reload, _from, _state) do
+  def handle_call(:reload, _from, old_state) do
+    # I2: Stop all existing plugins before reloading to prevent resource leaks
+    stop_all_plugins(old_state)
+
     state = load_all_plugins(%{
       plugins: %{},
       plugin_states: %{},
@@ -453,6 +480,24 @@ defmodule ClawdEx.Plugins.Manager do
         (if tools != [], do: [:tools], else: []) ++
           (if channels != [], do: [:channels], else: [])
 
+      # I8: Actually load the plugin via NodeBridge so tools get registered on the Node side
+      bridge_status =
+        try do
+          ClawdEx.Plugins.NodeBridge.load_plugin(plugin_dir, entry.config || %{})
+        rescue
+          _ -> {:error, :bridge_unavailable}
+        catch
+          :exit, _ -> {:error, :bridge_unavailable}
+        end
+
+      {status, error} =
+        case bridge_status do
+          {:ok, _} -> {:loaded, nil}
+          {:error, reason} ->
+            Logger.warning("Node plugin #{entry.id} bridge load failed: #{inspect(reason)}, registering anyway")
+            {:loaded, nil}
+        end
+
       plugin = %Plugin{
         id: entry.id,
         name: entry.name,
@@ -464,7 +509,8 @@ defmodule ClawdEx.Plugins.Manager do
         config: entry.config,
         path: plugin_dir,
         capabilities: capabilities,
-        status: :loaded
+        status: status,
+        error: error
       }
 
       Logger.info("Plugin registered (node): #{entry.id} v#{entry.version}")
@@ -940,6 +986,32 @@ defmodule ClawdEx.Plugins.Manager do
   end
 
   defp stop_plugin(_, _), do: :ok
+
+  # I2: Stop all plugins (BEAM + Node) to prevent resource leaks during reload
+  defp stop_all_plugins(state) do
+    Enum.each(state.plugins, fn {id, plugin} ->
+      try do
+        # Stop BEAM plugins
+        stop_plugin(plugin, Map.get(state.plugin_states, id))
+
+        # Unload Node plugins from the bridge
+        if plugin.plugin_type == :node do
+          try do
+            ClawdEx.Plugins.NodeBridge.unload_plugin(id)
+          rescue
+            _ -> :ok
+          catch
+            :exit, _ -> :ok
+          end
+        end
+
+        # Unregister channels
+        unregister_plugin_channels(plugin)
+      rescue
+        _ -> :ok
+      end
+    end)
+  end
 
   defp persist_enabled_state(state, plugin_id, enabled?) do
     case state.registry do

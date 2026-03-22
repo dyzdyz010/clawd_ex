@@ -145,5 +145,15 @@ defmodule ClawdExWeb.Router do
     # Tools
     get "/tools", ToolController, :index
     post "/tools/:name/execute", ToolController, :execute
+
+    # Nodes (设备配对管理)
+    post "/nodes/pair", NodeController, :pair
+    post "/nodes/generate_code", NodeController, :generate_code
+    get "/nodes/pending", NodeController, :pending
+    get "/nodes", NodeController, :index
+    get "/nodes/:id", NodeController, :show
+    post "/nodes/:id/approve", NodeController, :approve
+    post "/nodes/:id/reject", NodeController, :reject
+    delete "/nodes/:id", NodeController, :delete
   end
 end

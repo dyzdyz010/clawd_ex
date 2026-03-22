@@ -287,6 +287,17 @@ async function handleToolList(params) {
   return { ok: true, tools };
 }
 
+// I4: Timeout helper for tool execution
+const TOOL_TIMEOUT_MS = 30_000;
+
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 async function handleToolCall(params) {
   const { pluginId, tool: toolName, params: toolParams, context } = params;
   if (!pluginId) throw new Error('pluginId is required');
@@ -301,7 +312,11 @@ async function handleToolCall(params) {
 
   let result;
   try {
-    result = await tool.execute(toolParams || {}, context || {});
+    result = await withTimeout(
+      tool.execute(toolParams || {}, context || {}),
+      TOOL_TIMEOUT_MS,
+      `Tool ${pluginId}/${toolName}`
+    );
   } catch (err) {
     notify('plugin.error', { pluginId, error: `Tool ${toolName} execution failed: ${err.message}` });
     throw new Error(`Tool execution failed: ${err.message}`);

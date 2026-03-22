@@ -13,7 +13,8 @@ defmodule ClawdEx.Nodes.Registry do
 
   @type state :: %{
           nodes: %{String.t() => Node.t()},
-          pending: %{String.t() => Node.t()}
+          pending: %{String.t() => Node.t()},
+          revoked: %{String.t() => Node.t()}
         }
 
   # ============================================================================
@@ -109,6 +110,14 @@ defmodule ClawdEx.Nodes.Registry do
   end
 
   @doc """
+  获取所有在线节点（status == :connected）
+  """
+  @spec list_online() :: [Node.t()]
+  def list_online do
+    GenServer.call(__MODULE__, :list_online)
+  end
+
+  @doc """
   获取节点数量统计
   """
   @spec stats() :: map()
@@ -134,7 +143,8 @@ defmodule ClawdEx.Nodes.Registry do
 
     state = %{
       nodes: %{},
-      pending: %{}
+      pending: %{},
+      revoked: %{}
     }
 
     {:ok, state}
@@ -232,12 +242,31 @@ defmodule ClawdEx.Nodes.Registry do
 
   @impl true
   def handle_call({:remove, node_id}, _from, state) do
+    # Check if node exists to track in revoked
+    revoked_node = Map.get(state.nodes, node_id) || Map.get(state.pending, node_id)
     new_nodes = Map.delete(state.nodes, node_id)
     new_pending = Map.delete(state.pending, node_id)
 
+    new_revoked =
+      if revoked_node do
+        Map.put(state.revoked, node_id, Node.mark_revoked(revoked_node))
+      else
+        state.revoked
+      end
+
     Logger.info("Node removed: #{node_id}")
 
-    {:reply, :ok, %{state | nodes: new_nodes, pending: new_pending}}
+    {:reply, :ok, %{state | nodes: new_nodes, pending: new_pending, revoked: new_revoked}}
+  end
+
+  @impl true
+  def handle_call(:list_online, _from, state) do
+    online =
+      state.nodes
+      |> Map.values()
+      |> Enum.filter(&(&1.status == :connected))
+
+    {:reply, online, state}
   end
 
   @impl true
@@ -278,7 +307,7 @@ defmodule ClawdEx.Nodes.Registry do
   @impl true
   def handle_call(:reset, _from, _state) do
     # Reset to initial empty state (for testing)
-    {:reply, :ok, %{nodes: %{}, pending: %{}}}
+    {:reply, :ok, %{nodes: %{}, pending: %{}, revoked: %{}}}
   end
 
   @impl true

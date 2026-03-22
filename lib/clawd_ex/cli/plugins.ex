@@ -440,12 +440,16 @@ defmodule ClawdEx.CLI.Plugins do
   # ===========================================================================
 
   defp handle_config(plugin_id, rest, opts) do
-    plugin = Manager.get_plugin(plugin_id)
-    unless plugin do IO.puts("✗ Plugin '#{plugin_id}' not found (V2 only)."); return() end
-    cond do
-      opts[:show] || rest == [] -> show_config(plugin)
-      length(rest) == 1 -> show_config_key(plugin, hd(rest))
-      length(rest) >= 2 -> set_config(plugin_id, hd(rest), Enum.drop(rest, 1) |> Enum.join(" "))
+    case Manager.get_plugin(plugin_id) do
+      nil ->
+        IO.puts("✗ Plugin '#{plugin_id}' not found (V2 only).")
+
+      plugin ->
+        cond do
+          opts[:show] || rest == [] -> show_config(plugin)
+          length(rest) == 1 -> show_config_key(plugin, hd(rest))
+          length(rest) >= 2 -> set_config(plugin_id, hd(rest), Enum.drop(rest, 1) |> Enum.join(" "))
+        end
     end
   end
 
@@ -640,8 +644,6 @@ defmodule ClawdEx.CLI.Plugins do
       else: String.pad_trailing(str, len)
   end
   defp pad(nil, len), do: String.pad_trailing("—", len)
-
-  defp return, do: :ok
 
   # ===========================================================================
   # Help

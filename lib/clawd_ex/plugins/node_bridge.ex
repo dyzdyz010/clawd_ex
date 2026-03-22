@@ -17,6 +17,8 @@ defmodule ClawdEx.Plugins.NodeBridge do
 
   @default_timeout 30_000
   @restart_delay 1_000
+  @max_restart_delay 30_000
+  @max_restart_attempts 20
   @startup_timeout 5_000
   # Well below JS MAX_SAFE_INTEGER (2^53 - 1) to prevent precision loss
   @max_rpc_id 2_000_000_000
@@ -30,7 +32,10 @@ defmodule ClawdEx.Plugins.NodeBridge do
     pending: %{},
     next_id: 1,
     buffer: "",
-    startup_queue: []
+    buffer_size: 0,
+    startup_queue: [],
+    restart_attempts: 0,
+    current_restart_delay: @restart_delay
   ]
 
   # ============================================================================
@@ -257,15 +262,22 @@ defmodule ClawdEx.Plugins.NodeBridge do
       # Already have a port, skip restart
       {:noreply, state}
     else
-      case start_port(state) do
-        {:ok, new_state} ->
-          Logger.info("[NodeBridge] Sidecar restarted successfully")
-          {:noreply, new_state}
+      if state.restart_attempts >= @max_restart_attempts do
+        Logger.error("[NodeBridge] Max restart attempts (#{@max_restart_attempts}) reached, giving up")
+        {:noreply, %{state | status: :error}}
+      else
+        case start_port(state) do
+          {:ok, new_state} ->
+            Logger.info("[NodeBridge] Sidecar restarted successfully")
+            {:noreply, %{new_state | restart_attempts: 0, current_restart_delay: @restart_delay}}
 
-        {:error, reason} ->
-          Logger.error("[NodeBridge] Sidecar restart failed: #{inspect(reason)}")
-          Process.send_after(self(), :restart_port, @restart_delay * 2)
-          {:noreply, state}
+          {:error, reason} ->
+            attempts = state.restart_attempts + 1
+            next_delay = min(state.current_restart_delay * 2, @max_restart_delay)
+            Logger.error("[NodeBridge] Sidecar restart failed (attempt #{attempts}): #{inspect(reason)}, retry in #{next_delay}ms")
+            Process.send_after(self(), :restart_port, state.current_restart_delay)
+            {:noreply, %{state | restart_attempts: attempts, current_restart_delay: next_delay}}
+        end
       end
     end
   end
@@ -357,14 +369,31 @@ defmodule ClawdEx.Plugins.NodeBridge do
     Port.command(port, json <> "\n")
   end
 
+  # I5: Maximum buffer size (10MB) to prevent OOM from oversized messages
+  @max_buffer_size 10_485_760
+
+  defp handle_port_data(%{buffer: :overflow} = state, {:eol, _data}) do
+    Logger.warning("[NodeBridge] Discarding oversized message (exceeded #{@max_buffer_size} bytes)")
+    %{state | buffer: "", buffer_size: 0}
+  end
+
   defp handle_port_data(state, {:eol, data}) do
     line = state.buffer <> to_string(data)
-    state = %{state | buffer: ""}
+    state = %{state | buffer: "", buffer_size: 0}
     handle_json_line(state, String.trim(line))
   end
 
   defp handle_port_data(state, {:noeol, data}) do
-    %{state | buffer: state.buffer <> to_string(data)}
+    chunk = to_string(data)
+    new_size = state.buffer_size + byte_size(chunk)
+
+    if new_size > @max_buffer_size do
+      Logger.error("[NodeBridge] Buffer exceeded #{@max_buffer_size} bytes, discarding message")
+      # Discard the oversized buffer but keep listening — next {:eol, _} will start fresh
+      %{state | buffer: :overflow, buffer_size: new_size}
+    else
+      %{state | buffer: state.buffer <> chunk, buffer_size: new_size}
+    end
   end
 
   defp handle_port_data(state, data) when is_binary(data) do

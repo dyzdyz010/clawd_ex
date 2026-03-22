@@ -5,7 +5,7 @@ defmodule ClawdEx.Nodes.Node do
   表示一个远程配对的节点设备，可以是手机、桌面电脑等。
   """
 
-  @type status :: :pending | :connected | :disconnected | :rejected
+  @type status :: :pending | :connected | :disconnected | :rejected | :revoked
 
   @type t :: %__MODULE__{
           id: String.t(),
@@ -14,12 +14,14 @@ defmodule ClawdEx.Nodes.Node do
           status: status(),
           capabilities: [String.t()],
           metadata: map(),
+          node_token: String.t() | nil,
+          pair_token: String.t() | nil,
           connected_at: DateTime.t() | nil,
           last_seen_at: DateTime.t() | nil,
           paired_at: DateTime.t() | nil
         }
 
-  @derive Jason.Encoder
+  @derive {Jason.Encoder, except: [:node_token, :pair_token]}
   defstruct [
     :id,
     :name,
@@ -27,6 +29,8 @@ defmodule ClawdEx.Nodes.Node do
     :status,
     :capabilities,
     :metadata,
+    :node_token,
+    :pair_token,
     :connected_at,
     :last_seen_at,
     :paired_at
@@ -97,7 +101,15 @@ defmodule ClawdEx.Nodes.Node do
   end
 
   @doc """
-  将节点转换为描述 map
+  标记节点为已撤销
+  """
+  @spec mark_revoked(t()) :: t()
+  def mark_revoked(node) do
+    %{node | status: :revoked, node_token: nil, pair_token: nil}
+  end
+
+  @doc """
+  将节点转换为描述 map（不包含敏感 token）
   """
   @spec describe(t()) :: map()
   def describe(node) do
