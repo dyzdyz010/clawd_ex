@@ -18,6 +18,52 @@ import { pathToFileURL } from 'url';
 import { homedir, platform, arch } from 'os';
 
 // ============================================================================
+// JSON-RPC transport (hoisted for use by console interceptors)
+// ============================================================================
+
+function respond(id, result) {
+  const msg = { jsonrpc: '2.0', id, result };
+  process.stdout.write(JSON.stringify(msg) + '\n');
+}
+
+function respondError(id, code, message) {
+  const msg = {
+    jsonrpc: '2.0',
+    id,
+    error: { code, message },
+  };
+  process.stdout.write(JSON.stringify(msg) + '\n');
+}
+
+function notify(method, params) {
+  const msg = { jsonrpc: '2.0', method, params };
+  process.stdout.write(JSON.stringify(msg) + '\n');
+}
+
+// ============================================================================
+// C4: Intercept console.log/warn/error to prevent plugins from writing
+// directly to stdout (which would corrupt the JSON-RPC protocol).
+// Redirect to plugin.log notifications.
+// ============================================================================
+
+console.log = (...args) => {
+  const msg = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+  notify('plugin.log', { pluginId: 'host', level: 'info', message: msg });
+};
+console.warn = (...args) => {
+  const msg = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+  notify('plugin.log', { pluginId: 'host', level: 'warn', message: msg });
+};
+console.error = (...args) => {
+  const msg = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+  notify('plugin.log', { pluginId: 'host', level: 'error', message: msg });
+};
+console.debug = (...args) => {
+  const msg = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+  notify('plugin.log', { pluginId: 'host', level: 'debug', message: msg });
+};
+
+// ============================================================================
 // State — loaded plugins keyed by plugin ID
 // ============================================================================
 
@@ -169,14 +215,35 @@ async function handlePluginLoad(params) {
   }
 
   // Create API and load plugin
+  // C4: Validate entryPoint is within pluginDir (prevent path traversal)
+  const realEntry = resolve(entryPoint);
+  const realDir = resolve(resolvedDir);
+  if (!realEntry.startsWith(realDir + '/') && realEntry !== realDir) {
+    throw new Error(`Entry point "${entryPoint}" is outside plugin directory "${resolvedDir}"`);
+  }
+
   const { api, tools, channels } = createPluginApi(pluginId, resolvedDir, config || {});
 
-  const pluginModule = await import(pathToFileURL(entryPoint).href);
+  let pluginModule;
+  try {
+    pluginModule = await import(pathToFileURL(entryPoint).href);
+  } catch (err) {
+    throw new Error(`Failed to load plugin module: ${err.message}`);
+  }
   const plugin = pluginModule.default || pluginModule;
 
   const pluginDef = typeof plugin === 'function' ? { register: plugin } : plugin;
-  if (pluginDef.register) await pluginDef.register(api);
-  if (pluginDef.activate) await pluginDef.activate(api);
+  try {
+    if (pluginDef.register) await pluginDef.register(api);
+  } catch (err) {
+    throw new Error(`Plugin register() failed: ${err.message}`);
+  }
+  try {
+    if (pluginDef.activate) await pluginDef.activate(api);
+  } catch (err) {
+    notify('plugin.error', { pluginId, error: `activate() failed: ${err.message}` });
+    // Continue — plugin may still be partially usable
+  }
 
   plugins.set(pluginId, {
     id: pluginId,
@@ -232,7 +299,13 @@ async function handleToolCall(params) {
   if (!tool) throw new Error(`Tool not found: ${toolName}`);
   if (!tool.execute) throw new Error(`Tool ${toolName} has no execute function`);
 
-  const result = await tool.execute(toolParams || {}, context || {});
+  let result;
+  try {
+    result = await tool.execute(toolParams || {}, context || {});
+  } catch (err) {
+    notify('plugin.error', { pluginId, error: `Tool ${toolName} execution failed: ${err.message}` });
+    throw new Error(`Tool execution failed: ${err.message}`);
+  }
   return { ok: true, data: result };
 }
 
@@ -255,33 +328,13 @@ async function handleChannelSend(params) {
 }
 
 // ============================================================================
-// JSON-RPC transport
-// ============================================================================
-
-function respond(id, result) {
-  const msg = { jsonrpc: '2.0', id, result };
-  process.stdout.write(JSON.stringify(msg) + '\n');
-}
-
-function respondError(id, code, message) {
-  const msg = {
-    jsonrpc: '2.0',
-    id,
-    error: { code, message },
-  };
-  process.stdout.write(JSON.stringify(msg) + '\n');
-}
-
-function notify(method, params) {
-  const msg = { jsonrpc: '2.0', method, params };
-  process.stdout.write(JSON.stringify(msg) + '\n');
-}
-
-// ============================================================================
 // Main loop — read JSON-RPC from stdin
 // ============================================================================
 
 const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
+
+// Signal readiness to the Elixir NodeBridge
+notify('host.ready', {});
 
 rl.on('line', async (line) => {
   const trimmed = line.trim();

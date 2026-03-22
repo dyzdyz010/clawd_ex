@@ -249,6 +249,7 @@ defmodule ClawdEx.Plugins.Manager do
         {:reply, {:ok, plugin}, state}
 
       {:error, reason} ->
+        # do_install handles its own cleanup on failure
         {:reply, {:error, reason}, state}
     end
   end
@@ -266,24 +267,33 @@ defmodule ClawdEx.Plugins.Manager do
         # Unregister channels
         unregister_plugin_channels(plugin)
 
-        # Remove from registry
-        case Store.load() do
-          {:ok, registry} ->
-            registry = Store.remove_plugin(registry, plugin_id)
-            Store.save(registry)
+        # C5: Persist registry removal FIRST — only remove from memory if write succeeds
+        registry_result =
+          case Store.load() do
+            {:ok, registry} ->
+              updated_registry = Store.remove_plugin(registry, plugin_id)
+              Store.save(updated_registry)
 
-          _ ->
-            :ok
+            {:error, _} ->
+              # No registry file to update, treat as success
+              :ok
+          end
+
+        case registry_result do
+          :ok ->
+            # Registry write succeeded, now remove from in-memory state
+            state = %{
+              state
+              | plugins: Map.delete(state.plugins, plugin_id),
+                plugin_states: Map.delete(state.plugin_states, plugin_id)
+            }
+            {:reply, :ok, state}
+
+          {:error, reason} ->
+            # Registry write failed — do NOT remove from state to keep consistency
+            Logger.error("[PluginManager] Failed to persist uninstall for #{plugin_id}: #{inspect(reason)}")
+            {:reply, {:error, {:registry_write_failed, reason}}, state}
         end
-
-        # Remove from state
-        state = %{
-          state
-          | plugins: Map.delete(state.plugins, plugin_id),
-            plugin_states: Map.delete(state.plugin_states, plugin_id)
-        }
-
-        {:reply, :ok, state}
     end
   end
 
@@ -739,16 +749,23 @@ defmodule ClawdEx.Plugins.Manager do
         plugin_id = meta.id
         plugin_dir = Path.join(plugins_dir, plugin_id)
 
-        # Copy or symlink
-        if plugin_dir != source_dir do
-          File.mkdir_p!(plugin_dir)
-          # Create symlink for development
-          link_target = Path.join(plugin_dir, "source")
-          File.rm(link_target)
-          File.ln_s!(source_dir, link_target)
-        end
+        try do
+          # Copy or symlink
+          if plugin_dir != source_dir do
+            File.mkdir_p!(plugin_dir)
+            # Create symlink for development
+            link_target = Path.join(plugin_dir, "source")
+            File.rm(link_target)
+            File.ln_s!(source_dir, link_target)
+          end
 
-        finalize_install(plugin_id, source_dir, plugin_dir)
+          finalize_install(plugin_id, source_dir, plugin_dir)
+        rescue
+          e ->
+            # C5: Clean up on failure
+            if plugin_dir != source_dir, do: File.rm_rf(plugin_dir)
+            {:error, {:install_failed, Exception.message(e)}}
+        end
 
       {:error, reason} ->
         {:error, {:invalid_plugin, reason}}
@@ -763,11 +780,17 @@ defmodule ClawdEx.Plugins.Manager do
            stderr_to_stdout: true
          ) do
       {_output, 0} ->
-        finalize_install(plugin_id, plugin_dir, plugin_dir)
+        case finalize_install(plugin_id, plugin_dir, plugin_dir) do
+          {:ok, _} = ok -> ok
+          {:error, _} = err ->
+            # C5: Clean up cloned directory on finalize failure
+            File.rm_rf(plugin_dir)
+            err
+        end
 
       {output, code} ->
         Logger.error("git clone failed (exit #{code}): #{output}")
-        File.rm_rf!(plugin_dir)
+        File.rm_rf(plugin_dir)
         {:error, {:git_clone_failed, output}}
     end
   end

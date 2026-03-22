@@ -17,15 +17,20 @@ defmodule ClawdEx.Plugins.NodeBridge do
 
   @default_timeout 30_000
   @restart_delay 1_000
+  @startup_timeout 5_000
+  # Well below JS MAX_SAFE_INTEGER (2^53 - 1) to prevent precision loss
+  @max_rpc_id 2_000_000_000
 
   defstruct [
     :port,
     :node_cmd,
     :script_path,
+    :startup_timer,
     status: :starting,
     pending: %{},
     next_id: 1,
-    buffer: ""
+    buffer: "",
+    startup_queue: []
   ]
 
   # ============================================================================
@@ -117,9 +122,13 @@ defmodule ClawdEx.Plugins.NodeBridge do
     {id, state} = next_id(state)
     params = %{"pluginDir" => plugin_dir, "config" => config}
     send_rpc(state.port, id, "plugin.load", params)
-    state = put_pending(state, id, {:load_plugin, from})
-    schedule_timeout(id)
+    timer_ref = schedule_timeout(id)
+    state = put_pending(state, id, {:load_plugin, from, timer_ref})
     {:noreply, state}
+  end
+
+  def handle_call({:load_plugin, _, _} = call, from, %{status: :starting} = state) do
+    {:noreply, enqueue_call(state, call, from)}
   end
 
   def handle_call({:load_plugin, _, _}, _from, state) do
@@ -131,9 +140,13 @@ defmodule ClawdEx.Plugins.NodeBridge do
     {id, state} = next_id(state)
     params = %{"pluginId" => plugin_id}
     send_rpc(state.port, id, "plugin.unload", params)
-    state = put_pending(state, id, {:unload_plugin, from})
-    schedule_timeout(id)
+    timer_ref = schedule_timeout(id)
+    state = put_pending(state, id, {:unload_plugin, from, timer_ref})
     {:noreply, state}
+  end
+
+  def handle_call({:unload_plugin, _} = call, from, %{status: :starting} = state) do
+    {:noreply, enqueue_call(state, call, from)}
   end
 
   def handle_call({:unload_plugin, _}, _from, state) do
@@ -145,9 +158,13 @@ defmodule ClawdEx.Plugins.NodeBridge do
     {id, state} = next_id(state)
     params = %{"pluginId" => plugin_id}
     send_rpc(state.port, id, "tool.list", params)
-    state = put_pending(state, id, {:list_tools, from})
-    schedule_timeout(id)
+    timer_ref = schedule_timeout(id)
+    state = put_pending(state, id, {:list_tools, from, timer_ref})
     {:noreply, state}
+  end
+
+  def handle_call({:list_tools, _} = call, from, %{status: :starting} = state) do
+    {:noreply, enqueue_call(state, call, from)}
   end
 
   def handle_call({:list_tools, _}, _from, state) do
@@ -164,9 +181,13 @@ defmodule ClawdEx.Plugins.NodeBridge do
       "context" => context
     }
     send_rpc(state.port, id, "tool.call", rpc_params)
-    state = put_pending(state, id, {:call_tool, from})
-    schedule_timeout(id)
+    timer_ref = schedule_timeout(id)
+    state = put_pending(state, id, {:call_tool, from, timer_ref})
     {:noreply, state}
+  end
+
+  def handle_call({:call_tool, _, _, _, _} = call, from, %{status: :starting} = state) do
+    {:noreply, enqueue_call(state, call, from)}
   end
 
   def handle_call({:call_tool, _, _, _, _}, _from, state) do
@@ -194,16 +215,41 @@ defmodule ClawdEx.Plugins.NodeBridge do
 
   def handle_info({port, {:exit_status, code}}, %{port: port} = state) do
     Logger.warning("[NodeBridge] Sidecar exited with code #{code}")
+    if state.startup_timer, do: Process.cancel_timer(state.startup_timer)
+    state = fail_startup_queue(state, {:error, {:sidecar_exited, code}})
     state = fail_all_pending(state, {:sidecar_exited, code})
     Process.send_after(self(), :restart_port, @restart_delay)
-    {:noreply, %{state | status: :error, port: nil, buffer: ""}}
+    {:noreply, %{state | status: :error, port: nil, buffer: "", startup_timer: nil, startup_queue: []}}
   end
 
   def handle_info({:EXIT, port, reason}, %{port: port} = state) do
     Logger.warning("[NodeBridge] Port terminated: #{inspect(reason)}")
+    if state.startup_timer, do: Process.cancel_timer(state.startup_timer)
+    state = fail_startup_queue(state, {:error, {:port_terminated, reason}})
     state = fail_all_pending(state, {:port_terminated, reason})
     Process.send_after(self(), :restart_port, @restart_delay)
-    {:noreply, %{state | status: :error, port: nil, buffer: ""}}
+    {:noreply, %{state | status: :error, port: nil, buffer: "", startup_timer: nil, startup_queue: []}}
+  end
+
+  def handle_info(:startup_timeout, %{status: :starting} = state) do
+    Logger.error("[NodeBridge] Sidecar failed to send host.ready within #{@startup_timeout}ms")
+    # Fail all queued calls
+    state = fail_startup_queue(state, {:error, :startup_timeout})
+    # Close port and schedule restart
+    if state.port do
+      try do
+        Port.close(state.port)
+      rescue
+        _ -> :ok
+      end
+    end
+    Process.send_after(self(), :restart_port, @restart_delay)
+    {:noreply, %{state | status: :error, port: nil, buffer: "", startup_timer: nil, startup_queue: []}}
+  end
+
+  def handle_info(:startup_timeout, state) do
+    # Already transitioned past :starting, ignore
+    {:noreply, state}
   end
 
   def handle_info(:restart_port, state) do
@@ -226,7 +272,7 @@ defmodule ClawdEx.Plugins.NodeBridge do
 
   def handle_info({:rpc_timeout, rpc_id}, state) do
     case Map.get(state.pending, rpc_id) do
-      {_type, from} when not is_nil(from) ->
+      {_type, from, _timer_ref} when not is_nil(from) ->
         GenServer.reply(from, {:error, :timeout})
         {:noreply, remove_pending(state, rpc_id)}
 
@@ -278,7 +324,8 @@ defmodule ClawdEx.Plugins.NodeBridge do
               {:line, 1_048_576}
             ]
           )
-          {:ok, %{state | port: port, status: :ready, buffer: ""}}
+          startup_timer = Process.send_after(self(), :startup_timeout, @startup_timeout)
+          {:ok, %{state | port: port, status: :starting, buffer: "", startup_timer: startup_timer, startup_queue: []}}
         rescue
           e ->
             {:error, {:port_start_failed, Exception.message(e)}}
@@ -353,8 +400,11 @@ defmodule ClawdEx.Plugins.NodeBridge do
       {:ok, %{"id" => id, "error" => error}} when not is_nil(id) ->
         handle_error_response(state, id, error)
 
-      {:ok, %{"method" => method, "params" => params}} ->
-        handle_notification(method, params)
+      {:ok, %{"method" => "host.ready"}} ->
+        handle_host_ready(state)
+
+      {:ok, %{"method" => method} = msg} ->
+        handle_notification(method, Map.get(msg, "params", %{}))
         state
 
       {:ok, _other} ->
@@ -369,17 +419,19 @@ defmodule ClawdEx.Plugins.NodeBridge do
 
   defp handle_response(state, id, result) do
     case Map.get(state.pending, id) do
-      {:load_plugin, from} ->
+      {:load_plugin, from, timer_ref} ->
+        cancel_timer(timer_ref)
         state = remove_pending(state, id)
         GenServer.reply(from, {:ok, result})
         state
 
-      {:unload_plugin, from} ->
+      {:unload_plugin, from, timer_ref} ->
+        cancel_timer(timer_ref)
         state = remove_pending(state, id)
         GenServer.reply(from, :ok)
         state
 
-      {:list_tools, from} ->
+      {:list_tools, from, timer_ref} ->
         tools =
           case result do
             %{"tools" => t} when is_list(t) ->
@@ -395,15 +447,17 @@ defmodule ClawdEx.Plugins.NodeBridge do
               []
           end
 
+        cancel_timer(timer_ref)
         state = remove_pending(state, id)
         GenServer.reply(from, {:ok, tools})
         state
 
-      {:call_tool, from} ->
+      {:call_tool, from, timer_ref} ->
         data = case result do
           %{"data" => d} -> d
           other -> other
         end
+        cancel_timer(timer_ref)
         state = remove_pending(state, id)
         GenServer.reply(from, {:ok, data})
         state
@@ -416,7 +470,8 @@ defmodule ClawdEx.Plugins.NodeBridge do
 
   defp handle_error_response(state, id, error) do
     case Map.get(state.pending, id) do
-      {_type, from} when not is_nil(from) ->
+      {_type, from, timer_ref} when not is_nil(from) ->
+        cancel_timer(timer_ref)
         message = error["message"] || inspect(error)
         code = error["code"] || -32000
         state = remove_pending(state, id)
@@ -427,6 +482,26 @@ defmodule ClawdEx.Plugins.NodeBridge do
         Logger.warning("[NodeBridge] Error for unknown id #{id}: #{inspect(error)}")
         state
     end
+  end
+
+  defp handle_host_ready(%{status: :starting} = state) do
+    Logger.info("[NodeBridge] Sidecar host.ready received, transitioning to :ready")
+    # Cancel startup timer
+    if state.startup_timer, do: Process.cancel_timer(state.startup_timer)
+    # Flush any startup_timeout message
+    receive do
+      :startup_timeout -> :ok
+    after
+      0 -> :ok
+    end
+    state = %{state | status: :ready, startup_timer: nil}
+    # Replay queued calls
+    drain_startup_queue(state)
+  end
+
+  defp handle_host_ready(state) do
+    # Already ready or in error state, ignore duplicate host.ready
+    state
   end
 
   defp handle_notification("plugin.log", params) do
@@ -463,7 +538,8 @@ defmodule ClawdEx.Plugins.NodeBridge do
   # ============================================================================
 
   defp next_id(state) do
-    {state.next_id, %{state | next_id: state.next_id + 1}}
+    id = state.next_id
+    {id, %{state | next_id: rem(id + 1, @max_rpc_id)}}
   end
 
   defp put_pending(state, id, value) do
@@ -476,7 +552,8 @@ defmodule ClawdEx.Plugins.NodeBridge do
 
   defp fail_all_pending(state, reason) do
     Enum.each(state.pending, fn
-      {_id, {_type, from}} when not is_nil(from) ->
+      {_id, {_type, from, timer_ref}} when not is_nil(from) ->
+        cancel_timer(timer_ref)
         GenServer.reply(from, {:error, reason})
       _ ->
         :ok
@@ -486,5 +563,67 @@ defmodule ClawdEx.Plugins.NodeBridge do
 
   defp schedule_timeout(rpc_id) do
     Process.send_after(self(), {:rpc_timeout, rpc_id}, @default_timeout)
+  end
+
+  defp enqueue_call(state, call, from) do
+    %{state | startup_queue: state.startup_queue ++ [{call, from}]}
+  end
+
+  defp drain_startup_queue(state) do
+    Enum.reduce(state.startup_queue, %{state | startup_queue: []}, fn {call, from}, acc ->
+      # Re-dispatch calls now that we're :ready
+      case call do
+        {:load_plugin, plugin_dir, config} ->
+          {id, acc} = next_id(acc)
+          params = %{"pluginDir" => plugin_dir, "config" => config}
+          send_rpc(acc.port, id, "plugin.load", params)
+          timer_ref = schedule_timeout(id)
+          put_pending(acc, id, {:load_plugin, from, timer_ref})
+
+        {:unload_plugin, plugin_id} ->
+          {id, acc} = next_id(acc)
+          params = %{"pluginId" => plugin_id}
+          send_rpc(acc.port, id, "plugin.unload", params)
+          timer_ref = schedule_timeout(id)
+          put_pending(acc, id, {:unload_plugin, from, timer_ref})
+
+        {:list_tools, plugin_id} ->
+          {id, acc} = next_id(acc)
+          params = %{"pluginId" => plugin_id}
+          send_rpc(acc.port, id, "tool.list", params)
+          timer_ref = schedule_timeout(id)
+          put_pending(acc, id, {:list_tools, from, timer_ref})
+
+        {:call_tool, plugin_id, tool_name, params, context} ->
+          {id, acc} = next_id(acc)
+          rpc_params = %{
+            "pluginId" => plugin_id,
+            "tool" => tool_name,
+            "params" => params,
+            "context" => context
+          }
+          send_rpc(acc.port, id, "tool.call", rpc_params)
+          timer_ref = schedule_timeout(id)
+          put_pending(acc, id, {:call_tool, from, timer_ref})
+      end
+    end)
+  end
+
+  defp fail_startup_queue(state, error) do
+    Enum.each(state.startup_queue, fn {_call, from} ->
+      GenServer.reply(from, error)
+    end)
+    %{state | startup_queue: []}
+  end
+
+  defp cancel_timer(nil), do: :ok
+  defp cancel_timer(ref) do
+    Process.cancel_timer(ref)
+    # Flush any already-delivered timeout message
+    receive do
+      {:rpc_timeout, _} -> :ok
+    after
+      0 -> :ok
+    end
   end
 end
