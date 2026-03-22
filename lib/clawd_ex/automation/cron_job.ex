@@ -89,11 +89,18 @@ defmodule ClawdEx.Automation.CronJob do
       nil ->
         changeset
 
-      _schedule ->
-        # Calculate next run from schedule
-        # For now, just set to 1 hour from now as placeholder
-        next_run = DateTime.utc_now() |> DateTime.add(3600, :second)
-        put_change(changeset, :next_run_at, next_run)
+      schedule ->
+        # Calculate next run using the cron parser
+        case ClawdEx.Cron.Parser.parse(schedule) do
+          {:ok, parsed} ->
+            next_run = ClawdEx.Cron.Parser.next_run(parsed)
+            put_change(changeset, :next_run_at, next_run)
+
+          {:error, _} ->
+            # If parsing fails, set a default (1 hour from now)
+            next_run = DateTime.utc_now() |> DateTime.add(3600, :second)
+            put_change(changeset, :next_run_at, next_run)
+        end
     end
   end
 end

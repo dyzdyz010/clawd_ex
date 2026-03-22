@@ -10,6 +10,16 @@ defmodule ClawdExWeb.Router do
     plug :put_secure_browser_headers
   end
 
+  pipeline :browser_auth do
+    plug :accepts, ["html"]
+    plug :fetch_session
+    plug :fetch_live_flash
+    plug :put_root_layout, html: {ClawdExWeb.Layouts, :root}
+    plug :protect_from_forgery
+    plug :put_secure_browser_headers
+    plug ClawdExWeb.Plugs.WebAuthPlug
+  end
+
   pipeline :api do
     plug :accepts, ["json"]
   end
@@ -24,54 +34,68 @@ defmodule ClawdExWeb.Router do
     plug ClawdExWeb.Plugs.BearerAuth
   end
 
+  # Public routes (login, auth callback, logout)
   scope "/", ClawdExWeb do
     pipe_through :browser
 
+    live "/login", LoginLive, :index
+    get "/auth/callback", AuthController, :callback
+    delete "/auth/logout", AuthController, :logout
+    get "/auth/logout", AuthController, :logout
+  end
+
+  # Protected browser routes — require web auth
+  scope "/", ClawdExWeb do
+    pipe_through :browser_auth
+
     # Dashboard
-    live "/", DashboardLive, :index
+    live_session :authenticated,
+      on_mount: [{ClawdExWeb.Auth, :ensure_authenticated}] do
+      live "/", DashboardLive, :index
 
-    # Chat
-    live "/chat", ChatLive, :index
+      # Chat
+      live "/chat", ChatLive, :index
 
-    # Sessions
-    live "/sessions", SessionsLive, :index
-    live "/sessions/:id", SessionDetailLive, :show
+      # Sessions
+      live "/sessions", SessionsLive, :index
+      live "/sessions/:id", SessionDetailLive, :show
 
-    # Agents
-    live "/agents", AgentsLive, :index
-    live "/agents/new", AgentFormLive, :new
-    live "/agents/:id/edit", AgentFormLive, :edit
+      # Agents
+      live "/agents", AgentsLive, :index
+      live "/agents/new", AgentFormLive, :new
+      live "/agents/:id/edit", AgentFormLive, :edit
 
-    # Skills
-    live "/skills", SkillsLive, :index
+      # Skills
+      live "/skills", SkillsLive, :index
 
-    # Webhooks
-    live "/webhooks", WebhooksLive, :index
+      # Webhooks
+      live "/webhooks", WebhooksLive, :index
 
-    # Tasks
-    live "/tasks", TasksLive, :index
-    live "/tasks/:id", TaskDetailLive, :show
+      # Tasks
+      live "/tasks", TasksLive, :index
+      live "/tasks/:id", TaskDetailLive, :show
 
-    # A2A Communication
-    live "/a2a", A2ALive, :index
+      # A2A Communication
+      live "/a2a", A2ALive, :index
 
-    # Cron Jobs
-    live "/cron", CronJobsLive, :index
-    live "/cron/new", CronJobFormLive, :new
-    live "/cron/:id", CronJobDetailLive, :show
-    live "/cron/:id/edit", CronJobFormLive, :edit
+      # Cron Jobs
+      live "/cron", CronJobsLive, :index
+      live "/cron/new", CronJobFormLive, :new
+      live "/cron/:id", CronJobDetailLive, :show
+      live "/cron/:id/edit", CronJobFormLive, :edit
 
-    # Logs
-    live "/logs", LogsLive, :index
+      # Logs
+      live "/logs", LogsLive, :index
 
-    # Gateway
-    live "/gateway", GatewayLive, :index
+      # Gateway
+      live "/gateway", GatewayLive, :index
 
-    # Models
-    live "/models", ModelsLive, :index
+      # Models
+      live "/models", ModelsLive, :index
 
-    # Settings
-    live "/settings", SettingsLive, :index
+      # Settings
+      live "/settings", SettingsLive, :index
+    end
   end
 
   # Public API endpoints (no auth required)

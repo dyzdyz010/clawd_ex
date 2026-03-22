@@ -50,3 +50,6 @@ config :clawd_ex, discord_enabled: false
 
 # Mark test environment for GenServer schedule skipping
 config :clawd_ex, env: :test
+
+# Disable web UI auth in tests by default (individual tests override as needed)
+config :clawd_ex, :web_auth, mode: :disabled
