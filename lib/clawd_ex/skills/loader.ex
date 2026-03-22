@@ -108,12 +108,16 @@ defmodule ClawdEx.Skills.Loader do
     extra_dirs =
       Keyword.get(opts, :extra_dirs, Application.get_env(:clawd_ex, :extra_skill_dirs, []))
 
+    # Collect skill directories from installed plugins
+    plugin_skill_dirs = collect_plugin_skill_dirs()
+
     dirs = [
       {bundled_dir, :bundled},
       {managed_dir, :managed}
     ]
 
     dirs = dirs ++ Enum.map(extra_dirs, fn d -> {Path.expand(d), :managed} end)
+    dirs = dirs ++ Enum.map(plugin_skill_dirs, fn d -> {d, :managed} end)
 
     dirs =
       if workspace_dir do
@@ -124,6 +128,29 @@ defmodule ClawdEx.Skills.Loader do
 
     dirs
     |> Enum.filter(fn {dir, _} -> File.dir?(dir) end)
+  end
+
+  # Collect skill directories from installed plugins
+  defp collect_plugin_skill_dirs do
+    plugins_dir = Path.expand("~/.clawd/plugins")
+
+    if File.dir?(plugins_dir) do
+      case File.ls(plugins_dir) do
+        {:ok, entries} ->
+          entries
+          |> Enum.map(&Path.join(plugins_dir, &1))
+          |> Enum.filter(&File.dir?/1)
+          |> Enum.flat_map(fn plugin_dir ->
+            skills_dir = Path.join(plugin_dir, "skills")
+            if File.dir?(skills_dir), do: [skills_dir], else: []
+          end)
+
+        _ ->
+          []
+      end
+    else
+      []
+    end
   end
 
   # Scan a directory for skill folders containing SKILL.md

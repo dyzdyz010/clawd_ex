@@ -110,8 +110,8 @@ defmodule ClawdEx.Tools.Registry do
       |> Enum.map(&get_tool_spec/1)
       |> Enum.reject(&is_nil/1)
 
-    # Merge plugin-provided tools
-    plugin_tools =
+    # Merge plugin-provided tools (Elixir beam plugins)
+    plugin_beam_tools =
       try do
         ClawdEx.Plugins.Manager.get_tools()
         |> Enum.map(fn mod ->
@@ -121,6 +121,24 @@ defmodule ClawdEx.Tools.Registry do
       rescue
         _ -> []
       end
+
+    # Merge plugin-provided tools (Node.js plugins via bridge)
+    plugin_node_tools =
+      try do
+        ClawdEx.Plugins.Manager.get_tool_specs()
+        |> Enum.map(fn spec ->
+          %{
+            name: Map.get(spec, :name, Map.get(spec, "name")),
+            description: Map.get(spec, :description, Map.get(spec, "description", "")),
+            parameters: Map.get(spec, :parameters, Map.get(spec, "parameters", %{}))
+          }
+        end)
+        |> Enum.filter(&tool_allowed?(&1.name, allowed, denied))
+      rescue
+        _ -> []
+      end
+
+    plugin_tools = plugin_beam_tools ++ plugin_node_tools
 
     # Merge MCP-provided tools (lowest priority: builtin > plugin > mcp)
     mcp_tools =
@@ -155,18 +173,35 @@ defmodule ClawdEx.Tools.Registry do
 
     case module do
       nil ->
-        # Check if it's an MCP tool before giving up
-        if find_mcp_tool(canonical) do
-          try do
-            ClawdEx.MCP.ToolProxy.execute(canonical, params, context)
-          rescue
-            e ->
-              Logger.error("MCP tool execution error: #{inspect(e)}")
-              {:error, {:execution_error, Exception.message(e)}}
-          end
-        else
-          Logger.warning("Tool not found: #{tool_name}")
-          {:error, :tool_not_found}
+        # Check if it's a Node.js plugin tool
+        case find_node_plugin_tool(canonical) do
+          {plugin_id, _spec} ->
+            try do
+              ClawdEx.Plugins.Manager.call_tool(plugin_id, canonical, params, context)
+            rescue
+              e ->
+                Logger.error("Plugin tool execution error: #{inspect(e)}")
+                {:error, {:execution_error, Exception.message(e)}}
+            catch
+              :exit, reason ->
+                Logger.error("Plugin tool call exit: #{inspect(reason)}")
+                {:error, {:execution_error, "Plugin bridge unavailable"}}
+            end
+
+          nil ->
+            # Check if it's an MCP tool before giving up
+            if find_mcp_tool(canonical) do
+              try do
+                ClawdEx.MCP.ToolProxy.execute(canonical, params, context)
+              rescue
+                e ->
+                  Logger.error("MCP tool execution error: #{inspect(e)}")
+                  {:error, {:execution_error, Exception.message(e)}}
+              end
+            else
+              Logger.warning("Tool not found: #{tool_name}")
+              {:error, :tool_not_found}
+            end
         end
 
       mod ->
@@ -237,6 +272,26 @@ defmodule ClawdEx.Tools.Registry do
       |> Enum.find(fn mod -> mod.name() == name end)
     rescue
       _ -> nil
+    end
+  end
+
+  defp find_node_plugin_tool(name) do
+    try do
+      ClawdEx.Plugins.Manager.get_tool_specs()
+      |> Enum.find(fn spec ->
+        tool_name = Map.get(spec, :name, Map.get(spec, "name"))
+        tool_name == name
+      end)
+      |> case do
+        nil -> nil
+        spec ->
+          plugin_id = Map.get(spec, :plugin_id, Map.get(spec, "plugin_id"))
+          {plugin_id, spec}
+      end
+    rescue
+      _ -> nil
+    catch
+      :exit, _ -> nil
     end
   end
 

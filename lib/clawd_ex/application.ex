@@ -52,6 +52,8 @@ defmodule ClawdEx.Application do
       ClawdEx.Webhooks.Manager,
       # Session Manager (DynamicSupervisor)
       ClawdEx.Sessions.SessionManager,
+      # Channel Registry (dynamic channel lookup)
+      ClawdEx.Channels.Registry,
       # Discord channel (optional, starts if configured)
       ClawdEx.Channels.DiscordSupervisor,
       # Telegram channel (optional, starts if configured)

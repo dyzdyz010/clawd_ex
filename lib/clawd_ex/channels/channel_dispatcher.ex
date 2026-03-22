@@ -16,7 +16,7 @@ defmodule ClawdEx.Channels.ChannelDispatcher do
   use GenServer
   require Logger
 
-  alias ClawdEx.Channels.{Telegram, Discord}
+  alias ClawdEx.Channels.Registry, as: ChannelRegistry
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -103,13 +103,17 @@ defmodule ClawdEx.Channels.ChannelDispatcher do
 
   # Private
 
-  defp send_to_channel(%{channel: "telegram", channel_id: channel_id, reply_to: reply_to}, content) do
+  defp send_to_channel(%{channel: channel, channel_id: channel_id, reply_to: reply_to}, content) do
     opts = if reply_to, do: [reply_to: reply_to], else: []
-    Telegram.send_message(channel_id, content, opts)
-  end
 
-  defp send_to_channel(%{channel: "discord", channel_id: channel_id}, content) do
-    Discord.send_message(channel_id, content)
+    case ChannelRegistry.get(channel) do
+      nil ->
+        Logger.warning("No channel registered for: #{channel}")
+        :ok
+
+      %{module: module} ->
+        module.send_message(channel_id, content, opts)
+    end
   end
 
   defp send_to_channel(_session_info, _content) do

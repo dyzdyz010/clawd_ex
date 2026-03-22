@@ -1,6 +1,10 @@
 defmodule ClawdEx.Plugins.Supervisor do
   @moduledoc """
   Supervisor for the plugin system.
+
+  Manages:
+  - Plugins.Manager — plugin lifecycle and registry
+  - NodeBridge — Node.js sidecar for JS plugins (started on demand)
   """
   use Supervisor
 
@@ -12,6 +16,7 @@ defmodule ClawdEx.Plugins.Supervisor do
   def init(_opts) do
     children = [
       ClawdEx.Plugins.Manager
+      # NodeBridge will be added in Phase 2
     ]
 
     Supervisor.init(children, strategy: :one_for_one)
