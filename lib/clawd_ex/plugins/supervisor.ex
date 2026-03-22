@@ -15,8 +15,8 @@ defmodule ClawdEx.Plugins.Supervisor do
   @impl true
   def init(_opts) do
     children = [
+      ClawdEx.Plugins.NodeBridge,
       ClawdEx.Plugins.Manager
-      # NodeBridge will be added in Phase 2
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

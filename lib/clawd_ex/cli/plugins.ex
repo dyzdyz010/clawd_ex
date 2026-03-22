@@ -1,270 +1,627 @@
 defmodule ClawdEx.CLI.Plugins do
   @moduledoc """
-  CLI plugins command - manage MCP servers and OpenClaw plugins.
-
-  Usage:
-    clawd_ex plugins list [--format json] [--status STATUS] [--source TYPE]
-    clawd_ex plugins install <spec> [--id ID] [--name NAME] [--env KEY=VALUE]
-    clawd_ex plugins uninstall <name> [--keep-package] [--force]
-    clawd_ex plugins enable <name>
-    clawd_ex plugins disable <name>
-    clawd_ex plugins update [name] [--dry-run] [--check-only]
-    clawd_ex plugins info <name> [--format json]
-    clawd_ex plugins doctor [name] [--fix] [--verbose]
+  CLI plugins command - manage MCP servers and Plugin V2 plugins.
   """
 
   alias ClawdEx.MCP.{ServerManager, Connection}
+  alias ClawdEx.Plugins.{Manager, Store}
 
-  @config_file Path.expand("~/.clawd/mcp_servers.json")
+  @mcp_config_file Path.expand("~/.clawd/mcp_servers.json")
   @extensions_dir Path.expand("~/.clawd/extensions")
   @bridge_script Path.expand("~/.clawd/bridge/mcp-bridge.js")
 
+  # ===========================================================================
+  # Dispatch
+  # ===========================================================================
+
   def run(args, opts \\ [])
+  def run(["list" | _], opts), do: if(opts[:help], do: print_help("list"), else: list_plugins(opts))
+  def run(["install", spec | _], opts), do: if(opts[:help], do: print_help("install"), else: install_plugin(spec, opts))
+  def run(["install" | _], _), do: IO.puts("Usage: clawd plugins install <spec>")
+  def run(["uninstall", name | _], opts), do: if(opts[:help], do: print_help("uninstall"), else: uninstall_plugin(name, opts))
+  def run(["uninstall" | _], _), do: IO.puts("Usage: clawd plugins uninstall <name>")
+  def run(["enable", name | _], _), do: enable_plugin(name)
+  def run(["enable" | _], _), do: IO.puts("Usage: clawd plugins enable <name>")
+  def run(["disable", name | _], _), do: disable_plugin(name)
+  def run(["disable" | _], _), do: IO.puts("Usage: clawd plugins disable <name>")
+  def run(["update" | rest], opts), do: (if rest == [], do: update_all_plugins(opts), else: update_plugin(hd(rest), opts))
+  def run(["info", name | _], opts), do: if(opts[:help], do: print_help("info"), else: show_plugin_info(name, opts))
+  def run(["info" | _], _), do: IO.puts("Usage: clawd plugins info <name>")
+  def run(["config", id | rest], opts), do: if(opts[:help], do: print_help("config"), else: handle_config(id, rest, opts))
+  def run(["config" | _], _), do: IO.puts("Usage: clawd plugins config <plugin_id> [key] [value]")
+  def run(["doctor" | rest], opts), do: (if rest == [], do: run_system_diagnostics(opts), else: run_plugin_diagnostics(hd(rest), opts))
+  def run(["--help" | _], _), do: print_help()
+  def run([], _), do: print_help()
+  def run([sub | _], _), do: (IO.puts("Unknown subcommand: #{sub}"); print_help())
 
-  def run(["list" | _rest], opts) do
-    if opts[:help] do
-      print_list_help()
-    else
-      list_plugins(opts)
-    end
-  end
-
-  def run(["install", spec | _rest], opts) do
-    if opts[:help] do
-      print_install_help()
-    else
-      install_plugin(spec, opts)
-    end
-  end
-
-  def run(["install" | _], _opts) do
-    IO.puts("Usage: clawd_ex plugins install <spec>\n")
-    IO.puts("Provide a package specifier (npm package, local path, or git repo).")
-  end
-
-  def run(["uninstall", name | _rest], opts) do
-    if opts[:help] do
-      print_uninstall_help()
-    else
-      uninstall_plugin(name, opts)
-    end
-  end
-
-  def run(["uninstall" | _], _opts) do
-    IO.puts("Usage: clawd_ex plugins uninstall <name>\n")
-    IO.puts("Provide a plugin name or ID to uninstall.")
-  end
-
-  def run(["enable", name | _rest], opts) do
-    if opts[:help] do
-      print_enable_help()
-    else
-      enable_plugin(name)
-    end
-  end
-
-  def run(["enable" | _], _opts) do
-    IO.puts("Usage: clawd_ex plugins enable <name>\n")
-    IO.puts("Provide a plugin name or ID to enable.")
-  end
-
-  def run(["disable", name | _rest], opts) do
-    if opts[:help] do
-      print_disable_help()
-    else
-      disable_plugin(name)
-    end
-  end
-
-  def run(["disable" | _], _opts) do
-    IO.puts("Usage: clawd_ex plugins disable <name>\n")
-    IO.puts("Provide a plugin name or ID to disable.")
-  end
-
-  def run(["update" | rest], opts) do
-    if opts[:help] do
-      print_update_help()
-    else
-      case rest do
-        [name | _] -> update_plugin(name, opts)
-        [] -> update_all_plugins(opts)
-      end
-    end
-  end
-
-  def run(["info", name | _rest], opts) do
-    if opts[:help] do
-      print_info_help()
-    else
-      show_plugin_info(name, opts)
-    end
-  end
-
-  def run(["info" | _], _opts) do
-    IO.puts("Usage: clawd_ex plugins info <name>\n")
-    IO.puts("Provide a plugin name or ID to show details.")
-  end
-
-  def run(["doctor" | rest], opts) do
-    if opts[:help] do
-      print_doctor_help()
-    else
-      case rest do
-        [name | _] -> run_plugin_diagnostics(name, opts)
-        [] -> run_system_diagnostics(opts)
-      end
-    end
-  end
-
-  def run(["--help" | _], _opts), do: print_help()
-  def run([], _opts), do: print_help()
-
-  def run([subcmd | _], _opts) do
-    IO.puts("Unknown plugins subcommand: #{subcmd}\n")
-    print_help()
-  end
-
-  # ---------------------------------------------------------------------------
-  # plugins list
-  # ---------------------------------------------------------------------------
+  # ===========================================================================
+  # list — unified MCP + Plugin V2
+  # ===========================================================================
 
   defp list_plugins(opts) do
-    config = load_config()
+    all = list_mcp_servers() ++ list_v2_plugins()
+    all = all |> maybe_filter(:type, opts[:type]) |> maybe_filter(:status, opts[:status])
 
-    if config == nil do
-      IO.puts("No plugin configuration found.")
-      IO.puts("Run 'clawd_ex plugins doctor' to set up the plugin system.")
-      :ok
+    if opts[:format] == "json" do
+      IO.puts(Jason.encode!(%{plugins: all, total: length(all)}, pretty: true))
     else
-      servers = config["servers"] || []
-      servers = apply_filters(servers, opts)
+      output_unified_table(all)
+    end
+  end
 
-      if opts[:format] == "json" do
-        output_json(servers)
+  defp list_mcp_servers do
+    case load_mcp_config() do
+      nil -> []
+      config ->
+        Enum.map(config["servers"] || [], fn srv ->
+          status = get_mcp_status(srv["id"])
+          tools = get_mcp_tool_count(srv["id"])
+          %{name: srv["name"] || srv["id"], id: srv["id"],
+            version: get_in(srv, ["source", "version"]) || "—",
+            type: "mcp", status: format_status(status),
+            capabilities: "tools(#{tools})", enabled: srv["enabled"]}
+        end)
+    end
+  end
+
+  defp list_v2_plugins do
+    Manager.list_plugins()
+    |> Enum.map(fn p ->
+      %{name: p.name || p.id, id: p.id, version: p.version || "—",
+        type: to_string(p.plugin_type),
+        status: format_v2_status(p.status, p.enabled),
+        capabilities: format_caps(p.capabilities), enabled: p.enabled}
+    end)
+  end
+
+  defp maybe_filter(rows, _field, nil), do: rows
+  defp maybe_filter(rows, field, val), do: Enum.filter(rows, &(Map.get(&1, field) == val))
+
+  defp output_unified_table([]) do
+    IO.puts("No plugins found. Run 'clawd plugins install <spec>' to install one.")
+  end
+
+  defp output_unified_table(rows) do
+    enabled = Enum.count(rows, & &1.enabled)
+    IO.puts("Plugins (#{length(rows)} total)\n")
+    IO.puts("┌──────────────────┬──────────┬──────┬─────────┬──────────────────────────┐")
+    IO.puts("│ Name             │ Version  │ Type │ Status  │ Capabilities             │")
+    IO.puts("├──────────────────┼──────────┼──────┼─────────┼──────────────────────────┤")
+    rows |> Enum.sort_by(& &1.name) |> Enum.each(fn r ->
+      IO.puts("│ #{pad(r.name, 16)} │ #{pad(r.version, 8)} │ #{pad(r.type, 4)} │ #{pad(r.status, 7)} │ #{pad(r.capabilities, 24)} │")
+    end)
+    IO.puts("└──────────────────┴──────────┴──────┴─────────┴──────────────────────────┘")
+    IO.puts("  #{enabled} enabled, #{length(rows) - enabled} disabled")
+  end
+
+  defp format_caps(caps) when is_list(caps), do: caps |> Enum.map(&to_string/1) |> Enum.join(", ")
+  defp format_caps(_), do: "—"
+
+  defp format_v2_status(:loaded, true), do: "loaded"
+  defp format_v2_status(:loaded, false), do: "disabled"
+  defp format_v2_status(:disabled, _), do: "disabled"
+  defp format_v2_status(:error, _), do: "error"
+  defp format_v2_status(s, _), do: to_string(s)
+
+  # ===========================================================================
+  # install — detect MCP vs V2
+  # ===========================================================================
+
+  defp install_plugin(spec, opts) do
+    if opts[:mcp], do: install_mcp_server(spec, opts), else: install_v2_plugin(spec)
+  end
+
+  defp install_v2_plugin(spec) do
+    IO.puts("Installing plugin: #{spec}...")
+    case Manager.install(spec) do
+      {:ok, plugin} ->
+        IO.puts("✓ Installed: #{plugin.id} v#{plugin.version} (#{plugin.plugin_type})")
+        IO.puts("  Capabilities: #{format_caps(plugin.capabilities)}")
+      {:error, reason} ->
+        IO.puts("✗ Failed: #{inspect(reason)}")
+    end
+  end
+
+  defp install_mcp_server(spec, opts) do
+    IO.puts("Installing MCP server: #{spec}...")
+    with :ok <- check_node(),
+         :ok <- File.mkdir_p(@extensions_dir),
+         :ok <- npm_install(spec),
+         {:ok, info} <- discover_mcp_plugin(spec),
+         {:ok, cfg} <- gen_mcp_config(info, spec, opts),
+         :ok <- save_mcp_server(cfg),
+         :ok <- start_mcp_server(cfg) do
+      tools = get_mcp_tool_count(cfg["id"])
+      IO.puts("✓ Installed: #{cfg["id"]} (#{tools} tools)")
+    else
+      {:error, reason} -> IO.puts("✗ Failed: #{reason}")
+    end
+  end
+
+  defp check_node do
+    case System.cmd("node", ["--version"]) do
+      {_, 0} -> :ok
+      _ -> {:error, "Node.js not found"}
+    end
+  end
+
+  defp npm_install(spec) do
+    {output, code} = System.cmd("npm", ["install", spec], cd: @extensions_dir, stderr_to_stdout: true)
+    if code == 0, do: :ok, else: {:error, "npm failed: #{String.trim(output)}"}
+  end
+
+  defp discover_mcp_plugin(spec) do
+    pkg_dir = if String.starts_with?(spec, "./") or String.starts_with?(spec, "/") do
+      spec
+    else
+      pkg = spec |> String.split("@") |> case do
+        ["", scope, name | _] -> "@#{scope}/#{String.split(name, "@") |> List.first()}"
+        [name | _] -> name
+      end
+      Path.join([@extensions_dir, "node_modules", pkg])
+    end
+
+    cond do
+      File.exists?(Path.join(pkg_dir, "openclaw.plugin.json")) ->
+        with {:ok, c} <- File.read(Path.join(pkg_dir, "openclaw.plugin.json")),
+             {:ok, d} <- Jason.decode(c), do: {:ok, Map.put(d, "package_dir", pkg_dir)}
+      File.exists?(Path.join(pkg_dir, "package.json")) ->
+        with {:ok, c} <- File.read(Path.join(pkg_dir, "package.json")),
+             {:ok, d} <- Jason.decode(c) do
+          case d["openclaw"] do
+            nil -> {:error, "No openclaw config in package.json"}
+            cfg -> {:ok, Map.put(cfg, "package_dir", pkg_dir)}
+          end
+        end
+      true ->
+        {:error, "Package not found: #{pkg_dir}"}
+    end
+  end
+
+  defp gen_mcp_config(info, spec, opts) do
+    id = opts[:id] || (spec |> String.split("/") |> List.last() |> String.split("@") |> List.first()
+         |> String.replace(~r/[^a-zA-Z0-9_-]/, "-") |> String.downcase())
+    env = opts |> Keyword.get_values(:env) |> Enum.reduce(%{}, fn p, a ->
+      case String.split(p, "=", parts: 2) do
+        [k, v] -> Map.put(a, k, v)
+        _ -> a
+      end
+    end)
+    {:ok, %{"id" => id, "name" => opts[:name] || info["name"] || id, "enabled" => true,
+            "transport" => "stdio", "command" => "node",
+            "args" => [@bridge_script, "--plugin", info["package_dir"]],
+            "env" => env, "timeout_ms" => opts[:timeout] || 30_000, "auto_restart" => true,
+            "source" => %{"type" => "openclaw-plugin", "spec" => spec,
+                          "version" => info["version"] || "unknown",
+                          "installed_at" => DateTime.utc_now() |> DateTime.to_iso8601()}}}
+  end
+
+  defp save_mcp_server(cfg) do
+    config = load_mcp_config() || %{"version" => 1, "servers" => []}
+    if Enum.any?(config["servers"], &(&1["id"] == cfg["id"])) do
+      {:error, "Server ID '#{cfg["id"]}' already exists"}
+    else
+      write_mcp_config(Map.put(config, "servers", config["servers"] ++ [cfg]))
+    end
+  end
+
+  defp start_mcp_server(cfg) do
+    try do
+      fmt = %{command: cfg["command"], args: cfg["args"] || [],
+              env: cfg["env"] |> Enum.map(fn {k, v} -> {to_string(k), to_string(v)} end)}
+      case ServerManager.start_server(cfg["id"], fmt) do
+        {:ok, _} -> Process.sleep(1000); :ok
+        {:error, r} -> {:error, "Start failed: #{inspect(r)}"}
+      end
+    catch
+      :exit, _ -> {:error, "Server manager not running"}
+    end
+  end
+
+  # ===========================================================================
+  # uninstall — V2 + MCP
+  # ===========================================================================
+
+  defp uninstall_plugin(name, opts) do
+    v2 = Manager.get_plugin(name)
+    mcp = find_mcp_server(name)
+    cond do
+      v2 != nil -> uninstall_v2(v2, opts)
+      mcp != nil -> uninstall_mcp(mcp, opts)
+      true -> IO.puts("✗ Plugin '#{name}' not found.")
+    end
+  end
+
+  defp uninstall_v2(plugin, opts) do
+    if !opts[:force] && !confirm("Uninstall '#{plugin.name}'?"), do: throw(:abort)
+    IO.puts("Uninstalling #{plugin.name}...")
+    case Manager.uninstall(plugin.id) do
+      :ok ->
+        unless opts[:keep_files] do
+          dir = Path.join(Store.plugins_dir(), plugin.id)
+          if File.dir?(dir), do: File.rm_rf(dir)
+        end
+        IO.puts("✓ Uninstalled.")
+      {:error, r} -> IO.puts("✗ Failed: #{inspect(r)}")
+    end
+  catch
+    :abort -> IO.puts("Aborted.")
+  end
+
+  defp uninstall_mcp(server, opts) do
+    if !opts[:force] && !confirm("Uninstall MCP '#{server["name"]}'?"), do: throw(:abort)
+    IO.puts("Uninstalling MCP server #{server["name"]}...")
+    try do ServerManager.stop_server(server["id"]) catch :exit, _ -> :ok end
+    config = load_mcp_config()
+    updated = Enum.reject(config["servers"], &(&1["id"] == server["id"]))
+    write_mcp_config(Map.put(config, "servers", updated))
+    unless opts[:keep_files] do
+      src = server["source"] || %{}
+      if src["type"] == "openclaw-plugin" && src["spec"] do
+        pkg = Path.join([@extensions_dir, "node_modules", src["spec"]])
+        if File.dir?(pkg), do: File.rm_rf(pkg)
+      end
+    end
+    IO.puts("✓ Uninstalled.")
+  catch
+    :abort -> IO.puts("Aborted.")
+  end
+
+  defp confirm(msg) do
+    IO.puts("#{msg} [y/N] ")
+    IO.gets("") |> String.trim() |> String.downcase() |> Kernel.in(["y", "yes"])
+  end
+
+  # ===========================================================================
+  # enable / disable
+  # ===========================================================================
+
+  defp enable_plugin(name), do: toggle(name, true, "enabled")
+  defp disable_plugin(name), do: toggle(name, false, "disabled")
+
+  defp toggle(name, enabled, action) do
+    v2 = Manager.get_plugin(name)
+    mcp = find_mcp_server(name)
+    cond do
+      v2 != nil ->
+        case if(enabled, do: Manager.enable_plugin(name), else: Manager.disable_plugin(name)) do
+          :ok -> IO.puts("✓ Plugin '#{v2.name}' #{action}.")
+          {:error, :not_found} -> IO.puts("✗ Not found.")
+        end
+      mcp != nil ->
+        toggle_mcp(mcp, enabled, action)
+      true ->
+        IO.puts("✗ Plugin '#{name}' not found.")
+    end
+  end
+
+  defp toggle_mcp(server, enabled, action) do
+    config = load_mcp_config()
+    updated = Map.put(server, "enabled", enabled)
+    servers = Enum.map(config["servers"], fn s -> if s["id"] == server["id"], do: updated, else: s end)
+    write_mcp_config(Map.put(config, "servers", servers))
+    try do
+      if enabled do
+        fmt = %{command: updated["command"], args: updated["args"] || [],
+                env: (updated["env"] || %{}) |> Enum.map(fn {k, v} -> {to_string(k), to_string(v)} end)}
+        ServerManager.start_server(updated["id"], fmt)
       else
-        output_table(servers)
+        ServerManager.stop_server(updated["id"])
+      end
+    catch
+      :exit, _ -> :ok
+    end
+    IO.puts("✓ MCP '#{server["name"]}' #{action}.")
+  end
+
+  # ===========================================================================
+  # update (stub)
+  # ===========================================================================
+
+  defp update_plugin(_name, _opts), do: IO.puts("Plugin update not yet implemented.")
+  defp update_all_plugins(_opts), do: IO.puts("Plugin update not yet implemented.")
+
+  # ===========================================================================
+  # info — V2 + MCP
+  # ===========================================================================
+
+  defp show_plugin_info(name, opts) do
+    v2 = Manager.get_plugin(name)
+    mcp = find_mcp_server(name)
+    cond do
+      v2 != nil -> if opts[:format] == "json", do: info_v2_json(v2), else: info_v2_table(v2)
+      mcp != nil -> if opts[:format] == "json", do: info_mcp_json(mcp), else: info_mcp_table(mcp)
+      true -> IO.puts("✗ Plugin '#{name}' not found.")
+    end
+  end
+
+  defp info_v2_table(p) do
+    IO.puts("Plugin: #{p.name}\n─────────────────────────────────────")
+    IO.puts("  ID:           #{p.id}")
+    IO.puts("  Version:      #{p.version || "—"}")
+    IO.puts("  Type:         #{p.plugin_type}")
+    IO.puts("  Status:       #{format_v2_status(p.status, p.enabled)}")
+    IO.puts("  Enabled:      #{if p.enabled, do: "✓", else: "✗"}")
+    IO.puts("  Capabilities: #{format_caps(p.capabilities)}")
+    if p.path, do: IO.puts("  Path:         #{p.path}")
+    if p.description && p.description != "", do: IO.puts("  Description:  #{p.description}")
+    if p.config && map_size(p.config) > 0 do
+      IO.puts("\n  Config:")
+      Enum.each(p.config, fn {k, v} -> IO.puts("    #{k}: #{mask(k, v)}") end)
+    end
+    # Tools
+    if :tools in p.capabilities do
+      IO.puts("\n  Tools:")
+      try do
+        Manager.get_tool_specs()
+        |> Enum.filter(&(Map.get(&1, :plugin_id) == p.id))
+        |> Enum.each(fn t -> IO.puts("    • #{Map.get(t, :name)}") end)
+      catch :exit, _ -> IO.puts("    (manager not running)")
+      end
+    end
+    # Channels
+    if :channels in p.capabilities do
+      IO.puts("\n  Channels:")
+      try do
+        Manager.get_channels()
+        |> Enum.filter(&(Map.get(&1, :plugin_id) == p.id))
+        |> Enum.each(fn ch -> IO.puts("    • #{Map.get(ch, :id)}") end)
+      catch :exit, _ -> IO.puts("    (manager not running)")
+      end
+    end
+    if p.error, do: IO.puts("\n  Error: #{p.error}")
+  end
+
+  defp info_v2_json(p) do
+    tools = try do
+      Manager.get_tool_specs() |> Enum.filter(&(Map.get(&1, :plugin_id) == p.id))
+      |> Enum.map(&%{name: Map.get(&1, :name), description: Map.get(&1, :description, "")})
+    catch :exit, _ -> [] end
+    channels = try do
+      Manager.get_channels() |> Enum.filter(&(Map.get(&1, :plugin_id) == p.id))
+      |> Enum.map(&Map.get(&1, :id))
+    catch :exit, _ -> [] end
+    IO.puts(Jason.encode!(%{id: p.id, name: p.name, version: p.version, type: p.plugin_type,
+      status: p.status, enabled: p.enabled, description: p.description, path: p.path,
+      capabilities: p.capabilities, config_keys: Map.keys(p.config || %{}),
+      tools: tools, channels: channels, error: p.error}, pretty: true))
+  end
+
+  defp info_mcp_table(s) do
+    status = get_mcp_status(s["id"])
+    tools = get_mcp_tool_count(s["id"])
+    IO.puts("MCP Server: #{s["name"] || s["id"]}\n─────────────────────────────────────")
+    IO.puts("  ID:        #{s["id"]}")
+    IO.puts("  Status:    #{format_status(status)}")
+    IO.puts("  Enabled:   #{if s["enabled"], do: "✓", else: "✗"}")
+    IO.puts("  Command:   #{s["command"]} #{Enum.join(s["args"] || [], " ")}")
+    IO.puts("  Timeout:   #{s["timeout_ms"] || 30_000}ms")
+    if src = s["source"] do
+      IO.puts("  Source:    #{src["type"] || "?"}")
+      if src["version"], do: IO.puts("  Version:   #{src["version"]}")
+    end
+    if env = s["env"], do: (unless Enum.empty?(env) do
+      IO.puts("\n  Env: #{Map.keys(env) |> Enum.join(", ")}") end)
+    if tools > 0 do
+      IO.puts("\n  Tools (#{tools}):")
+      try do
+        case ServerManager.get_connection(s["id"]) do
+          {:ok, pid} ->
+            case Connection.list_tools(pid) do
+              {:ok, list} -> list |> Enum.take(10) |> Enum.each(fn t ->
+                IO.puts("    • #{t["name"] || Map.get(t, :name)}") end)
+                if length(list) > 10, do: IO.puts("    ... +#{length(list) - 10} more")
+              _ -> :ok
+            end
+          _ -> IO.puts("    (not running)")
+        end
+      catch :exit, _ -> IO.puts("    (not running)")
       end
     end
   end
 
-  defp apply_filters(servers, opts) do
-    servers
-    |> filter_by_status(opts[:status])
-    |> filter_by_source(opts[:source])
+  defp info_mcp_json(s) do
+    status = get_mcp_status(s["id"])
+    tools_count = get_mcp_tool_count(s["id"])
+    tools = try do
+      case ServerManager.get_connection(s["id"]) do
+        {:ok, pid} -> case Connection.list_tools(pid) do
+          {:ok, l} -> Enum.map(l, fn t -> %{name: t["name"] || Map.get(t, :name)} end)
+          _ -> [] end
+        _ -> [] end
+    catch :exit, _ -> [] end
+    IO.puts(Jason.encode!(%{id: s["id"], name: s["name"], type: "mcp", status: status,
+      enabled: s["enabled"], source: s["source"] || %{}, env_keys: Map.keys(s["env"] || %{}),
+      tools: %{count: tools_count, list: tools}}, pretty: true))
   end
 
-  defp filter_by_status(servers, nil), do: servers
-  defp filter_by_status(servers, status) do
-    Enum.filter(servers, fn server ->
-      server_status = get_server_status(server["id"])
-      to_string(server_status) == status
-    end)
-  end
+  # ===========================================================================
+  # config — Plugin V2 only
+  # ===========================================================================
 
-  defp filter_by_source(servers, nil), do: servers
-  defp filter_by_source(servers, source_type) do
-    Enum.filter(servers, fn server ->
-      source = server["source"] || %{}
-      source["type"] == source_type
-    end)
-  end
-
-  defp output_table(servers) do
-    if Enum.empty?(servers) do
-      IO.puts("No plugins found.")
-    else
-
-    enabled_count = Enum.count(servers, & &1["enabled"])
-    
-    IO.puts("Plugins (#{length(servers)} total)\n")
-
-    IO.puts(
-      "┌────────────┬──────────┬─────────┬─────────┬────────────────────────────────┐"
-    )
-    IO.puts(
-      "│ Name       │ ID       │ Status  │ Tools   │ Source                         │"
-    )
-    IO.puts(
-      "├────────────┼──────────┼─────────┼─────────┼────────────────────────────────┤"
-    )
-
-    servers
-    |> Enum.sort_by(& &1["name"])
-    |> Enum.each(fn server ->
-      name = truncate(server["name"] || server["id"], 10)
-      id = truncate(server["id"], 8)
-      status = format_status(get_server_status(server["id"]))
-      tools = format_tool_count(get_tool_count(server["id"]))
-      source = format_source(server)
-
-      IO.puts(
-        "│ #{String.pad_trailing(name, 10)} │ #{String.pad_trailing(id, 8)} │ #{String.pad_trailing(status, 7)} │ #{String.pad_trailing(tools, 7)} │ #{String.pad_trailing(source, 30)} │"
-      )
-    end)
-
-    IO.puts(
-      "└────────────┴──────────┴─────────┴─────────┴────────────────────────────────┘"
-    )
-
-    IO.puts("\n  #{enabled_count} enabled, #{length(servers) - enabled_count} disabled")
+  defp handle_config(plugin_id, rest, opts) do
+    plugin = Manager.get_plugin(plugin_id)
+    unless plugin do IO.puts("✗ Plugin '#{plugin_id}' not found (V2 only)."); return() end
+    cond do
+      opts[:show] || rest == [] -> show_config(plugin)
+      length(rest) == 1 -> show_config_key(plugin, hd(rest))
+      length(rest) >= 2 -> set_config(plugin_id, hd(rest), Enum.drop(rest, 1) |> Enum.join(" "))
     end
   end
 
-  defp output_json(servers) do
-    plugin_data = Enum.map(servers, fn server ->
-      %{
-        id: server["id"],
-        name: server["name"] || server["id"],
-        enabled: server["enabled"],
-        status: get_server_status(server["id"]),
-        tools: get_tool_count(server["id"]),
-        source: server["source"] || %{},
-        path: get_plugin_path(server)
-      }
-    end)
-
-    enabled_count = Enum.count(plugin_data, & &1.enabled)
-    running_count = Enum.count(plugin_data, &(&1.status == :running))
-
-    result = %{
-      plugins: plugin_data,
-      total: length(plugin_data),
-      enabled: enabled_count,
-      running: running_count
-    }
-
-    IO.puts(Jason.encode!(result, pretty: true))
+  defp show_config(plugin) do
+    cfg = plugin.config || %{}
+    if map_size(cfg) == 0, do: IO.puts("No config for '#{plugin.name}'."),
+    else: (IO.puts("Config (#{plugin.name}):"); Enum.each(cfg, fn {k, v} -> IO.puts("  #{k}: #{mask(k, v)}") end))
   end
 
-  defp get_server_status(id) do
+  defp show_config_key(plugin, key) do
+    case Map.get(plugin.config || %{}, key) do
+      nil -> IO.puts("Key '#{key}' not set.")
+      v -> IO.puts("#{key}: #{mask(key, v)}")
+    end
+  end
+
+  defp set_config(plugin_id, key, value) do
+    case Store.load() do
+      {:ok, registry} ->
+        entry = Store.get_plugin(registry, plugin_id)
+        if entry do
+          cfg = Map.put(Map.get(entry, :config, %{}), key, value)
+          registry = Store.set_config(registry, plugin_id, cfg)
+          case Store.save(registry) do
+            :ok ->
+              try do Manager.reload() catch :exit, _ -> :ok end
+              IO.puts("✓ #{key} = #{mask(key, value)}")
+            {:error, r} -> IO.puts("✗ Save failed: #{inspect(r)}")
+          end
+        else
+          IO.puts("✗ Not in registry.")
+        end
+      {:error, r} -> IO.puts("✗ Registry error: #{inspect(r)}")
+    end
+  end
+
+  defp mask(key, value) do
+    secrets = ~w(token secret key password api_key apiKey app_secret)
+    kl = String.downcase(to_string(key))
+    if Enum.any?(secrets, &String.contains?(kl, &1)) do
+      s = to_string(value)
+      if String.length(s) > 6, do: String.slice(s, 0, 3) <> "***" <> String.slice(s, -3, 3), else: "***"
+    else
+      to_string(value)
+    end
+  end
+
+  # ===========================================================================
+  # doctor
+  # ===========================================================================
+
+  defp run_system_diagnostics(_opts) do
+    IO.puts("Plugin System Diagnostics\n")
+    issues = []
+    # Prerequisites
+    IO.puts("Prerequisites:")
+    issues = case System.cmd("node", ["--version"]) do
+      {v, 0} -> IO.puts("  ✓ Node.js #{String.trim(v)}"); issues
+      _ -> IO.puts("  ✗ Node.js not found"); ["Node.js missing" | issues]
+    end
+    issues = if File.exists?(@bridge_script), do: (IO.puts("  ✓ MCP bridge"); issues),
+             else: (IO.puts("  ✗ MCP bridge missing"); ["Bridge missing" | issues])
+    # MCP config
+    IO.puts("\nMCP Config:")
+    issues = case load_mcp_config() do
+      nil -> if File.exists?(@mcp_config_file),
+             do: (IO.puts("  ✗ Invalid JSON"); ["Bad MCP config" | issues]),
+             else: (IO.puts("  — No config (OK)"); issues)
+      c -> IO.puts("  ✓ #{length(c["servers"] || [])} server(s)"); issues
+    end
+    # V2 Registry
+    IO.puts("\nV2 Registry:")
+    issues = case Store.load() do
+      {:ok, r} -> IO.puts("  ✓ #{map_size(r.plugins)} plugin(s)"); issues
+      {:error, r} -> IO.puts("  ✗ #{inspect(r)}"); ["Registry error" | issues]
+    end
+    # Plugin status
+    IO.puts("\nPlugins:")
+    issues = check_all_mcp(issues)
+    issues = check_all_v2(issues)
+    # Summary
+    IO.puts("")
+    if issues == [], do: IO.puts("✓ All checks passed."),
+    else: (IO.puts("Issues (#{length(issues)}):"); issues |> Enum.reverse() |> Enum.with_index(1)
+           |> Enum.each(fn {i, n} -> IO.puts("  #{n}. #{i}") end))
+  end
+
+  defp run_plugin_diagnostics(name, _opts) do
+    v2 = Manager.get_plugin(name)
+    mcp = find_mcp_server(name)
+    cond do
+      v2 != nil ->
+        IO.puts("Diagnostics: #{v2.name} (#{v2.plugin_type})")
+        IO.puts("  Status: #{format_v2_status(v2.status, v2.enabled)}")
+        if v2.path, do: IO.puts("  Path:   #{v2.path} #{if File.dir?(v2.path), do: "✓", else: "✗"}")
+        if v2.error, do: IO.puts("  Error:  #{v2.error}"), else: IO.puts("  Health: ✓")
+      mcp != nil ->
+        status = get_mcp_status(mcp["id"])
+        IO.puts("Diagnostics: #{mcp["name"]} (mcp)")
+        IO.puts("  Status: #{format_status(status)}, Tools: #{get_mcp_tool_count(mcp["id"])}")
+        if mcp["enabled"] && status != :running, do: IO.puts("  ✗ Enabled but not running!"),
+        else: IO.puts("  Health: ✓")
+      true ->
+        IO.puts("✗ Plugin '#{name}' not found.")
+    end
+  end
+
+  defp check_all_mcp(issues) do
+    case load_mcp_config() do
+      nil -> issues
+      config -> Enum.reduce(config["servers"] || [], issues, fn s, acc ->
+        name = s["name"] || s["id"]
+        status = get_mcp_status(s["id"])
+        case {status, s["enabled"]} do
+          {:running, _} -> IO.puts("  ✓ [mcp] #{name} — running"); acc
+          {:stopped, true} -> IO.puts("  ✗ [mcp] #{name} — stopped"); ["MCP '#{name}' stopped" | acc]
+          {:stopped, _} -> IO.puts("  — [mcp] #{name} — disabled"); acc
+          _ -> IO.puts("  ? [mcp] #{name}"); acc
+        end
+      end)
+    end
+  end
+
+  defp check_all_v2(issues) do
+    Manager.list_plugins() |> Enum.reduce(issues, fn p, acc ->
+      label = "[#{p.plugin_type}] #{p.name}"
+      case {p.status, p.enabled} do
+        {:loaded, true} -> IO.puts("  ✓ #{label} — loaded"); acc
+        {:error, _} -> IO.puts("  ✗ #{label} — error"); ["'#{p.name}' error" | acc]
+        _ -> IO.puts("  — #{label} — disabled"); acc
+      end
+    end)
+  end
+
+  # ===========================================================================
+  # MCP helpers
+  # ===========================================================================
+
+  defp load_mcp_config do
+    if File.exists?(@mcp_config_file) do
+      with {:ok, c} <- File.read(@mcp_config_file), {:ok, d} <- Jason.decode(c), do: d
+    end
+  end
+
+  defp write_mcp_config(config) do
+    File.mkdir_p(Path.dirname(@mcp_config_file))
+    tmp = @mcp_config_file <> ".tmp"
+    with :ok <- File.write(tmp, Jason.encode!(config, pretty: true)),
+         :ok <- File.rename(tmp, @mcp_config_file), do: :ok
+  end
+
+  defp find_mcp_server(name) do
+    case load_mcp_config() do
+      nil -> nil
+      config -> Enum.find(config["servers"] || [], fn s -> s["id"] == name or s["name"] == name end)
+    end
+  end
+
+  defp get_mcp_status(id) do
     try do
       case ServerManager.get_connection(id) do
-        {:ok, conn_pid} ->
-          case Connection.status(conn_pid) do
-            {:ok, %{status: status}} -> status
-            _ -> :unknown
-          end
+        {:ok, pid} -> case Connection.status(pid) do {:ok, %{status: s}} -> s; _ -> :unknown end
         {:error, _} -> :stopped
       end
-    catch
-      :exit, _ -> :unknown
+    catch :exit, _ -> :unknown
     end
   end
 
-  defp get_tool_count(id) do
+  defp get_mcp_tool_count(id) do
     try do
       case ServerManager.get_connection(id) do
-        {:ok, conn_pid} ->
-          case Connection.list_tools(conn_pid) do
-            {:ok, tools} -> length(tools)
-            _ -> 0
-          end
+        {:ok, pid} -> case Connection.list_tools(pid) do {:ok, t} -> length(t); _ -> 0 end
         {:error, _} -> 0
       end
-    catch
-      :exit, _ -> 0
-    rescue
-      _ -> 0
+    rescue _ -> 0
+    catch :exit, _ -> 0
     end
   end
 
@@ -273,803 +630,50 @@ defmodule ClawdEx.CLI.Plugins do
   defp format_status(:error), do: "error"
   defp format_status(_), do: "unknown"
 
-  defp format_tool_count(0), do: "—"
-  defp format_tool_count(count), do: to_string(count)
+  # ===========================================================================
+  # Formatting
+  # ===========================================================================
 
-  defp format_source(server) do
-    source = server["source"] || %{}
-    
-    case source["type"] do
-      "openclaw-plugin" ->
-        path = get_plugin_path(server)
-        if path, do: Path.relative_to_cwd(path), else: "openclaw-plugin"
-      
-      "mcp-server" ->
-        server["command"] || "mcp-server"
-        
-      "local" ->
-        "local"
-        
-      _ ->
-        server["command"] || "unknown"
-    end
-    |> truncate(28)
+  defp pad(str, len) when is_binary(str) do
+    if String.length(str) > len,
+      do: String.slice(str, 0, len - 1) <> "…",
+      else: String.pad_trailing(str, len)
   end
+  defp pad(nil, len), do: String.pad_trailing("—", len)
 
-  defp get_plugin_path(server) do
-    source = server["source"] || %{}
-    
-    case source["type"] do
-      "openclaw-plugin" ->
-        spec = source["spec"]
-        if spec && String.starts_with?(spec, "@") do
-          Path.join([@extensions_dir, "node_modules", spec])
-        end
-        
-      _ -> nil
-    end
-  end
+  defp return, do: :ok
 
-  # ---------------------------------------------------------------------------
-  # plugins install
-  # ---------------------------------------------------------------------------
+  # ===========================================================================
+  # Help
+  # ===========================================================================
 
-  defp install_plugin(spec, opts) do
-    IO.puts("Installing #{spec}...")
-
-    with :ok <- check_prerequisites(),
-         :ok <- prepare_extensions_dir(),
-         :ok <- install_package(spec),
-         {:ok, plugin_info} <- discover_plugin(spec),
-         {:ok, server_config} <- generate_server_config(plugin_info, spec, opts),
-         :ok <- update_config_file(server_config),
-         :ok <- validate_and_start(server_config) do
-      
-      IO.puts("✓ Plugin installed successfully!\n")
-      print_install_success(server_config)
-    else
-      {:error, reason} ->
-        IO.puts("✗ Installation failed: #{reason}")
-        System.halt(1)
-    end
-  end
-
-  defp check_prerequisites do
-    case System.cmd("node", ["--version"]) do
-      {_, 0} -> :ok
-      _ -> {:error, "Node.js not found. Please install Node.js first."}
-    end
-  end
-
-  defp prepare_extensions_dir do
-    File.mkdir_p(@extensions_dir)
-  end
-
-  defp install_package(spec) do
-    IO.puts("  Downloading package...")
-    
-    {output, exit_code} = System.cmd("npm", ["install", spec], 
-      cd: @extensions_dir,
-      stderr_to_stdout: true
-    )
-    
-    case exit_code do
-      0 -> :ok
-      _ -> {:error, "npm install failed: #{String.trim(output)}"}
-    end
-  end
-
-  defp discover_plugin(spec) do
-    IO.puts("  Discovering plugin entry...")
-    
-    # For npm packages, look in node_modules
-    # For local paths, look directly
-    package_dir = if String.starts_with?(spec, "./") or String.starts_with?(spec, "/") do
-      spec
-    else
-      # Extract package name from spec (@scope/package@version -> @scope/package)
-      package_name = spec |> String.split("@") |> case do
-        ["", scope, name | _] -> "@#{scope}/#{name}"  # scoped package
-        [name | _] -> name  # unscoped package
-      end
-      Path.join([@extensions_dir, "node_modules", package_name])
-    end
-    
-    package_json_path = Path.join(package_dir, "package.json")
-    plugin_json_path = Path.join(package_dir, "openclaw.plugin.json")
-    
-    cond do
-      File.exists?(plugin_json_path) ->
-        # Dedicated plugin config file
-        {:ok, content} = File.read(plugin_json_path)
-        {:ok, config} = Jason.decode(content)
-        {:ok, Map.put(config, "package_dir", package_dir)}
-        
-      File.exists?(package_json_path) ->
-        # Check package.json for openclaw field
-        {:ok, content} = File.read(package_json_path)
-        {:ok, package} = Jason.decode(content)
-        
-        case package["openclaw"] do
-          nil -> {:error, "No openclaw configuration found in package"}
-          config -> {:ok, Map.put(config, "package_dir", package_dir)}
-        end
-        
-      true ->
-        {:error, "Package directory not found: #{package_dir}"}
-    end
-  end
-
-  defp generate_server_config(plugin_info, spec, opts) do
-    id = opts[:id] || generate_id_from_spec(spec)
-    name = opts[:name] || plugin_info["name"] || id
-    
-    base_config = %{
-      "id" => id,
-      "name" => name,
-      "enabled" => true,
-      "transport" => "stdio",
-      "command" => "node",
-      "args" => [
-        @bridge_script,
-        "--plugin",
-        plugin_info["package_dir"]
-      ],
-      "env" => build_env_vars(opts),
-      "timeout_ms" => opts[:timeout] || 30000,
-      "auto_restart" => true,
-      "source" => %{
-        "type" => "openclaw-plugin",
-        "spec" => spec,
-        "version" => plugin_info["version"] || "unknown",
-        "installed_at" => DateTime.utc_now() |> DateTime.to_iso8601()
-      }
-    }
-    
-    {:ok, base_config}
-  end
-
-  defp generate_id_from_spec(spec) do
-    spec
-    |> String.split("/")
-    |> List.last()
-    |> String.split("@")
-    |> List.first()
-    |> String.replace(~r/[^a-zA-Z0-9_-]/, "-")
-    |> String.downcase()
-  end
-
-  defp build_env_vars(opts) do
-    env_pairs = Keyword.get_values(opts, :env)
-    
-    Enum.reduce(env_pairs, %{}, fn pair, acc ->
-      case String.split(pair, "=", parts: 2) do
-        [key, value] -> Map.put(acc, key, value)
-        _ -> acc
-      end
-    end)
-  end
-
-  defp update_config_file(server_config) do
-    IO.puts("  Updating configuration...")
-    
-    config = load_config() || %{"version" => 1, "servers" => []}
-    
-    # Check for duplicate IDs
-    existing_ids = config["servers"] |> Enum.map(& &1["id"]) |> MapSet.new()
-    
-    if MapSet.member?(existing_ids, server_config["id"]) do
-      {:error, "Plugin ID '#{server_config["id"]}' already exists"}
-    else
-      updated_config = Map.put(config, "servers", config["servers"] ++ [server_config])
-      write_config(updated_config)
-    end
-  end
-
-  defp validate_and_start(server_config) do
-    IO.puts("  Starting server...")
-    
-    try do
-      # Start the server directly with ServerManager
-      server_map_config = convert_config_to_server_format(server_config)
-      case ServerManager.start_server(server_config["id"], server_map_config) do
-        {:ok, _pid} -> 
-          # Give it a moment to start
-          Process.sleep(1000)
-          case get_server_status(server_config["id"]) do
-            :running -> :ok
-            status -> {:error, "Server started but status is #{status}"}
-          end
-        {:error, reason} -> 
-          {:error, "Failed to start server: #{inspect(reason)}"}
-      end
-    catch
-      :exit, _ -> {:error, "Server manager not running"}
-    end
-  end
-
-  defp print_install_success(server_config) do
-    tool_count = get_tool_count(server_config["id"])
-    
-    if tool_count > 0 do
-      IO.puts("Available tools: #{tool_count}")
-    end
-    
+  defp print_help(sub \\ nil)
+  defp print_help(nil) do
     IO.puts("""
-    Configuration:
-      • Server ID: #{server_config["id"]}
-      • Config file: ~/.clawd/mcp_servers.json
-    
-    Next steps:
-      1. Edit ~/.clawd/mcp_servers.json to configure API credentials
-      2. Run 'clawd_ex plugins doctor #{server_config["id"]}' to test connection
-    """)
-  end
-
-  # ---------------------------------------------------------------------------
-  # plugins uninstall
-  # ---------------------------------------------------------------------------
-
-  defp uninstall_plugin(name, opts) do
-    config = load_config()
-    
-    case find_server_by_name_or_id(config, name) do
-      nil ->
-        IO.puts("✗ Plugin '#{name}' not found.")
-        System.halt(1)
-        
-      server ->
-        unless opts[:force] do
-          IO.puts("Are you sure you want to uninstall '#{server["name"]}'? [y/N] ")
-          response = IO.gets("") |> String.trim() |> String.downcase()
-          
-          unless response in ["y", "yes"] do
-            IO.puts("Aborted.")
-            :aborted
-          end
-        end
-        
-        uninstall_server(server, opts)
-    end
-  end
-
-  defp uninstall_server(server, opts) do
-    IO.puts("Uninstalling #{server["name"]}...")
-    
-    # Stop server
-    IO.puts("  Stopping server...")
-    try do
-      ServerManager.stop_server(server["id"])
-    catch
-      :exit, _ -> :ok
-    end
-    
-    # Remove from config
-    IO.puts("  Removing configuration...")
-    config = load_config()
-    updated_servers = Enum.reject(config["servers"], &(&1["id"] == server["id"]))
-    updated_config = Map.put(config, "servers", updated_servers)
-    write_config(updated_config)
-    
-    # Remove package unless --keep-package
-    unless opts[:keep_package] do
-      if package_path = get_plugin_path(server) do
-        IO.puts("  Removing package...")
-        File.rm_rf(package_path)
-      end
-    end
-    
-    IO.puts("✓ Plugin uninstalled successfully.")
-  end
-
-  # ---------------------------------------------------------------------------
-  # plugins enable/disable
-  # ---------------------------------------------------------------------------
-
-  defp enable_plugin(name) do
-    modify_plugin_status(name, true, "enabled")
-  end
-
-  defp disable_plugin(name) do
-    modify_plugin_status(name, false, "disabled")
-  end
-
-  defp modify_plugin_status(name, enabled, action) do
-    config = load_config()
-    
-    case find_server_by_name_or_id(config, name) do
-      nil ->
-        IO.puts("✗ Plugin '#{name}' not found.")
-        System.halt(1)
-        
-      server ->
-        updated_server = Map.put(server, "enabled", enabled)
-        updated_servers = Enum.map(config["servers"], fn s ->
-          if s["id"] == server["id"], do: updated_server, else: s
-        end)
-        
-        updated_config = Map.put(config, "servers", updated_servers)
-        write_config(updated_config)
-        
-        # Apply changes by stopping/starting the server
-        try do
-          if enabled do
-            # Enable: start the server
-            server_map_config = convert_config_to_server_format(updated_server)
-            case ServerManager.start_server(updated_server["id"], server_map_config) do
-              {:ok, _pid} -> 
-                IO.puts("✓ Plugin '#{server["name"]}' #{action} and started.")
-              {:error, :already_started} ->
-                IO.puts("✓ Plugin '#{server["name"]}' #{action} (already running).")
-              {:error, reason} ->
-                IO.puts("✓ Plugin '#{server["name"]}' #{action} but failed to start: #{inspect(reason)}")
-            end
-          else
-            # Disable: stop the server
-            case ServerManager.stop_server(updated_server["id"]) do
-              :ok -> IO.puts("✓ Plugin '#{server["name"]}' #{action} and stopped.")
-              {:error, :not_found} -> IO.puts("✓ Plugin '#{server["name"]}' #{action} (already stopped).")
-              {:error, reason} -> IO.puts("✓ Plugin '#{server["name"]}' #{action} but failed to stop: #{inspect(reason)}")
-            end
-          end
-        catch
-          :exit, _ ->
-            IO.puts("✓ Plugin #{action} in config. Restart ClawdEx to apply changes.")
-        end
-    end
-  end
-
-  # ---------------------------------------------------------------------------
-  # plugins update
-  # ---------------------------------------------------------------------------
-
-  defp update_plugin(name, opts) do
-    IO.puts("Update single plugin not yet implemented.")
-    IO.puts("Use 'clawd_ex plugins update' to update all plugins.")
-  end
-
-  defp update_all_plugins(opts) do
-    IO.puts("Update all plugins not yet implemented.")
-    IO.puts("This feature will check for newer versions and update packages.")
-  end
-
-  # ---------------------------------------------------------------------------
-  # plugins info
-  # ---------------------------------------------------------------------------
-
-  defp show_plugin_info(name, opts) do
-    config = load_config()
-    
-    case find_server_by_name_or_id(config, name) do
-      nil ->
-        IO.puts("✗ Plugin '#{name}' not found.")
-        IO.puts("Use 'clawd_ex plugins list' to see available plugins.")
-        
-      server ->
-        if opts[:format] == "json" do
-          output_plugin_info_json(server)
-        else
-          output_plugin_info_table(server)
-        end
-    end
-  end
-
-  defp output_plugin_info_table(server) do
-    name = server["name"] || server["id"]
-    status = get_server_status(server["id"])
-    tool_count = get_tool_count(server["id"])
-    
-    IO.puts("""
-    Plugin: #{name}
-    ┌─────────────────────────────────────────────────────────────────────────────────┐
-    │  #{String.pad_trailing(name, 75)}│
-    └─────────────────────────────────────────────────────────────────────────────────┘
-
-      ID:           #{server["id"]}
-      Name:         #{server["name"] || server["id"]}
-      Status:       #{format_status(status)}#{if status == :running, do: " (active)", else: ""}
-      Enabled:      #{if server["enabled"], do: "✓", else: "✗"}
-      Transport:    #{server["transport"]}
-      Command:      #{server["command"]} #{Enum.join(server["args"] || [], " ")}
-      Timeout:      #{server["timeout_ms"] || 30000}ms
-      Auto-restart: #{if server["auto_restart"], do: "✓", else: "✗"}
-    """)
-    
-    # Source info
-    if source = server["source"] do
-      IO.puts("      Source:       #{source["type"] || "unknown"}")
-      if source["spec"], do: IO.puts("      Package:      #{source["spec"]}")
-      if source["version"], do: IO.puts("      Version:      #{source["version"]}")
-      if source["installed_at"], do: IO.puts("      Installed:    #{source["installed_at"]}")
-    end
-    
-    # Environment
-    if env = server["env"] do
-      unless Enum.empty?(env) do
-        IO.puts("\n      Environment:")
-        Enum.each(env, fn {key, _value} ->
-          IO.puts("        #{key}: ***")
-        end)
-      end
-    end
-    
-    # Tools
-    if tool_count > 0 do
-      IO.puts("\n      Available Tools (#{tool_count}):")
-      try do
-        case ServerManager.get_connection(server["id"]) do
-          {:ok, conn_pid} ->
-            case Connection.list_tools(conn_pid) do
-              {:ok, tools} ->
-                Enum.each(Enum.take(tools, 10), fn tool ->
-                  name = tool["name"] || tool.name
-                  desc = tool["description"] || tool.description
-                  IO.puts("        • #{name}#{if desc, do: " - #{desc}", else: ""}")
-                end)
-                
-                if length(tools) > 10 do
-                  IO.puts("        ... and #{length(tools) - 10} more")
-                end
-              _ ->
-                IO.puts("        (Unable to query tools)")
-            end
-          {:error, _} ->
-            IO.puts("        (Server not running)")
-        end
-      catch
-        :exit, _ ->
-          IO.puts("        (Unable to query tools - server not running)")
-      end
-    else
-      IO.puts("\n      Tools: None available")
-    end
-  end
-
-  defp output_plugin_info_json(server) do
-    status = get_server_status(server["id"])
-    tool_count = get_tool_count(server["id"])
-    
-    tools = try do
-      case ServerManager.get_connection(server["id"]) do
-        {:ok, conn_pid} ->
-          case Connection.list_tools(conn_pid) do
-            {:ok, tool_list} ->
-              Enum.map(tool_list, fn tool ->
-                name = tool["name"] || tool.name
-                desc = tool["description"] || tool.description
-                %{name: name, description: desc}
-              end)
-            _ -> []
-          end
-        {:error, _} -> []
-      end
-    catch
-      :exit, _ -> []
-    end
-    
-    info = %{
-      id: server["id"],
-      name: server["name"] || server["id"],
-      enabled: server["enabled"],
-      status: status,
-      transport: server["transport"],
-      command: server["command"],
-      args: server["args"] || [],
-      timeout_ms: server["timeout_ms"] || 30000,
-      auto_restart: server["auto_restart"],
-      source: server["source"] || %{},
-      env_keys: Map.keys(server["env"] || %{}),
-      tools: %{
-        count: tool_count,
-        list: tools
-      }
-    }
-    
-    IO.puts(Jason.encode!(info, pretty: true))
-  end
-
-  # ---------------------------------------------------------------------------
-  # plugins doctor
-  # ---------------------------------------------------------------------------
-
-  defp run_system_diagnostics(opts) do
-    IO.puts("ClawdEx Plugin System Diagnostics")
-    IO.puts("┌─────────────────────────────────────────────────────────────────────────────────┐")
-    IO.puts("│                                 System Health                                  │")
-    IO.puts("└─────────────────────────────────────────────────────────────────────────────────┘\n")
-    
-    issues = []
-    
-    # Check prerequisites
-    IO.puts("Prerequisites:")
-    issues = check_node_js(issues, opts)
-    issues = check_bridge_script(issues, opts)
-    issues = check_extensions_dir(issues, opts)
-    
-    IO.puts("")
-    
-    # Check configuration
-    IO.puts("Configuration:")
-    issues = check_config_file(issues, opts)
-    
-    IO.puts("")
-    
-    # Check plugins
-    issues = check_all_plugins(issues, opts)
-    
-    # Summary
-    IO.puts("")
-    if Enum.empty?(issues) do
-      IO.puts("✓ All checks passed. Plugin system is healthy.")
-    else
-      IO.puts("Issues Found:")
-      Enum.with_index(issues, 1) |> Enum.each(fn {issue, idx} ->
-        IO.puts("  #{idx}. #{issue}")
-      end)
-      
-      IO.puts("\nOverall Status: #{length(issues)} issue(s) detected")
-    end
-  end
-
-  defp run_plugin_diagnostics(name, opts) do
-    config = load_config()
-    
-    case find_server_by_name_or_id(config, name) do
-      nil ->
-        IO.puts("✗ Plugin '#{name}' not found.")
-        
-      server ->
-        IO.puts("Plugin Diagnostics: #{server["name"]}")
-        IO.puts("┌─────────────────────────────────────────────────────────────────────────────────┐")
-        IO.puts("│  #{String.pad_trailing(server["name"], 75)}│")
-        IO.puts("└─────────────────────────────────────────────────────────────────────────────────┘\n")
-        
-        diagnose_single_plugin(server, opts)
-    end
-  end
-
-  defp check_node_js(issues, _opts) do
-    case System.cmd("node", ["--version"]) do
-      {version, 0} ->
-        version = String.trim(version)
-        IO.puts("  ✓ Node.js #{version} found")
-        issues
-        
-      _ ->
-        IO.puts("  ✗ Node.js not found")
-        ["Node.js not installed or not in PATH" | issues]
-    end
-  end
-
-  defp check_bridge_script(issues, _opts) do
-    if File.exists?(@bridge_script) do
-      IO.puts("  ✓ MCP bridge available at #{Path.relative_to_cwd(@bridge_script)}")
-      issues
-    else
-      IO.puts("  ✗ MCP bridge not found")
-      ["MCP bridge script missing: #{@bridge_script}" | issues]
-    end
-  end
-
-  defp check_extensions_dir(issues, _opts) do
-    if File.exists?(@extensions_dir) and File.dir?(@extensions_dir) do
-      case File.stat(@extensions_dir) do
-        {:ok, %{access: access}} when access in [:read_write, :write] ->
-          IO.puts("  ✓ Extensions directory exists and writable")
-          issues
-          
-        {:ok, _} ->
-          IO.puts("  ✗ Extensions directory not writable")
-          ["Extensions directory not writable: #{@extensions_dir}" | issues]
-          
-        {:error, _} ->
-          IO.puts("  ✗ Cannot access extensions directory")
-          ["Cannot access extensions directory: #{@extensions_dir}" | issues]
-      end
-    else
-      IO.puts("  ✗ Extensions directory missing")
-      ["Extensions directory missing: #{@extensions_dir}" | issues]
-    end
-  end
-
-  defp check_config_file(issues, _opts) do
-    if File.exists?(@config_file) do
-      case load_config() do
-        nil ->
-          IO.puts("  ✗ Config file invalid JSON")
-          ["Invalid JSON in config file: #{@config_file}" | issues]
-          
-        config ->
-          servers = config["servers"] || []
-          ids = Enum.map(servers, & &1["id"])
-          
-          if length(ids) == length(Enum.uniq(ids)) do
-            IO.puts("  ✓ Config file syntax valid, all server IDs unique")
-            issues
-          else
-            IO.puts("  ✗ Duplicate server IDs found")
-            ["Duplicate server IDs in config file" | issues]
-          end
-      end
-    else
-      IO.puts("  ✓ No config file (will be created on first install)")
-      issues
-    end
-  end
-
-  defp check_all_plugins(issues, _opts) do
-    config = load_config()
-    
-    cond do
-      config == nil ->
-        IO.puts("Plugins: No configuration found")
-        issues
-      
-      Enum.empty?(config["servers"] || []) ->
-        IO.puts("Plugins: No plugins installed")
-        issues
-      
-      true ->
-        servers = config["servers"] || []
-        IO.puts("Plugins (#{length(servers)} total):")
-    
-        Enum.reduce(servers, issues, fn server, acc ->
-          check_single_plugin(server, acc)
-        end)
-    end
-  end
-
-  defp check_single_plugin(server, issues) do
-    name = server["name"] || server["id"]
-    status = get_server_status(server["id"])
-    
-    case status do
-      :running ->
-        tool_count = get_tool_count(server["id"])
-        IO.puts("  ✓ #{name} - running, #{tool_count} tools available")
-        issues
-        
-      :stopped ->
-        if server["enabled"] do
-          IO.puts("  ✗ #{name} - stopped (should be running)")
-          ["Plugin '#{name}' is enabled but not running" | issues]
-        else
-          IO.puts("  — #{name} - disabled")
-          issues
-        end
-        
-      :error ->
-        IO.puts("  ✗ #{name} - error state")
-        ["Plugin '#{name}' is in error state" | issues]
-        
-      _ ->
-        IO.puts("  ? #{name} - unknown status")
-        ["Plugin '#{name}' has unknown status" | issues]
-    end
-  end
-
-  defp diagnose_single_plugin(server, _opts) do
-    # Detailed diagnostics for a single plugin
-    # This would include more specific checks
-    IO.puts("Detailed plugin diagnostics not yet implemented.")
-    IO.puts("Use 'clawd_ex plugins info #{server["id"]}' for basic information.")
-  end
-
-  # ---------------------------------------------------------------------------
-  # Utility functions
-  # ---------------------------------------------------------------------------
-
-  defp load_config do
-    if File.exists?(@config_file) do
-      case File.read(@config_file) do
-        {:ok, content} ->
-          case Jason.decode(content) do
-            {:ok, config} -> config
-            {:error, reason} -> 
-              IO.puts("Error parsing config file: #{inspect(reason)}")
-              nil
-          end
-        {:error, reason} -> 
-          IO.puts("Error reading config file: #{inspect(reason)}")
-          nil
-      end
-    else
-      nil
-    end
-  end
-
-  defp write_config(config) do
-    # Ensure config directory exists
-    config_dir = Path.dirname(@config_file)
-    File.mkdir_p(config_dir)
-    
-    # Write config atomically
-    content = Jason.encode!(config, pretty: true)
-    temp_file = @config_file <> ".tmp"
-    
-    case File.write(temp_file, content) do
-      :ok ->
-        case File.rename(temp_file, @config_file) do
-          :ok -> :ok
-          {:error, reason} -> {:error, "Failed to update config: #{reason}"}
-        end
-        
-      {:error, reason} ->
-        {:error, "Failed to write config: #{reason}"}
-    end
-  end
-
-  defp find_server_by_name_or_id(config, name) do
-    servers = config["servers"] || []
-    
-    Enum.find(servers, fn server ->
-      server["id"] == name or server["name"] == name
-    end)
-  end
-
-  defp truncate(str, max) when is_binary(str) do
-    if String.length(str) > max do
-      String.slice(str, 0, max - 1) <> "…"
-    else
-      str
-    end
-  end
-
-  defp truncate(nil, _max), do: "—"
-
-  defp convert_config_to_server_format(server_config) do
-    %{
-      command: server_config["command"],
-      args: server_config["args"] || [],
-      env: convert_env_to_list(server_config["env"] || %{})
-    }
-  end
-
-  defp convert_env_to_list(env_map) when is_map(env_map) do
-    Enum.map(env_map, fn {key, value} -> {to_string(key), to_string(value)} end)
-  end
-  defp convert_env_to_list(env_list) when is_list(env_list), do: env_list
-  defp convert_env_to_list(_), do: []
-
-  # ---------------------------------------------------------------------------
-  # Help functions
-  # ---------------------------------------------------------------------------
-
-  defp print_help do
-    IO.puts("""
-    Usage: clawd_ex plugins <subcommand> [options]
+    Usage: clawd plugins <subcommand> [options]
 
     Subcommands:
-      list       List installed plugins and their status
-      install    Install a plugin from npm, local path, or git
-      uninstall  Remove a plugin and its configuration
-      enable     Enable a disabled plugin
-      disable    Disable an enabled plugin
-      update     Update plugins to latest versions
-      info       Show detailed information about a plugin
-      doctor     Run health checks and diagnostics
-
-    Options:
-      --help  Show this help message
+      list       List all plugins (MCP + V2)
+      install    Install a plugin (--mcp for MCP servers)
+      uninstall  Remove a plugin (--keep-files, --force)
+      enable     Enable a plugin
+      disable    Disable a plugin
+      update     Update plugins (stub)
+      info       Show plugin details (--format json)
+      config     View/set Plugin V2 config
+      doctor     Run diagnostics
 
     Examples:
-      clawd_ex plugins list --format json
-      clawd_ex plugins install @larksuiteoapi/feishu-openclaw-plugin
-      clawd_ex plugins info feishu
-      clawd_ex plugins doctor
+      clawd plugins list --type beam
+      clawd plugins install @scope/my-plugin
+      clawd plugins config feishu app_id lark-xxx
+      clawd plugins uninstall feishu --keep-files
     """)
   end
-
-  # Individual help functions would go here...
-  # (print_list_help, print_install_help, etc.)
-  # For brevity, just showing the main help structure
-
-  defp print_list_help, do: IO.puts("plugins list help - TBD")
-  defp print_install_help, do: IO.puts("plugins install help - TBD")
-  defp print_uninstall_help, do: IO.puts("plugins uninstall help - TBD")
-  defp print_enable_help, do: IO.puts("plugins enable help - TBD")
-  defp print_disable_help, do: IO.puts("plugins disable help - TBD")
-  defp print_update_help, do: IO.puts("plugins update help - TBD")
-  defp print_info_help, do: IO.puts("plugins info help - TBD")
-  defp print_doctor_help, do: IO.puts("plugins doctor help - TBD")
+  defp print_help("list"), do: IO.puts("Usage: clawd plugins list [--format json] [--type TYPE] [--status STATUS]")
+  defp print_help("install"), do: IO.puts("Usage: clawd plugins install <spec> [--mcp] [--id ID] [--name NAME] [--env K=V]")
+  defp print_help("uninstall"), do: IO.puts("Usage: clawd plugins uninstall <name> [--keep-files] [--force]")
+  defp print_help("info"), do: IO.puts("Usage: clawd plugins info <name> [--format json]")
+  defp print_help("config"), do: IO.puts("Usage: clawd plugins config <id> [key] [value] [--show]")
+  defp print_help(_), do: print_help()
 end

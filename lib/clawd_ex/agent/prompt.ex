@@ -9,6 +9,8 @@ defmodule ClawdEx.Agent.Prompt do
   - 注入运行时信息（模型、时间、工作区）
   """
 
+  require Logger
+
   alias ClawdEx.Repo
   alias ClawdEx.Agents.Agent
   alias ClawdEx.Agent.Loop
@@ -192,7 +194,7 @@ defmodule ClawdEx.Agent.Prompt do
     """
   end
 
-  defp bootstrap_section(agent, config, is_group \\ false) do
+  defp bootstrap_section(agent, config, is_group) do
     workspace =
       cond do
         agent && agent.workspace_path -> agent.workspace_path

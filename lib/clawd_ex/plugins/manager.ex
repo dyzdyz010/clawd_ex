@@ -778,7 +778,7 @@ defmodule ClawdEx.Plugins.Manager do
     end
   end
 
-  defp finalize_install(plugin_id, source_dir, plugin_dir) do
+  defp finalize_install(plugin_id, source_dir, _plugin_dir) do
     case Store.read_plugin_json(source_dir) do
       {:ok, meta} ->
         # Build registry entry

@@ -35,6 +35,13 @@
 - **Discord** - Slash commands with Nostrum
 - **WebChat** - Beautiful Phoenix LiveView interface
 
+### 🧩 Plugin System V2
+- **Dual Runtime** - Native Elixir plugins (.beam) + Node.js bridge (JSON-RPC)
+- **OpenClaw Compatible** - Existing Node.js plugins work without modification
+- **Hot Reload** - Install/uninstall plugins without restart
+- **CLI Management** - `clawd plugins install/config/enable/doctor`
+- **Rich Ecosystem** - Access to both Elixir/OTP and npm ecosystems
+
 ### 📊 Management Dashboard
 8 LiveView pages for complete control:
 

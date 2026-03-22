@@ -1,0 +1,12 @@
+{
+  "id": "fake-plugin",
+  "name": "Fake Plugin",
+  "version": "1.0.0",
+  "description": "A fake plugin for testing",
+  "runtime": "node",
+  "entry": "./index.js",
+  "provides": {
+    "tools": ["fake_echo"],
+    "channels": []
+  }
+}
