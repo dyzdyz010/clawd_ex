@@ -67,20 +67,13 @@ defmodule ClawdEx.ACP.Doctor do
     version_args = version_args_for(name)
 
     try do
-      case System.cmd(path, version_args, stderr_to_stdout: true) do
-        {output, 0} ->
-          extract_version(output)
-
-        {output, _code} ->
-          # Some CLIs return non-zero for --version (looking at you, codex)
-          extract_version(output)
-      end
+      # Some CLIs return non-zero for --version (looking at you, codex)
+      {output, _code} = System.cmd(path, version_args, stderr_to_stdout: true)
+      extract_version(output)
     rescue
       e ->
         Logger.debug("[Doctor] Failed to get version for #{name}: #{Exception.message(e)}")
         nil
-    catch
-      :error, _ -> nil
     end
   end
 
