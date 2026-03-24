@@ -25,6 +25,8 @@ defmodule ClawdEx.Channels.Discord do
   require Logger
 
   alias ClawdEx.Sessions.{SessionManager, SessionWorker}
+  alias ClawdEx.Security.GroupWhitelist
+  alias ClawdEx.Security.DmPairing
   alias Nostrum.Api.Message, as: DiscordMessage
   alias Nostrum.Struct.Message
 
@@ -135,8 +137,67 @@ defmodule ClawdEx.Channels.Discord do
   defp process_message(%Message{} = msg) do
     # 只处理包含内容的消息
     if msg.content && String.trim(msg.content) != "" do
-      formatted = format_message(msg)
-      Task.start(fn -> handle_message(formatted) end)
+      is_dm = is_nil(msg.guild_id)
+      guild_id = msg.guild_id && to_string(msg.guild_id)
+      user_id = to_string(msg.author.id)
+      channel_id = to_string(msg.channel_id)
+
+      cond do
+        # Group whitelist check
+        not is_dm and not discord_group_allowed?(guild_id) ->
+          Logger.debug("Message from non-whitelisted guild #{guild_id}, silently dropping")
+          :ok
+
+        # DM pairing: handle /pair command
+        is_dm and String.starts_with?(msg.content, "/pair ") ->
+          code = msg.content |> String.trim_leading("/pair ") |> String.trim()
+          handle_discord_pair(channel_id, user_id, code)
+
+        # DM pairing: check if user is paired
+        is_dm and not discord_dm_paired?(user_id) ->
+          send_message(channel_id, "请先绑定一个 Agent，发送配对码：/pair <code>")
+          :ok
+
+        # Normal processing
+        true ->
+          formatted = format_message(msg)
+          Task.start(fn -> handle_message(formatted) end)
+      end
+    end
+  end
+
+  defp discord_group_allowed?(guild_id) do
+    case ClawdEx.Repo.all(ClawdEx.Agents.Agent) do
+      [] -> true
+      agents -> Enum.any?(agents, fn a -> GroupWhitelist.check(a, guild_id) == :allow end)
+    end
+  rescue
+    _ -> true
+  end
+
+  defp discord_dm_paired?(user_id) do
+    if Process.whereis(DmPairing.Server) do
+      case DmPairing.Server.lookup(user_id, "discord") do
+        {:ok, _} -> true
+        :not_paired -> false
+      end
+    else
+      true
+    end
+  end
+
+  defp handle_discord_pair(channel_id, user_id, code) do
+    if Process.whereis(DmPairing.Server) do
+      case DmPairing.Server.pair(user_id, "discord", code) do
+        {:ok, %{agent_name: name}} ->
+          send_message(channel_id, "✅ 配对成功！已绑定到 Agent: #{name}")
+        {:error, :invalid_code} ->
+          send_message(channel_id, "❌ 无效的配对码，请检查后重试。")
+        {:error, _} ->
+          send_message(channel_id, "❌ 配对失败，请稍后重试。")
+      end
+    else
+      send_message(channel_id, "配对服务暂不可用。")
     end
   end
 

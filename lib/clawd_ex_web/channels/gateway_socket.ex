@@ -28,13 +28,33 @@ defmodule ClawdExWeb.Channels.GatewaySocket do
             {:ok, assign(socket, :auth, %{type: :pair, node_id: node_id})}
 
           :skip ->
-            # 3. 尝试验证为 gateway_token（管理员）
-            case verify_gateway_token(token) do
-              {:ok, user_id} ->
-                {:ok, assign(socket, :auth, %{type: :gateway, user_id: user_id})}
+            # 3. 尝试统一认证（Bearer token / API key / Basic Auth）
+            case ClawdEx.Security.GatewayAuth.authenticate("Bearer " <> token) do
+              {:ok, %{method: :none}} ->
+                # Auth disabled — fall through to legacy gateway_token check
+                case verify_gateway_token(token) do
+                  {:ok, user_id} ->
+                    {:ok, assign(socket, :auth, %{type: :gateway, user_id: user_id, method: :none, scope: :admin})}
+                  :error ->
+                    :error
+                end
 
-              :error ->
-                :error
+              {:ok, auth_info} ->
+                {:ok, assign(socket, :auth, %{
+                  type: :gateway,
+                  user_id: auth_info[:key_id] || "gateway",
+                  method: auth_info.method,
+                  scope: auth_info.scope
+                })}
+
+              {:error, _} ->
+                # 4. Fall back to legacy verify
+                case verify_gateway_token(token) do
+                  {:ok, user_id} ->
+                    {:ok, assign(socket, :auth, %{type: :gateway, user_id: user_id})}
+                  :error ->
+                    :error
+                end
             end
         end
     end

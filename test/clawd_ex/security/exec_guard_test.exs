@@ -64,6 +64,34 @@ defmodule ClawdEx.Security.ExecGuardTest do
     end
   end
 
+  describe "check/2 with extra patterns" do
+    test "blocks commands matching extra patterns" do
+      extra = ["^npm publish", "^docker push"]
+      assert {:needs_approval, reason} = ExecGuard.check("npm publish --tag latest", extra)
+      assert reason =~ "agent-specific"
+    end
+
+    test "allows commands not matching extra patterns" do
+      extra = ["^npm publish"]
+      assert :ok = ExecGuard.check("npm install", extra)
+    end
+
+    test "still catches built-in dangerous patterns with extra" do
+      extra = ["^npm publish"]
+      assert {:needs_approval, reason} = ExecGuard.check("sudo rm -rf /", extra)
+      assert reason =~ "dangerous pattern"
+    end
+
+    test "empty extra patterns behave like check/1" do
+      assert :ok = ExecGuard.check("echo hello", [])
+    end
+
+    test "handles invalid regex patterns gracefully" do
+      extra = ["[invalid"]
+      assert :ok = ExecGuard.check("echo hello", extra)
+    end
+  end
+
   describe "dangerous?/1" do
     test "returns true for dangerous commands" do
       assert ExecGuard.dangerous?("sudo rm -rf /")

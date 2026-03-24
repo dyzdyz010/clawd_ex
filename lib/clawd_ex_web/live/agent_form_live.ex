@@ -36,6 +36,7 @@ defmodule ClawdExWeb.AgentFormLive do
               |> assign(:available_models, Models.all() |> Map.keys() |> Enum.sort())
               |> assign(:workspace_auto_generated, false)
               |> assign(:suggested_workspace, nil)
+              |> assign(:show_security, false)
 
             {:ok, socket}
         end
@@ -53,14 +54,21 @@ defmodule ClawdExWeb.AgentFormLive do
           |> assign(:available_models, Models.all() |> Map.keys() |> Enum.sort())
           |> assign(:workspace_auto_generated, true)
           |> assign(:suggested_workspace, nil)
+          |> assign(:show_security, false)
 
         {:ok, socket}
     end
   end
 
   @impl true
+  def handle_event("toggle_security_section", _params, socket) do
+    {:noreply, assign(socket, :show_security, !socket.assigns.show_security)}
+  end
+
+  @impl true
   def handle_event("validate", %{"agent" => params}, socket) do
     params = parse_config_param(params)
+    params = parse_security_text_fields(params)
 
     # 如果是新建且 workspace 还是自动生成状态，根据 name 自动生成 workspace_path
     params =
@@ -121,6 +129,7 @@ defmodule ClawdExWeb.AgentFormLive do
   @impl true
   def handle_event("save", %{"agent" => params}, socket) do
     params = parse_config_param(params)
+    params = parse_security_text_fields(params)
 
     result =
       if socket.assigns.agent.id do
@@ -180,6 +189,32 @@ defmodule ClawdExWeb.AgentFormLive do
       "#{@default_workspace_base}/#{slug}"
     else
       nil
+    end
+  end
+
+  # Parse comma-separated text fields into arrays for security settings
+  defp parse_security_text_fields(params) do
+    params
+    |> parse_text_to_array("allowed_tools_text", "allowed_tools")
+    |> parse_text_to_array("denied_tools_text", "denied_tools")
+    |> parse_text_to_array("extra_denied_commands_text", "extra_denied_commands")
+  end
+
+  defp parse_text_to_array(params, text_key, array_key) do
+    case Map.get(params, text_key) do
+      nil ->
+        params
+
+      text ->
+        values =
+          text
+          |> String.split(",")
+          |> Enum.map(&String.trim/1)
+          |> Enum.reject(&(&1 == ""))
+
+        params
+        |> Map.put(array_key, values)
+        |> Map.delete(text_key)
     end
   end
 

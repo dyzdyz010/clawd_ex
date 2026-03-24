@@ -58,25 +58,48 @@ defmodule ClawdEx.Tools.Exec do
   @impl true
   def execute(params, context) do
     command = params["command"] || params[:command]
+    workdir = params["workdir"] || params[:workdir] || context[:workspace] || "."
+    extra_patterns = Map.get(context, :extra_denied_commands, [])
 
-    # Exec Guard: check for dangerous commands before executing
-    case ClawdEx.Security.ExecGuard.check(command) do
-      :ok ->
-        do_execute(params, context)
+    # 1. Sandbox mode check (workspace/strict path & command restrictions)
+    sandbox_mode = resolve_sandbox_mode(context)
+    resolved_workdir = resolve_path(workdir)
 
-      {:needs_approval, reason} ->
-        if Map.get(context, :exec_approved, false) do
+    with :ok <- ClawdEx.Security.ExecSandbox.check(command, resolved_workdir, sandbox_mode) do
+      # 2. Exec Guard: check for dangerous commands
+      case ClawdEx.Security.ExecGuard.check(command, extra_patterns) do
+        :ok ->
           do_execute(params, context)
-        else
-          {:ok,
-           %{
-             status: "approval_required",
-             command: command,
-             reason: reason,
-             message: "⚠️ This command requires approval. Reply with /approve to execute."
-           }}
-        end
+
+        {:needs_approval, reason} ->
+          if Map.get(context, :exec_approved, false) do
+            do_execute(params, context)
+          else
+            {:ok,
+             %{
+               status: "approval_required",
+               command: command,
+               reason: reason,
+               message: "⚠️ This command requires approval. Reply with /approve to execute."
+             }}
+          end
+      end
+    else
+      {:error, reason} ->
+        {:error, "Command blocked by sandbox: #{reason}"}
     end
+  end
+
+  defp resolve_sandbox_mode(context) do
+    case Map.get(context, :sandbox_mode) do
+      "workspace" -> :workspace
+      "strict" -> :strict
+      "unrestricted" -> :unrestricted
+      nil -> :unrestricted
+      other -> String.to_existing_atom(other)
+    end
+  rescue
+    _ -> :unrestricted
   end
 
   defp do_execute(params, context) do

@@ -10,6 +10,8 @@ defmodule ClawdEx.Channels.Telegram do
   require Logger
 
   alias ClawdEx.Sessions.{SessionManager, SessionWorker}
+  alias ClawdEx.Security.GroupWhitelist
+  alias ClawdEx.Security.DmPairing
 
   defstruct [:token, :bot_info, :offset, :running]
 
@@ -666,26 +668,103 @@ defmodule ClawdEx.Channels.Telegram do
   end
 
   defp process_update(%{"message" => message}) when not is_nil(message) do
+    chat = message["chat"] || %{}
+    chat_type = chat["type"] || "private"
+    chat_id = to_string(chat["id"])
+    from = message["from"] || %{}
+    user_id = to_string(from["id"])
+    text = message["text"] || ""
+
+    is_group = chat_type in ["group", "supergroup"]
+    is_private = chat_type == "private"
+
     cond do
-      # 处理文本消息
-      message["text"] ->
-        formatted = format_message(message)
-        Task.start(fn -> handle_message(formatted) end)
-
-      # 处理文档消息
-      message["document"] ->
-        Task.start(fn -> handle_document_message(message) end)
-
-      # 处理图片消息
-      message["photo"] ->
-        Task.start(fn -> handle_photo_message(message) end)
-
-      true ->
+      # --- Group whitelist check ---
+      is_group and not group_allowed?(chat_id) ->
+        Logger.debug("Message from non-whitelisted group #{chat_id}, silently dropping")
         :ok
+
+      # --- DM pairing: handle /pair command ---
+      is_private and String.starts_with?(text, "/pair ") ->
+        code = text |> String.trim_leading("/pair ") |> String.trim()
+        handle_pair_command(chat_id, user_id, code)
+
+      # --- DM pairing: check if user is paired ---
+      is_private and not dm_paired?(user_id) ->
+        send_message(chat_id, "请先绑定一个 Agent，发送配对码：/pair <code>")
+        :ok
+
+      # --- Normal message processing ---
+      true ->
+        cond do
+          message["text"] ->
+            formatted = format_message(message)
+            Task.start(fn -> handle_message(formatted) end)
+
+          message["document"] ->
+            Task.start(fn -> handle_document_message(message) end)
+
+          message["photo"] ->
+            Task.start(fn -> handle_photo_message(message) end)
+
+          true ->
+            :ok
+        end
     end
   end
 
   defp process_update(_), do: :ok
+
+  # --- Security helpers ---
+
+  defp group_allowed?(group_id) do
+    # Check all agents — if any agent allows this group, allow it.
+    # If no agents have whitelist configured, allow all (backward compatible).
+    case ClawdEx.Repo.all(ClawdEx.Agents.Agent) do
+      [] ->
+        true
+
+      agents ->
+        Enum.any?(agents, fn agent ->
+          GroupWhitelist.check(agent, group_id) == :allow
+        end)
+    end
+  rescue
+    _ -> true
+  end
+
+  defp dm_paired?(user_id) do
+    if dm_pairing_available?() do
+      case DmPairing.Server.lookup(user_id, "telegram") do
+        {:ok, _agent_id} -> true
+        :not_paired -> false
+      end
+    else
+      # DM pairing not available, allow all (backward compatible)
+      true
+    end
+  end
+
+  defp handle_pair_command(chat_id, user_id, code) do
+    if dm_pairing_available?() do
+      case DmPairing.Server.pair(user_id, "telegram", code) do
+        {:ok, %{agent_name: name}} ->
+          send_message(chat_id, "✅ 配对成功！已绑定到 Agent: #{name}")
+
+        {:error, :invalid_code} ->
+          send_message(chat_id, "❌ 无效的配对码，请检查后重试。")
+
+        {:error, _reason} ->
+          send_message(chat_id, "❌ 配对失败，请稍后重试。")
+      end
+    else
+      send_message(chat_id, "配对服务暂不可用。")
+    end
+  end
+
+  defp dm_pairing_available? do
+    Process.whereis(DmPairing.Server) != nil
+  end
 
   # 处理文档消息（PDF、文本文件等）
   defp handle_document_message(message) do

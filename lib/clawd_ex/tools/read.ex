@@ -1,6 +1,6 @@
 defmodule ClawdEx.Tools.Read do
   @moduledoc """
-  读取文件内容工具
+  读取文件内容工具 — 支持 sandbox 路径限制
   """
   @behaviour ClawdEx.Tools.Tool
 
@@ -43,6 +43,17 @@ defmodule ClawdEx.Tools.Read do
     # 解析路径
     resolved_path = resolve_path(path, context)
 
+    # Sandbox path check
+    case check_sandbox_path(resolved_path, context) do
+      :ok ->
+        do_read(resolved_path, path, offset, limit)
+
+      {:error, reason} ->
+        {:error, "Access denied: #{reason}"}
+    end
+  end
+
+  defp do_read(resolved_path, display_path, offset, limit) do
     case File.read(resolved_path) do
       {:ok, content} ->
         lines = String.split(content, "\n")
@@ -64,7 +75,7 @@ defmodule ClawdEx.Tools.Read do
         end
 
       {:error, :enoent} ->
-        {:error, "File not found: #{path}"}
+        {:error, "File not found: #{display_path}"}
 
       {:error, :eisdir} ->
         # 如果是目录，列出内容
@@ -78,6 +89,43 @@ defmodule ClawdEx.Tools.Read do
 
       {:error, reason} ->
         {:error, "Failed to read file: #{reason}"}
+    end
+  end
+
+  defp check_sandbox_path(resolved_path, context) do
+    sandbox_mode = sandbox_mode_from_context(context)
+
+    case sandbox_mode do
+      :unrestricted ->
+        :ok
+
+      mode when mode in [:workspace, :strict] ->
+        workspace = context[:workspace]
+
+        if workspace do
+          expanded_workspace = Path.expand(workspace)
+          expanded_path = Path.expand(resolved_path)
+
+          if String.starts_with?(expanded_path, expanded_workspace) do
+            :ok
+          else
+            {:error, "Path '#{resolved_path}' is outside agent workspace '#{expanded_workspace}'"}
+          end
+        else
+          # No workspace defined, allow (can't enforce)
+          :ok
+        end
+    end
+  end
+
+  defp sandbox_mode_from_context(context) do
+    case Map.get(context, :sandbox_mode) do
+      "workspace" -> :workspace
+      "strict" -> :strict
+      "unrestricted" -> :unrestricted
+      nil -> :unrestricted
+      other when is_atom(other) -> other
+      _ -> :unrestricted
     end
   end
 

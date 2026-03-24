@@ -35,6 +35,9 @@ defmodule ClawdEx.Agent.Loop.ToolExecutor do
     config = Map.get(data, :config, %{})
     inbound_metadata = Map.get(data, :inbound_metadata, %{}) || %{}
 
+    # Load agent struct for security checks (tool permissions, sandbox)
+    agent = resolve_agent(data.agent_id)
+
     context = %{
       session_id: data.session_id,
       agent_id: data.agent_id,
@@ -42,7 +45,11 @@ defmodule ClawdEx.Agent.Loop.ToolExecutor do
       session_key: resolve_session_key(data.session_id),
       channel: config[:channel] || inbound_metadata[:channel],
       channel_to: inbound_metadata[:channel_id] || inbound_metadata["channel_id"],
-      config: config
+      config: config,
+      agent: agent,
+      workspace: agent && agent.workspace_path,
+      sandbox_mode: agent && agent.sandbox_mode,
+      extra_denied_commands: (agent && agent.extra_denied_commands) || []
     }
 
     Logger.debug("Executing tool #{tool_name} with params: #{inspect(params)}")
@@ -51,6 +58,18 @@ defmodule ClawdEx.Agent.Loop.ToolExecutor do
       {:ok, result} -> {:ok, result}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  # Load agent struct from database
+  defp resolve_agent(nil), do: nil
+
+  defp resolve_agent(agent_id) do
+    case ClawdEx.Repo.get(ClawdEx.Agents.Agent, agent_id) do
+      nil -> nil
+      agent -> agent
+    end
+  rescue
+    _ -> nil
   end
 
   # Resolve session_key from session_id via database

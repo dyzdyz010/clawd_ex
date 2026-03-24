@@ -90,6 +90,15 @@ config :clawd_ex, :auth,
   tokens: [],
   enabled: false
 
+# Gateway authentication (unified)
+# When enabled: requires Bearer token (API key / static token) or Basic Auth
+# When disabled (default): all requests pass through (dev mode)
+config :clawd_ex, :gateway_auth,
+  enabled: false,
+  token: nil,
+  username: nil,
+  password: nil
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

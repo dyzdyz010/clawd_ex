@@ -62,6 +62,7 @@ Application.put_env(:clawd_ex, :env, :test)
 {:ok, _} = ClawdEx.AI.OAuth.start_link([])
 {:ok, _} = ClawdEx.Tools.Process.start_link([])
 {:ok, _} = ClawdEx.Security.ApiKey.start_link([])
+{:ok, _} = ClawdEx.Security.DmPairing.Server.start_link([])
 
 # Nodes
 {:ok, _} = ClawdEx.Nodes.Registry.start_link([])
