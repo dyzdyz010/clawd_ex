@@ -4,7 +4,7 @@ set -euo pipefail
 PLIST_LABEL="com.hemifuture.clawd-ex"
 PLIST_PATH="${HOME}/Library/LaunchAgents/${PLIST_LABEL}.plist"
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-RELEASE_BIN="${APP_DIR}/_build/prod/rel/clawd_ex/bin/clawd_ex"
+RELEASE_BIN="${HOME}/.clawd/deploy/current/bin/clawd_ex"
 LOG_DIR="${HOME}/.clawd/logs"
 ENV_FILE="${HOME}/.clawd/deploy/.env"
 
@@ -29,7 +29,7 @@ case "${1:-help}" in
     <key>HOME</key>
     <string>${HOME}</string>
     <key>RELEASE_ROOT</key>
-    <string>${APP_DIR}/_build/prod/rel/clawd_ex</string>
+    <string>${HOME}/.clawd/deploy/current</string>
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
   </dict>

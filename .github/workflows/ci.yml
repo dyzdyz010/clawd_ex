@@ -47,3 +47,57 @@ jobs:
       - run: mix deps.compile
       - run: mix compile --warnings-as-errors
       - run: mix test --no-start
+
+  build:
+    needs: test
+    runs-on: macos-latest  # GitHub macos-latest = arm64
+    if: github.ref == 'refs/heads/main'
+    env:
+      MIX_ENV: prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19"
+          otp-version: "28"
+
+      - name: Cache deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-prod-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-prod-
+
+      - name: Install dependencies
+        run: mix deps.get --only prod
+
+      - name: Compile
+        run: mix compile
+
+      - name: Build assets
+        run: mix assets.deploy || true
+
+      - name: Build release
+        run: mix release --overwrite
+        env:
+          SECRET_KEY_BASE: ci_placeholder_not_real_must_be_64_bytes_long_for_release_build_validation
+
+      - name: Package release
+        run: |
+          VERSION=$(grep 'version:' mix.exs | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          SHA=$(git rev-parse --short HEAD)
+          TARBALL="clawd_ex-${VERSION}-${SHA}-macos-arm64.tar.gz"
+          cd _build/prod/rel
+          tar czf "../../../${TARBALL}" clawd_ex/
+          echo "TARBALL=${TARBALL}" >> $GITHUB_ENV
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clawd_ex-release-macos-arm64
+          path: clawd_ex-*.tar.gz
+          retention-days: 30
