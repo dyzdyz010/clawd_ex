@@ -9,6 +9,8 @@ defmodule ClawdExWeb.A2ALive do
   alias ClawdEx.A2A.Router, as: A2ARouter
   alias ClawdEx.Agents.Agent
 
+  import ClawdExWeb.Helpers.SafeParse
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
@@ -109,7 +111,7 @@ defmodule ClawdExWeb.A2ALive do
           query
 
         agent_id_str ->
-          agent_id = String.to_integer(agent_id_str)
+          agent_id = safe_to_integer(agent_id_str)
           from(m in query, where: m.from_agent_id == ^agent_id or m.to_agent_id == ^agent_id)
       end
 

@@ -10,6 +10,8 @@ defmodule ClawdExWeb.ChatLive do
   alias ClawdEx.Agents.Agent
   alias ClawdEx.Repo
 
+  import ClawdExWeb.Helpers.SafeParse
+
   require Logger
 
   # ============================================================================
@@ -22,7 +24,7 @@ defmodule ClawdExWeb.ChatLive do
     agents = load_agents()
 
     # URL 参数中的 agent_id
-    url_agent_id = params["agent_id"] && String.to_integer(params["agent_id"])
+    url_agent_id = safe_to_integer(params["agent_id"])
 
     # 检查是否需要显示 agent 选择器（新对话模式）
     show_agent_picker = params["new"] == "true" && is_nil(params["session"])
@@ -151,7 +153,7 @@ defmodule ClawdExWeb.ChatLive do
 
   def handle_event("select_agent", %{"agent_id" => agent_id}, socket) do
     # 用户选择了 agent，创建新会话
-    agent_id = if agent_id == "", do: nil, else: String.to_integer(agent_id)
+    agent_id = safe_to_integer(agent_id)
     new_session_key = generate_session_key()
 
     socket =

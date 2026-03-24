@@ -9,6 +9,8 @@ defmodule ClawdExWeb.TasksLive do
   alias ClawdEx.Tasks.Manager, as: TaskManager
   alias ClawdEx.Agents.Agent
 
+  import ClawdExWeb.Helpers.SafeParse
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
@@ -64,10 +66,13 @@ defmodule ClawdExWeb.TasksLive do
     attrs = %{
       title: title,
       description: desc,
-      priority: String.to_integer(priority)
+      priority: safe_to_integer(priority) || 5
     }
 
-    attrs = if agent_id != "", do: Map.put(attrs, :agent_id, String.to_integer(agent_id)), else: attrs
+    attrs = case safe_to_integer(agent_id) do
+      nil -> attrs
+      id -> Map.put(attrs, :agent_id, id)
+    end
 
     case TaskManager.create_task(attrs) do
       {:ok, _task} ->
@@ -88,7 +93,7 @@ defmodule ClawdExWeb.TasksLive do
 
   @impl true
   def handle_event("start_task", %{"id" => id}, socket) do
-    case TaskManager.start_task(String.to_integer(id)) do
+    case TaskManager.start_task(safe_to_integer(id)) do
       {:ok, _} ->
         {:noreply, socket |> load_tasks() |> load_stats()}
 
@@ -99,7 +104,7 @@ defmodule ClawdExWeb.TasksLive do
 
   @impl true
   def handle_event("pause_task", %{"id" => id}, socket) do
-    case TaskManager.update_task(String.to_integer(id), %{status: "paused"}) do
+    case TaskManager.update_task(safe_to_integer(id), %{status: "paused"}) do
       {:ok, _} ->
         {:noreply, socket |> load_tasks() |> load_stats()}
 
@@ -110,7 +115,7 @@ defmodule ClawdExWeb.TasksLive do
 
   @impl true
   def handle_event("cancel_task", %{"id" => id}, socket) do
-    case TaskManager.cancel_task(String.to_integer(id)) do
+    case TaskManager.cancel_task(safe_to_integer(id)) do
       {:ok, _} ->
         {:noreply, socket |> put_flash(:info, "Task cancelled") |> load_tasks() |> load_stats()}
 
@@ -121,7 +126,7 @@ defmodule ClawdExWeb.TasksLive do
 
   @impl true
   def handle_event("retry_task", %{"id" => id}, socket) do
-    task_id = String.to_integer(id)
+    task_id = safe_to_integer(id)
 
     case TaskManager.update_task(task_id, %{status: "pending", retry_count: 0, completed_at: nil, started_at: nil}) do
       {:ok, _} ->

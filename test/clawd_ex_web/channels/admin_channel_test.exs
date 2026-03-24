@@ -8,6 +8,9 @@ defmodule ClawdExWeb.Channels.AdminChannelTest do
     Application.delete_env(:clawd_ex, :gateway_token)
     Application.delete_env(:clawd_ex, :api_token)
 
+    # Clean up any leaked sessions from other tests to ensure isolation
+    ClawdEx.Sessions.SessionManager.stop_session("nonexistent:session")
+
     {:ok, socket} = connect(GatewaySocket, %{"token" => "any"})
 
     on_exit(fn ->
