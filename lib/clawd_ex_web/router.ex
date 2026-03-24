@@ -119,6 +119,7 @@ defmodule ClawdExWeb.Router do
     pipe_through :api
 
     get "/health", HealthController, :index
+    post "/webhooks/github", Api.GithubWebhookController, :handle
   end
 
   # Authenticated API endpoints
@@ -138,6 +139,12 @@ defmodule ClawdExWeb.Router do
     get "/auth/keys", AuthController, :index
     post "/auth/keys", AuthController, :create
     delete "/auth/keys/:id", AuthController, :delete
+
+    # Deploy management (admin only)
+    get "/deploy/status", DeployController, :status
+    post "/deploy/trigger", DeployController, :trigger
+    get "/deploy/history", DeployController, :history
+    post "/deploy/rollback", DeployController, :rollback
   end
 
   # Gateway REST API v1

@@ -103,6 +103,9 @@ ClawdEx.Channels.TelegramSupervisor.start_link([])
 # GenServers can piggyback on during startup
 Ecto.Adapters.SQL.Sandbox.mode(ClawdEx.Repo, {:shared, self()})
 
+# Deploy Manager (no DB dependency, just file-based)
+{:ok, _} = ClawdEx.Deploy.Manager.start_link([])
+
 # Start DB-dependent GenServers under a tolerant supervisor
 {:ok, _db_sup} = Supervisor.start_link(
   [

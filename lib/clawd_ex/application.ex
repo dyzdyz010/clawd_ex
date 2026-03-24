@@ -55,6 +55,8 @@ defmodule ClawdEx.Application do
       ClawdEx.Tasks.Manager,
       # Cron subsystem (Scheduler)
       ClawdEx.Cron.Supervisor,
+      # Deploy Manager (deployment state + history)
+      ClawdEx.Deploy.Manager,
       # Webhook Manager (outbound webhook dispatch + retry)
       {Task.Supervisor, name: ClawdEx.WebhookTaskSupervisor},
       ClawdEx.Webhooks.Manager,
