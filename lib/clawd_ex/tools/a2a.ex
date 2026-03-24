@@ -7,6 +7,8 @@ defmodule ClawdEx.Tools.A2A do
   - send: 发送通知给另一个 Agent（fire-and-forget）
   - request: 请求另一个 Agent 做某事（同步等待响应）
   - delegate: 委托任务给另一个 Agent（通过 TaskManager + 通知）
+  - broadcast: 向所有注册 Agent 广播消息
+  - check_delegation: 查看委托任务状态
   """
 
   @behaviour ClawdEx.Tools.Tool
@@ -21,7 +23,7 @@ defmodule ClawdEx.Tools.A2A do
   @impl true
   def description do
     "Agent-to-Agent communication: discover available agents, send notifications, " <>
-      "make sync requests, or delegate tasks to other agents."
+      "make sync requests, delegate tasks, broadcast messages, or check delegation status."
   end
 
   @impl true
@@ -31,7 +33,7 @@ defmodule ClawdEx.Tools.A2A do
       properties: %{
         action: %{
           type: "string",
-          enum: ["discover", "send", "request", "respond", "delegate"],
+          enum: ["discover", "send", "request", "respond", "delegate", "broadcast", "check_delegation"],
           description: "A2A action to perform"
         },
         targetAgentId: %{
@@ -45,6 +47,10 @@ defmodule ClawdEx.Tools.A2A do
         metadata: %{
           type: "object",
           description: "Optional metadata to include with the message"
+        },
+        priority: %{
+          type: "integer",
+          description: "Message priority 1-10. 1=urgent, 5=normal (default), 10=low"
         },
         replyToMessageId: %{
           type: "string",
@@ -73,6 +79,10 @@ defmodule ClawdEx.Tools.A2A do
         taskContext: %{
           type: "object",
           description: "Task context data (for delegate action)"
+        },
+        taskId: %{
+          type: "integer",
+          description: "Task ID (for check_delegation action)"
         }
       },
       required: ["action"]
@@ -89,7 +99,9 @@ defmodule ClawdEx.Tools.A2A do
       "request" -> send_request(params, context)
       "respond" -> respond_to_request(params, context)
       "delegate" -> delegate_to_agent(params, context)
-      _ -> {:error, "Unknown action: #{action}. Use: discover, send, request, respond, delegate"}
+      "broadcast" -> broadcast_message(params, context)
+      "check_delegation" -> check_delegation(params, _context = context)
+      _ -> {:error, "Unknown action: #{action}. Use: discover, send, request, respond, delegate, broadcast, check_delegation"}
     end
   end
 
@@ -127,6 +139,7 @@ defmodule ClawdEx.Tools.A2A do
     to_agent_id = Map.get(params, "targetAgentId")
     content = Map.get(params, "content")
     metadata = Map.get(params, "metadata", %{})
+    priority = Map.get(params, "priority", 5)
 
     cond do
       is_nil(to_agent_id) ->
@@ -138,7 +151,8 @@ defmodule ClawdEx.Tools.A2A do
       true ->
         case Router.send_message(from_agent_id, to_agent_id, content,
                type: "notification",
-               metadata: metadata
+               metadata: metadata,
+               priority: priority
              ) do
           {:ok, message_id} ->
             {:ok,
@@ -146,6 +160,7 @@ defmodule ClawdEx.Tools.A2A do
                message_id: message_id,
                type: "notification",
                to_agent_id: to_agent_id,
+               priority: priority,
                message: "Notification sent"
              }}
 
@@ -161,6 +176,7 @@ defmodule ClawdEx.Tools.A2A do
     content = Map.get(params, "content")
     metadata = Map.get(params, "metadata", %{})
     timeout = Map.get(params, "timeout", 30_000)
+    priority = Map.get(params, "priority", 5)
 
     cond do
       is_nil(to_agent_id) ->
@@ -172,7 +188,8 @@ defmodule ClawdEx.Tools.A2A do
       true ->
         case Router.request(from_agent_id, to_agent_id, content,
                metadata: metadata,
-               timeout: timeout
+               timeout: timeout,
+               priority: priority
              ) do
           {:ok, response} ->
             {:ok,
@@ -230,6 +247,7 @@ defmodule ClawdEx.Tools.A2A do
     task_priority = Map.get(params, "taskPriority", 5)
     task_context = Map.get(params, "taskContext", %{})
     content = Map.get(params, "content", task_title || "Delegated task")
+    priority = Map.get(params, "priority", 5)
 
     cond do
       is_nil(to_agent_id) ->
@@ -257,6 +275,7 @@ defmodule ClawdEx.Tools.A2A do
             # 2. Send delegation notification to target agent
             Router.send_message(from_agent_id, to_agent_id, content,
               type: "delegation",
+              priority: priority,
               metadata: %{
                 "task_id" => task.id,
                 "task_title" => task_title,
@@ -275,6 +294,74 @@ defmodule ClawdEx.Tools.A2A do
 
           {:error, reason} ->
             {:error, "Failed to create delegated task: #{inspect(reason)}"}
+        end
+    end
+  end
+
+  defp broadcast_message(params, context) do
+    from_agent_id = context[:agent_id]
+    content = Map.get(params, "content")
+    metadata = Map.get(params, "metadata", %{})
+    priority = Map.get(params, "priority", 5)
+
+    cond do
+      is_nil(content) || content == "" ->
+        {:error, "content is required for broadcast action"}
+
+      true ->
+        case Router.discover() do
+          {:ok, agents} ->
+            # Filter out self to avoid sending to ourselves
+            targets = Enum.reject(agents, fn a -> a.agent_id == from_agent_id end)
+
+            sent_count =
+              Enum.count(targets, fn agent ->
+                case Router.send_message(from_agent_id, agent.agent_id, content,
+                       type: "notification",
+                       metadata: Map.merge(metadata, %{"broadcast" => true}),
+                       priority: priority
+                     ) do
+                  {:ok, _} -> true
+                  {:error, _} -> false
+                end
+              end)
+
+            {:ok,
+             %{
+               sent_count: sent_count,
+               total_agents: length(targets),
+               message: "Broadcast sent to #{sent_count} agents"
+             }}
+        end
+    end
+  end
+
+  defp check_delegation(params, _context) do
+    task_id = Map.get(params, "taskId")
+
+    cond do
+      is_nil(task_id) ->
+        {:error, "taskId is required for check_delegation action"}
+
+      true ->
+        case ClawdEx.Tasks.Manager.get_task(task_id) do
+          nil ->
+            {:error, "Task #{task_id} not found"}
+
+          task ->
+            {:ok,
+             %{
+               task_id: task.id,
+               title: task.title,
+               status: task.status,
+               priority: task.priority,
+               agent_id: task.agent_id,
+               result: task.result,
+               started_at: task.started_at,
+               completed_at: task.completed_at,
+               retry_count: task.retry_count,
+               message: "Task #{task_id} is #{task.status}"
+             }}
         end
     end
   end

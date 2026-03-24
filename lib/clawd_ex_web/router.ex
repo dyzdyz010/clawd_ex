@@ -164,6 +164,11 @@ defmodule ClawdExWeb.Router do
     get "/tools", ToolController, :index
     post "/tools/:name/execute", ToolController, :execute
 
+    # A2A Communication
+    post "/a2a/messages", A2AController, :send_message
+    get "/a2a/agents", A2AController, :list_agents
+    get "/a2a/messages/:agent_id", A2AController, :inbox
+
     # SSE Streaming
     get "/sessions/:key/stream", StreamController, :stream
     post "/sessions/:key/chat", StreamController, :chat

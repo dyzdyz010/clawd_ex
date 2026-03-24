@@ -28,6 +28,7 @@ defmodule ClawdEx.A2A.Message do
     field :metadata, :map, default: %{}
     field :reply_to, :string
     field :status, :string, default: "pending"
+    field :priority, :integer, default: 5
     field :ttl_seconds, :integer, default: 300
     field :processed_at, :utc_datetime
 
@@ -38,7 +39,7 @@ defmodule ClawdEx.A2A.Message do
   end
 
   @required_fields ~w(message_id type content)a
-  @optional_fields ~w(from_agent_id to_agent_id metadata reply_to status ttl_seconds processed_at)a
+  @optional_fields ~w(from_agent_id to_agent_id metadata reply_to status priority ttl_seconds processed_at)a
 
   def changeset(message, attrs) do
     message
@@ -46,6 +47,7 @@ defmodule ClawdEx.A2A.Message do
     |> validate_required(@required_fields)
     |> validate_inclusion(:type, @types)
     |> validate_inclusion(:status, @statuses)
+    |> validate_number(:priority, greater_than_or_equal_to: 1, less_than_or_equal_to: 10)
     |> unique_constraint(:message_id)
     |> foreign_key_constraint(:from_agent_id)
     |> foreign_key_constraint(:to_agent_id)

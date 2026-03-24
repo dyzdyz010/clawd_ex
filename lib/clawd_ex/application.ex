@@ -60,6 +60,8 @@ defmodule ClawdEx.Application do
       ClawdEx.Webhooks.Manager,
       # Session Manager (DynamicSupervisor)
       ClawdEx.Sessions.SessionManager,
+      # Auto-start agents with auto_start: true (delayed 3s after boot)
+      ClawdEx.Agent.AutoStarter,
       # Discord channel (optional, starts if configured)
       ClawdEx.Channels.DiscordSupervisor,
       # Telegram channel (optional, starts if configured)

@@ -19,6 +19,7 @@ defmodule ClawdEx.Sessions.SessionManager do
   启动或获取会话进程
 
   接受 keyword list 参数，必须包含 :session_key
+  支持 :always_on 选项 — 设为 true 时使用 :permanent restart 策略
   """
   @spec start_session(keyword()) :: {:ok, pid()} | {:error, term()}
   def start_session(opts) when is_list(opts) do
@@ -29,9 +30,34 @@ defmodule ClawdEx.Sessions.SessionManager do
         {:ok, pid}
 
       :not_found ->
+        # Check if agent is always_on to set restart strategy
+        opts = maybe_set_always_on_restart(opts)
         spec = {SessionWorker, opts}
         DynamicSupervisor.start_child(__MODULE__, spec)
     end
+  end
+
+  # If agent is always_on, set :permanent restart strategy
+  defp maybe_set_always_on_restart(opts) do
+    agent_id = Keyword.get(opts, :agent_id)
+
+    if agent_id do
+      case ClawdEx.Repo.get(ClawdEx.Agents.Agent, agent_id) do
+        nil ->
+          opts
+
+        agent ->
+          if SessionWorker.is_always_on?(agent) do
+            Keyword.put(opts, :restart, :permanent)
+          else
+            opts
+          end
+      end
+    else
+      opts
+    end
+  rescue
+    _ -> opts
   end
 
   @doc """

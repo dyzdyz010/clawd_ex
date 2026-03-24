@@ -132,6 +132,7 @@ defmodule ClawdEx.A2A.Router do
     msg_type = Keyword.get(opts, :type, "notification")
     metadata = Keyword.get(opts, :metadata, %{})
     ttl = Keyword.get(opts, :ttl, 300)
+    priority = Keyword.get(opts, :priority, 5)
     message_id = Message.generate_id()
 
     attrs = %{
@@ -141,6 +142,7 @@ defmodule ClawdEx.A2A.Router do
       type: msg_type,
       content: content,
       metadata: metadata,
+      priority: priority,
       ttl_seconds: ttl,
       status: "pending"
     }
@@ -158,6 +160,7 @@ defmodule ClawdEx.A2A.Router do
     metadata = Keyword.get(opts, :metadata, %{})
     timeout = Keyword.get(opts, :timeout, 30_000)
     ttl = Keyword.get(opts, :ttl, div(timeout, 1000))
+    priority = Keyword.get(opts, :priority, 5)
     message_id = Message.generate_id()
 
     attrs = %{
@@ -167,6 +170,7 @@ defmodule ClawdEx.A2A.Router do
       type: "request",
       content: content,
       metadata: metadata,
+      priority: priority,
       ttl_seconds: ttl,
       status: "pending"
     }
@@ -352,7 +356,8 @@ defmodule ClawdEx.A2A.Router do
           type: msg.type,
           content: msg.content,
           metadata: msg.metadata,
-          reply_to: msg.reply_to
+          reply_to: msg.reply_to,
+          priority: msg.priority
         }}
       )
 

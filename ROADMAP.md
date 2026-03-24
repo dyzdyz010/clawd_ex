@@ -169,16 +169,18 @@
 **P0 - 核心体验:** ✅ 已完成
 
 **P1 - 重要功能:**
+- [ ] 多 Agent A2A 协作增强（优先级队列、任务编排、REST API）
+- [ ] 24 小时 Always-On Agent（自启动、Heartbeat、持久化恢复）
 - [ ] TUI 终端界面
 - [x] 子代理完整功能 (cleanup/label/thinking/restriction)
-- [ ] WhatsApp/Signal 渠道
-- [ ] Sandbox 安全模式
 
 **P2 - 增强功能:**
 - [ ] 更多 AI 提供商 (Ollama/Groq/Qwen)
 - [ ] 插件系统
 - [ ] Skills 系统
 - [ ] Hooks/Webhooks
+- [ ] Sandbox 安全模式
+- [ ] Signal 渠道
 
 详细功能对比见 [docs/FEATURES.md](docs/FEATURES.md)
 

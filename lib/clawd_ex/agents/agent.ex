@@ -18,6 +18,10 @@ defmodule ClawdEx.Agents.Agent do
     field :active, :boolean, default: true
     field :allowed_tools, {:array, :string}, default: []
     field :denied_tools, {:array, :string}, default: []
+    field :auto_start, :boolean, default: false
+    field :capabilities, {:array, :string}, default: []
+    field :heartbeat_interval_seconds, :integer, default: 0
+    field :always_on, :boolean, default: false
 
     has_many :sessions, ClawdEx.Sessions.Session
     has_many :memory_chunks, ClawdEx.Memory.Chunk
@@ -26,7 +30,7 @@ defmodule ClawdEx.Agents.Agent do
   end
 
   @required_fields ~w(name)a
-  @optional_fields ~w(workspace_path default_model system_prompt config active allowed_tools denied_tools)a
+  @optional_fields ~w(workspace_path default_model system_prompt config active allowed_tools denied_tools auto_start capabilities heartbeat_interval_seconds always_on)a
 
   def changeset(agent, attrs) do
     agent

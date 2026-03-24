@@ -6,6 +6,9 @@ defmodule ClawdEx.A2A.Mailbox do
   Agent Loop 在 idle 状态时通过 peek/1 检查收件箱。
   处理完消息后调用 ack/2 确认。
 
+  消息按 priority 排序（数字越小优先级越高）。
+  同优先级内保持 FIFO 顺序。
+
   每个 Mailbox 进程通过 Registry 注册，key 为 agent_id。
   """
   use GenServer
@@ -36,7 +39,7 @@ defmodule ClawdEx.A2A.Mailbox do
     end
   end
 
-  @doc "Peek at the next pending message without removing it"
+  @doc "Peek at the next pending message without removing it (highest priority = lowest number)"
   @spec peek(integer()) :: {:ok, map()} | :empty
   def peek(agent_id) do
     case Registry.lookup(ClawdEx.A2AMailboxRegistry, agent_id) do
@@ -45,7 +48,7 @@ defmodule ClawdEx.A2A.Mailbox do
     end
   end
 
-  @doc "Pop the next pending message (removes it from queue)"
+  @doc "Pop the next pending message (removes it from queue, highest priority first)"
   @spec pop(integer()) :: {:ok, map()} | :empty
   def pop(agent_id) do
     case Registry.lookup(ClawdEx.A2AMailboxRegistry, agent_id) do
@@ -72,7 +75,7 @@ defmodule ClawdEx.A2A.Mailbox do
     end
   end
 
-  @doc "List all pending messages"
+  @doc "List all pending messages (sorted by priority)"
   @spec list(integer()) :: [map()]
   def list(agent_id) do
     case Registry.lookup(ClawdEx.A2AMailboxRegistry, agent_id) do
@@ -97,36 +100,37 @@ defmodule ClawdEx.A2A.Mailbox do
     {:ok,
      %{
        agent_id: agent_id,
-       inbox: :queue.new(),
+       inbox: [],
+       seq: 0,
        processing: %{}
      }}
   end
 
   @impl true
   def handle_call(:peek, _from, state) do
-    case :queue.peek(state.inbox) do
-      {:value, msg} -> {:reply, {:ok, msg}, state}
-      :empty -> {:reply, :empty, state}
+    case state.inbox do
+      [{_sort_key, msg} | _rest] -> {:reply, {:ok, msg}, state}
+      [] -> {:reply, :empty, state}
     end
   end
 
   def handle_call(:pop, _from, state) do
-    case :queue.out(state.inbox) do
-      {{:value, msg}, new_queue} ->
+    case state.inbox do
+      [{_sort_key, msg} | rest] ->
         new_processing = Map.put(state.processing, msg.message_id, msg)
-        {:reply, {:ok, msg}, %{state | inbox: new_queue, processing: new_processing}}
+        {:reply, {:ok, msg}, %{state | inbox: rest, processing: new_processing}}
 
-      {:empty, _} ->
+      [] ->
         {:reply, :empty, state}
     end
   end
 
   def handle_call(:count, _from, state) do
-    {:reply, :queue.len(state.inbox), state}
+    {:reply, length(state.inbox), state}
   end
 
   def handle_call(:list, _from, state) do
-    {:reply, :queue.to_list(state.inbox), state}
+    {:reply, Enum.map(state.inbox, fn {_sort_key, msg} -> msg end), state}
   end
 
   @impl true
@@ -143,7 +147,15 @@ defmodule ClawdEx.A2A.Mailbox do
       "A2A Mailbox for agent #{state.agent_id}: received #{msg.type} from agent #{msg.from_agent_id}"
     )
 
-    new_inbox = :queue.in(msg, state.inbox)
+    # Priority defaults to 5 (normal) if not present
+    priority = Map.get(msg, :priority, 5)
+    seq = state.seq + 1
+    # Sort key: {priority, sequence} — lower priority number = higher urgency
+    # Within same priority, FIFO by sequence number
+    sort_key = {priority, seq}
+
+    new_inbox =
+      insert_sorted(state.inbox, {sort_key, msg})
 
     # Notify the agent loop that there's a pending message
     Phoenix.PubSub.broadcast(
@@ -152,7 +164,7 @@ defmodule ClawdEx.A2A.Mailbox do
       {:mailbox_message, state.agent_id, msg}
     )
 
-    {:noreply, %{state | inbox: new_inbox}}
+    {:noreply, %{state | inbox: new_inbox, seq: seq}}
   end
 
   # ============================================================================
@@ -161,5 +173,16 @@ defmodule ClawdEx.A2A.Mailbox do
 
   defp via_tuple(agent_id) do
     {:via, Registry, {ClawdEx.A2AMailboxRegistry, agent_id}}
+  end
+
+  # Insert into a sorted list maintaining {priority, seq} order (ascending)
+  defp insert_sorted([], entry), do: [entry]
+
+  defp insert_sorted([{existing_key, _} = head | tail], {new_key, _} = entry) do
+    if new_key <= existing_key do
+      [entry, head | tail]
+    else
+      [head | insert_sorted(tail, entry)]
+    end
   end
 end
