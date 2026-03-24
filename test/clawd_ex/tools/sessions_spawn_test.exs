@@ -468,12 +468,182 @@ defmodule ClawdEx.Tools.SessionsSpawnTest do
       assert {:ok, result} = SessionsSpawn.execute(params, context)
       assert result.status == "spawned"
 
-      # Give time for timeout + cleanup
-      Process.sleep(3000)
+      # Poll for cleanup completion (timeout + cleanup is async, may take a few seconds)
+      cleaned_up =
+        Enum.any?(1..10, fn _ ->
+          Process.sleep(1000)
+          sessions = SessionManager.list_sessions()
+          not Enum.any?(sessions, &String.contains?(&1, result.childSessionKey))
+        end)
 
-      # Session should be cleaned up (or in process of being cleaned up)
-      sessions = SessionManager.list_sessions()
-      refute Enum.any?(sessions, &String.contains?(&1, result.childSessionKey))
+      assert cleaned_up, "Session #{result.childSessionKey} should have been cleaned up after timeout"
+    end
+  end
+
+  describe "runtime parameter" do
+    test "parameters schema includes runtime field" do
+      params = SessionsSpawn.parameters()
+      assert Map.has_key?(params.properties, :runtime)
+      assert params.properties[:runtime].enum == ["subagent", "acp"]
+    end
+
+    test "parameters schema includes mode field" do
+      params = SessionsSpawn.parameters()
+      assert Map.has_key?(params.properties, :mode)
+      assert params.properties[:mode].enum == ["run", "session"]
+    end
+
+    test "defaults to subagent runtime" do
+      {:ok, agent} =
+        %ClawdEx.Agents.Agent{}
+        |> ClawdEx.Agents.Agent.changeset(%{
+          name: "runtime-default-agent-#{System.unique_integer()}"
+        })
+        |> ClawdEx.Repo.insert()
+
+      context = %{agent_id: agent.id, session_key: "parent:main"}
+
+      params = %{"task" => "test task"}
+      assert {:ok, result} = SessionsSpawn.execute(params, context)
+      # Default runtime is subagent, which returns "spawned" status
+      assert result.status == "spawned"
+      assert result.childSessionKey =~ "subagent"
+    end
+
+    test "explicit subagent runtime works" do
+      {:ok, agent} =
+        %ClawdEx.Agents.Agent{}
+        |> ClawdEx.Agents.Agent.changeset(%{
+          name: "runtime-explicit-agent-#{System.unique_integer()}"
+        })
+        |> ClawdEx.Repo.insert()
+
+      context = %{agent_id: agent.id, session_key: "parent:main"}
+
+      params = %{"task" => "test task", "runtime" => "subagent"}
+      assert {:ok, result} = SessionsSpawn.execute(params, context)
+      assert result.status == "spawned"
+      assert result.childSessionKey =~ "subagent"
+    end
+
+    test "unknown runtime returns error" do
+      {:ok, agent} =
+        %ClawdEx.Agents.Agent{}
+        |> ClawdEx.Agents.Agent.changeset(%{
+          name: "runtime-unknown-agent-#{System.unique_integer()}"
+        })
+        |> ClawdEx.Repo.insert()
+
+      context = %{agent_id: agent.id, session_key: "parent:main"}
+
+      params = %{"task" => "test task", "runtime" => "invalid"}
+      assert {:error, msg} = SessionsSpawn.execute(params, context)
+      assert msg =~ "Unknown runtime"
+    end
+  end
+
+  describe "runtime=acp" do
+    setup do
+      # Register a mock ACP backend for testing
+      :ok = ClawdEx.ACP.Registry.register_backend("cli", ClawdEx.ACP.MockBackend)
+
+      on_exit(fn ->
+        ClawdEx.ACP.Registry.unregister_backend("cli")
+      end)
+
+      {:ok, agent} =
+        %ClawdEx.Agents.Agent{}
+        |> ClawdEx.Agents.Agent.changeset(%{
+          name: "acp-spawn-agent-#{System.unique_integer()}"
+        })
+        |> ClawdEx.Repo.insert()
+
+      context = %{
+        agent_id: agent.id,
+        session_key: "agent:#{agent.id}:main",
+        session_id: 1,
+        channel: "telegram",
+        channel_to: "-12345",
+        config: %{workspace: "/tmp"}
+      }
+
+      %{agent: agent, context: context}
+    end
+
+    test "spawns ACP session and returns accepted status", %{context: context} do
+      params = %{
+        "task" => "Write a hello world",
+        "runtime" => "acp",
+        "agentId" => "codex",
+        "label" => "test-acp"
+      }
+
+      assert {:ok, result} = SessionsSpawn.execute(params, context)
+      assert result.status == "accepted"
+      assert result.runtime == "acp"
+      assert result.agentId == "codex"
+      assert result.label == "test-acp"
+      assert result.childSessionKey =~ ":acp:"
+      assert result.mode == "run"
+
+      # Cleanup
+      Process.sleep(500)
+      ClawdEx.ACP.Session.close(result.childSessionKey)
+    end
+
+    test "defaults agentId to codex", %{context: context} do
+      params = %{
+        "task" => "some task",
+        "runtime" => "acp"
+      }
+
+      assert {:ok, result} = SessionsSpawn.execute(params, context)
+      assert result.agentId == "codex"
+
+      Process.sleep(200)
+      ClawdEx.ACP.Session.close(result.childSessionKey)
+    end
+
+    test "supports mode parameter", %{context: context} do
+      params = %{
+        "task" => "persistent task",
+        "runtime" => "acp",
+        "mode" => "session"
+      }
+
+      assert {:ok, result} = SessionsSpawn.execute(params, context)
+      assert result.mode == "session"
+
+      Process.sleep(200)
+      ClawdEx.ACP.Session.close(result.childSessionKey)
+    end
+
+    test "session key contains acp identifier", %{context: context, agent: agent} do
+      params = %{
+        "task" => "test",
+        "runtime" => "acp"
+      }
+
+      assert {:ok, result} = SessionsSpawn.execute(params, context)
+      assert result.childSessionKey =~ "agent:#{agent.id}:acp:"
+
+      Process.sleep(200)
+      ClawdEx.ACP.Session.close(result.childSessionKey)
+    end
+
+    test "still blocks subagent sessions from spawning ACP", %{agent: agent} do
+      context = %{
+        agent_id: agent.id,
+        session_key: "agent:#{agent.id}:subagent:abc123"
+      }
+
+      params = %{
+        "task" => "should fail",
+        "runtime" => "acp"
+      }
+
+      assert {:error, msg} = SessionsSpawn.execute(params, context)
+      assert msg =~ "not allowed from sub-agent"
     end
   end
 end

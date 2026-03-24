@@ -12,8 +12,11 @@ defmodule ClawdEx.Tools.SessionsSpawn do
   - 支持 Telegram Forum/Topic announce
   - 超时通知父会话和渠道
   - 支持 streamTo: "parent" 实时流式推送输出
+  - 支持 runtime: "acp" 路由到 ACP Runtime (Claude Code, Codex, Gemini, Pi)
 
-  session_key 格式: agent:{agent_id}:subagent:{uuid}
+  session_key 格式:
+  - subagent: agent:{agent_id}:subagent:{uuid}
+  - acp: agent:{agent_id}:acp:{uuid}
   """
   @behaviour ClawdEx.Tools.Tool
 
@@ -21,6 +24,7 @@ defmodule ClawdEx.Tools.SessionsSpawn do
 
   alias ClawdEx.Sessions.SessionManager
   alias ClawdEx.Sessions.SessionWorker
+  alias ClawdEx.ACP
 
   # 默认超时 10 分钟
   @default_timeout_seconds 600
@@ -46,13 +50,23 @@ defmodule ClawdEx.Tools.SessionsSpawn do
           type: "string",
           description: "Task description for the child agent to execute (required)"
         },
+        runtime: %{
+          type: "string",
+          enum: ["subagent", "acp"],
+          description: "Runtime type: 'subagent' for built-in agent loop, 'acp' for external ACP agents (Claude Code, Codex, Gemini). Default: subagent"
+        },
         label: %{
           type: "string",
           description: "Human-readable label for this subagent (optional)"
         },
         agentId: %{
           type: "string",
-          description: "Agent ID to use (defaults to parent's agent)"
+          description: "Agent ID to use. For runtime='acp': codex|claude|gemini|pi (default: codex). For subagent: defaults to parent's agent."
+        },
+        mode: %{
+          type: "string",
+          enum: ["run", "session"],
+          description: "For ACP runtime: 'run' is one-shot, 'session' is persistent (default: run)"
         },
         model: %{
           type: "string",
@@ -98,7 +112,13 @@ defmodule ClawdEx.Tools.SessionsSpawn do
       if is_nil(task) || task == "" do
         {:error, "task is required"}
       else
-        spawn_subagent(params, context)
+        runtime = get_string_param(params, "runtime") || "subagent"
+
+        case runtime do
+          "subagent" -> spawn_subagent(params, context)
+          "acp" -> execute_acp(params, context)
+          _ -> {:error, "Unknown runtime: #{runtime}"}
+        end
       end
     end
   end
@@ -109,6 +129,80 @@ defmodule ClawdEx.Tools.SessionsSpawn do
   end
 
   defp is_subagent_session?(_), do: false
+
+  # --- ACP Runtime execution ---
+
+  defp execute_acp(params, context) do
+    task = params["task"] || params[:task]
+    agent_id = get_string_param(params, "agentId") || "codex"
+    label = get_string_param(params, "label") || agent_id
+    mode = get_string_param(params, "mode") || "run"
+    timeout_seconds = get_timeout(params)
+
+    # Channel info for result announcement
+    channel = context[:channel]
+    channel_to = context[:channel_to] || context[:to]
+    parent_session_key = context[:session_key]
+    parent_session_id = context[:session_id]
+
+    # Generate ACP session key
+    acp_id = generate_subagent_id()
+    parent_agent_id = context[:agent_id]
+    child_session_key = "agent:#{parent_agent_id || "default"}:acp:#{acp_id}"
+
+    Logger.info("[sessions_spawn] Starting ACP session: #{child_session_key} (agent=#{agent_id}, label=#{label})")
+
+    # Start ACP Session GenServer
+    session_opts = %{
+      session_key: child_session_key,
+      agent_id: agent_id,
+      parent_session_key: parent_session_key,
+      parent_session_id: parent_session_id,
+      channel: channel,
+      channel_to: channel_to,
+      label: label,
+      mode: mode,
+      cwd: get_cwd(context)
+    }
+
+    case ACP.Session.start(session_opts) do
+      {:ok, _pid} ->
+        # Kick off the turn asynchronously
+        Task.Supervisor.start_child(ClawdEx.AgentTaskSupervisor, fn ->
+          # Give the session a moment to ensure_session
+          Process.sleep(200)
+
+          case ACP.Session.run_turn(child_session_key, task, timeout_ms: timeout_seconds * 1000) do
+            :ok ->
+              Logger.debug("[sessions_spawn] ACP turn started: #{child_session_key}")
+
+            {:error, reason} ->
+              Logger.error("[sessions_spawn] ACP run_turn failed: #{inspect(reason)}")
+          end
+        end)
+
+        {:ok, %{
+          status: "accepted",
+          childSessionKey: child_session_key,
+          runtime: "acp",
+          agentId: agent_id,
+          label: label,
+          mode: mode,
+          message: "ACP session started. Results will be announced when complete."
+        }}
+
+      {:error, reason} ->
+        Logger.error("[sessions_spawn] Failed to start ACP session: #{inspect(reason)}")
+        {:error, "Failed to start ACP session: #{inspect(reason)}"}
+    end
+  end
+
+  defp get_cwd(context) do
+    config = context[:config] || %{}
+    config[:workspace] || config["workspace"]
+  end
+
+  # --- Subagent execution (existing logic) ---
 
   defp spawn_subagent(params, context) do
     task = params["task"] || params[:task]

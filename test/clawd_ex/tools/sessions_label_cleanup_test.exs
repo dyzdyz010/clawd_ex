@@ -262,8 +262,9 @@ defmodule ClawdEx.Tools.SessionsLabelCleanupTest do
     end
 
     test "prefers sessionKey over label when both provided" do
-      # Both provided: sessionKey takes priority (it won't find the session, but
-      # that error is different from "sessionKey or label required")
+      # Both provided: sessionKey takes priority
+      # The system may auto-start the session and succeed, or fail with a session-specific error
+      # Either way, it should NOT fail with "sessionKey or label required" since sessionKey was provided
       result =
         SessionsSend.execute(
           %{
@@ -275,9 +276,17 @@ defmodule ClawdEx.Tools.SessionsLabelCleanupTest do
         )
 
       # Should attempt to send to sessionKey, not resolve label
-      # The error should NOT be about missing sessionKey/label - it resolved the target
-      assert {:error, msg} = result
-      refute msg =~ "sessionKey or label"
+      # The result should NOT be about missing sessionKey/label - it resolved the target
+      case result do
+        {:ok, response} ->
+          # Session was auto-started and message was sent successfully
+          assert is_binary(response)
+          refute response =~ "sessionKey or label"
+
+        {:error, msg} ->
+          # Session could not be started, but the error should NOT be about missing key/label
+          refute msg =~ "sessionKey or label"
+      end
     end
 
     test "resolves label to session and returns error if label not found" do

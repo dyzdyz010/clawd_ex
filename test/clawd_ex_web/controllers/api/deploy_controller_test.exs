@@ -1,6 +1,12 @@
 defmodule ClawdExWeb.Api.DeployControllerTest do
   use ClawdExWeb.ConnCase
 
+  setup do
+    # Reset deploy state to avoid leaking state between tests
+    ClawdEx.Deploy.Manager.reset_state()
+    :ok
+  end
+
   describe "GET /api/v1/deploy/status" do
     test "returns deploy status", %{conn: conn} do
       conn = get(conn, "/api/v1/deploy/status")

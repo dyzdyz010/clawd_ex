@@ -83,6 +83,9 @@ Application.put_env(:clawd_ex, :env, :test)
 # MCP subsystem (Registry + ServerManager)
 {:ok, _} = ClawdEx.MCP.Supervisor.start_link([])
 
+# ACP subsystem (SessionRegistry + Registry + SessionSupervisor)
+{:ok, _} = ClawdEx.ACP.Supervisor.start_link([])
+
 # Output Manager
 {:ok, _} = ClawdEx.Agent.OutputManager.start_link([])
 

@@ -176,6 +176,13 @@ defmodule ClawdExWeb.Router do
     get "/a2a/agents", A2AController, :list_agents
     get "/a2a/messages/:agent_id", A2AController, :inbox
 
+    # ACP (Agent Communication Protocol)
+    get "/acp/agents", AcpController, :list_agents
+    get "/acp/sessions", AcpController, :list_sessions
+    get "/acp/sessions/:key", AcpController, :show_session
+    delete "/acp/sessions/:key", AcpController, :close_session
+    get "/acp/doctor", AcpController, :doctor
+
     # SSE Streaming
     get "/sessions/:key/stream", StreamController, :stream
     post "/sessions/:key/chat", StreamController, :chat

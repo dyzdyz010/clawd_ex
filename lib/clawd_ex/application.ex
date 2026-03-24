@@ -23,6 +23,8 @@ defmodule ClawdEx.Application do
       {Registry, keys: :unique, name: ClawdEx.SessionRegistry},
       # Agent Loop Registry
       {Registry, keys: :unique, name: ClawdEx.AgentLoopRegistry},
+      # ACP subsystem (Registry, SessionSupervisor)
+      ClawdEx.ACP.Supervisor,
       # A2A subsystem (Registry, DynamicSupervisor, Router)
       ClawdEx.A2A.Supervisor,
       # Agent Loop Task Supervisor (for supervised AI/tool tasks)
@@ -39,6 +41,8 @@ defmodule ClawdEx.Application do
       ClawdEx.Nodes.Registry,
       # Node pairing service (pair codes, token management)
       ClawdEx.Nodes.Pairing,
+      # ACP subsystem (Registry, SessionSupervisor)
+      ClawdEx.ACP.Supervisor,
       # Browser subsystem (CDP → Server)
       ClawdEx.Browser.Supervisor,
       # Skills subsystem (Manager → Registry → Watcher)

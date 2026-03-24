@@ -3,6 +3,12 @@ defmodule ClawdEx.Deploy.ManagerTest do
 
   alias ClawdEx.Deploy.Manager
 
+  setup do
+    # Reset deploy state to avoid leaking state between tests
+    Manager.reset_state()
+    :ok
+  end
+
   describe "status/0" do
     test "returns current deploy status" do
       assert {:ok, status} = Manager.status()

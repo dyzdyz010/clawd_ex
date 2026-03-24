@@ -44,6 +44,11 @@ defmodule ClawdEx.Deploy.Manager do
     GenServer.cast(__MODULE__, {:record_result, deploy_id, exit_code, output})
   end
 
+  @doc "Reset deploy state (for testing only)"
+  def reset_state do
+    GenServer.call(__MODULE__, :reset_state)
+  end
+
   # --- GenServer Callbacks ---
 
   @impl true
@@ -78,6 +83,11 @@ defmodule ClawdEx.Deploy.Manager do
     }
 
     {:reply, {:ok, status}, state}
+  end
+
+  @impl true
+  def handle_call(:reset_state, _from, state) do
+    {:reply, :ok, %{state | current_deploy: nil}}
   end
 
   @impl true
