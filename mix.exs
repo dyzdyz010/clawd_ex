@@ -16,7 +16,7 @@ defmodule ClawdEx.MixProject do
       releases: [
         clawd_ex: [
           include_executables_for: [:unix],
-          applications: [runtime_tools: :permanent],
+          applications: [runtime_tools: :permanent, nostrum: :none],
           steps: [:assemble, :tar]
         ]
       ]
@@ -70,7 +70,7 @@ defmodule ClawdEx.MixProject do
       {:hackney, "~> 1.18"},
       {:multipart, "~> 0.4"},
       # Discord Bot API (runtime: false in test/dev - no bot token by default)
-      {:nostrum, "~> 0.10", runtime: Mix.env() == :prod},
+      {:nostrum, "~> 0.10", runtime: false},
       # Required for Nostrum
       {:certifi, "~> 2.12"},
       {:gun, "~> 2.0", override: true},
