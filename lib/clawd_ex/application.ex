@@ -41,8 +41,6 @@ defmodule ClawdEx.Application do
       ClawdEx.Nodes.Registry,
       # Node pairing service (pair codes, token management)
       ClawdEx.Nodes.Pairing,
-      # ACP subsystem (Registry, SessionSupervisor)
-      ClawdEx.ACP.Supervisor,
       # Browser subsystem (CDP → Server)
       ClawdEx.Browser.Supervisor,
       # Skills subsystem (Manager → Registry → Watcher)
