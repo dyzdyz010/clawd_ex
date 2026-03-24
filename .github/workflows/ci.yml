@@ -41,6 +41,8 @@ jobs:
             _build
           key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
           restore-keys: ${{ runner.os }}-mix-
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y inotify-tools
       - run: mix deps.get
       - run: mix deps.compile
       - run: mix compile --warnings-as-errors
