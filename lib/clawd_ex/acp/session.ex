@@ -163,7 +163,7 @@ defmodule ClawdEx.ACP.Session do
   end
 
   @impl true
-  def handle_call({:run_turn, text, opts}, _from, %{status: :running} = state) do
+  def handle_call({:run_turn, _text, _opts}, _from, %{status: :running} = state) do
     {:reply, {:error, :already_running}, state}
   end
 
@@ -179,7 +179,7 @@ defmodule ClawdEx.ACP.Session do
 
     # Kick off the turn in a linked task
     me = self()
-    task_pid =
+    _task_pid =
       spawn_link(fn ->
         run_turn_task(me, state, text, opts)
       end)

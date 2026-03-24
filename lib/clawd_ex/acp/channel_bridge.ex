@@ -14,15 +14,12 @@ defmodule ClawdEx.ACP.ChannelBridge do
 
   alias ClawdEx.ACP.Event
 
-  # Minimum interval between text flush messages (ms)
-  @text_flush_interval_ms 2_000
-
   @doc """
   Handle an ACP event from a session, forwarding to the appropriate channel.
   Called synchronously from the session GenServer — should be fast.
   """
   @spec handle_event(map(), Event.t()) :: :ok
-  def handle_event(session_state, %Event{type: :text_delta} = _event) do
+  def handle_event(_session_state, %Event{type: :text_delta} = _event) do
     # Text deltas are accumulated by the Session GenServer.
     # The periodic flush or done event will send the accumulated text.
     # We broadcast via PubSub for real-time subscribers (WebSocket, SSE).
@@ -47,7 +44,7 @@ defmodule ClawdEx.ACP.ChannelBridge do
     :ok
   end
 
-  def handle_event(session_state, %Event{type: :done} = _event) do
+  def handle_event(_session_state, %Event{type: :done} = _event) do
     # Completion is handled by announce_completion/3
     :ok
   end

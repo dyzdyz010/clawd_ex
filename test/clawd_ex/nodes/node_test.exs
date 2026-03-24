@@ -41,8 +41,8 @@ defmodule ClawdEx.Nodes.NodeTest do
       updated = Node.update_status(node, :connected)
 
       assert updated.status == :connected
-      assert updated.connected_at != nil
-      assert updated.last_seen_at != nil
+      assert %DateTime{} = updated.connected_at
+      assert %DateTime{} = updated.last_seen_at
     end
 
     test "updates status to disconnected" do
@@ -50,7 +50,7 @@ defmodule ClawdEx.Nodes.NodeTest do
       updated = Node.update_status(node, :disconnected)
 
       assert updated.status == :disconnected
-      assert updated.last_seen_at != nil
+      assert %DateTime{} = updated.last_seen_at
     end
   end
 
@@ -60,8 +60,8 @@ defmodule ClawdEx.Nodes.NodeTest do
       paired = Node.mark_paired(node)
 
       assert paired.status == :connected
-      assert paired.paired_at != nil
-      assert paired.connected_at != nil
+      assert %DateTime{} = paired.paired_at
+      assert %DateTime{} = paired.connected_at
     end
   end
 
