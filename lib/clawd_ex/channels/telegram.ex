@@ -567,6 +567,8 @@ defmodule ClawdEx.Channels.Telegram do
         case Telegram.Api.request(token, "getMe") do
           {:ok, bot_info} ->
             Logger.info("Telegram bot started: @#{bot_info["username"]}")
+            # Register slash command menu with Telegram (fire-and-forget)
+            Task.start(fn -> register_bot_commands() end)
             send(self(), :poll)
             {:ok, %__MODULE__{token: token, bot_info: bot_info, offset: 0, running: true}}
 
@@ -694,6 +696,22 @@ defmodule ClawdEx.Channels.Telegram do
         send_message(chat_id, "请先绑定一个 Agent，发送配对码：/pair <code>")
         :ok
 
+      # --- Slash command handling ---
+      ClawdEx.Commands.Handler.command?(text) ->
+        session_key = "telegram:#{chat_id}"
+
+        context = %{
+          session_key: session_key,
+          chat_id: chat_id,
+          user_id: user_id,
+          agent_id: resolve_agent_for_user(user_id, is_private)
+        }
+
+        case ClawdEx.Commands.Handler.handle(text, context) do
+          {:ok, response} -> send_message(chat_id, response)
+          {:error, reason} -> send_message(chat_id, "❌ #{inspect(reason)}")
+        end
+
       # --- Normal message processing ---
       true ->
         cond do
@@ -714,6 +732,59 @@ defmodule ClawdEx.Channels.Telegram do
   end
 
   defp process_update(_), do: :ok
+
+  # --- Agent resolution for commands ---
+
+  defp resolve_agent_for_user(user_id, true = _is_private) do
+    if dm_pairing_available?() do
+      case DmPairing.Server.lookup(user_id, "telegram") do
+        {:ok, agent_id} -> agent_id
+        :not_paired -> nil
+      end
+    else
+      nil
+    end
+  end
+
+  defp resolve_agent_for_user(_user_id, _is_group), do: nil
+
+  # --- Bot command menu registration ---
+
+  @doc false
+  def register_bot_commands do
+    token = get_token()
+
+    if token do
+      commands = [
+        %{command: "new", description: "开始新对话"},
+        %{command: "reset", description: "重置当前会话"},
+        %{command: "status", description: "查看会话状态"},
+        %{command: "model", description: "查看/切换 AI 模型"},
+        %{command: "help", description: "显示帮助信息"},
+        %{command: "compact", description: "压缩会话历史"},
+        %{command: "version", description: "显示版本信息"}
+      ]
+
+      body = Jason.encode!(%{commands: commands})
+      url = "https://api.telegram.org/bot#{token}/setMyCommands"
+
+      case Req.post(url, body: body, headers: [{"content-type", "application/json"}]) do
+        {:ok, %{status: 200}} ->
+          Logger.info("Telegram bot commands registered successfully")
+          :ok
+
+        {:ok, resp} ->
+          Logger.warning("Failed to register bot commands: #{inspect(resp.body)}")
+          {:error, resp.body}
+
+        {:error, reason} ->
+          Logger.warning("Failed to register bot commands: #{inspect(reason)}")
+          {:error, reason}
+      end
+    else
+      :ok
+    end
+  end
 
   # --- Security helpers ---
 
