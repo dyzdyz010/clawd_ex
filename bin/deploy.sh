@@ -18,6 +18,15 @@ mkdir -p "$LOG_DIR" "$DEPLOY_DIR/artifacts" "$DEPLOY_DIR/releases"
 
 cd "$APP_DIR"
 
+# 0. Stop old service gracefully
+log "Stopping current service..."
+if [ -x "$RELEASE_DIR/bin/clawd_ex" ]; then
+  "$RELEASE_DIR/bin/clawd_ex" stop 2>/dev/null || true
+  sleep 2
+fi
+# Kill any orphan epmd from old releases
+pkill -f "clawd_ex.*epmd" 2>/dev/null || true
+
 # 1. Check CI
 log "Checking CI status for main branch..."
 LATEST_RUN=$(gh run list --branch main --workflow ci.yml --limit 1 --json databaseId,conclusion,headSha --jq '.[0]' 2>/dev/null)
@@ -65,13 +74,17 @@ else
   warn "Service not installed. Run: bin/service.sh install"
 fi
 
+# 6.5 Cleanup old releases (keep last 3)
+log "Cleaning up old releases..."
+ls -dt "${DEPLOY_DIR}/releases"/*/ 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true
+# Cleanup old artifacts (keep last 3)
+ls -dt "${DEPLOY_DIR}/artifacts"/*/ 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true
+
 # 7. Health check
 log "Waiting for startup..."
 for i in $(seq 1 20); do
   if no_proxy=localhost curl -sf "http://localhost:${PORT:-4000}/api/health" > /dev/null 2>&1; then
     log "✅ Deployed $HEAD_SHA — healthy (attempt $i)"
-    # Cleanup old releases (keep last 3)
-    ls -dt "${DEPLOY_DIR}/releases"/*/ 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true
     exit 0
   fi
   sleep 1
