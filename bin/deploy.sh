@@ -64,13 +64,14 @@ fi
 
 # 8. Health check
 log "Waiting for startup..."
-sleep 3
-for i in $(seq 1 10); do
-  if curl -sf "http://localhost:${PORT:-4000}/api/health" > /dev/null 2>&1; then
-    log "✅ Service is healthy!"
+for i in $(seq 1 20); do
+  if no_proxy=localhost curl -sf "http://localhost:${PORT:-4000}/api/health" > /dev/null 2>&1; then
+    log "✅ Service is healthy! (attempt $i)"
+    NEW_SHA=$(git rev-parse --short HEAD)
+    log "Deployed: $NEW_SHA"
     exit 0
   fi
   sleep 1
 done
 
-error "❌ Health check failed after 10 attempts"
+error "❌ Health check failed after 20 attempts"
