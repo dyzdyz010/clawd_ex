@@ -90,6 +90,7 @@ defmodule ClawdEx.Tools.Gateway do
         action: %{
           type: "string",
           enum: [
+            "status",
             "restart",
             "config.get",
             "config.schema",
@@ -98,9 +99,15 @@ defmodule ClawdEx.Tools.Gateway do
             "config_reload",
             "config_set",
             "config_list",
-            "broadcast"
+            "broadcast",
+            "log_level"
           ],
           description: "Action to perform"
+        },
+        level: %{
+          type: "string",
+          enum: ["debug", "info", "warning", "error"],
+          description: "Log level (for log_level action)"
         },
         value: %{
           type: "string",
@@ -128,6 +135,7 @@ defmodule ClawdEx.Tools.Gateway do
     action = params["action"] || params[:action]
 
     case action do
+      "status" -> do_status()
       "restart" -> do_restart()
       "config.get" -> do_config_get(params)
       "config.schema" -> do_config_schema()
@@ -137,6 +145,7 @@ defmodule ClawdEx.Tools.Gateway do
       "config_set" -> do_config_set(params)
       "config_list" -> do_config_list()
       "broadcast" -> do_broadcast(params)
+      "log_level" -> do_set_log_level(params)
       _ -> {:error, "Unknown action: #{action}"}
     end
   end
@@ -144,6 +153,85 @@ defmodule ClawdEx.Tools.Gateway do
   # ============================================================================
   # Actions
   # ============================================================================
+
+  defp do_status do
+    # System uptime (BEAM VM uptime in seconds)
+    {uptime_ms, _} = :erlang.statistics(:wall_clock)
+    uptime_seconds = div(uptime_ms, 1000)
+
+    # Active sessions count from Registry
+    session_keys =
+      Registry.select(ClawdEx.SessionRegistry, [{{:"$1", :_, :_}, [], [:"$1"]}])
+
+    # Registered agents count from AgentLoopRegistry
+    agent_loops =
+      Registry.select(ClawdEx.AgentLoopRegistry, [{{:"$1", :_, :_}, [], [:"$1"]}])
+
+    # Memory usage
+    memory = :erlang.memory()
+
+    # Application version
+    version =
+      case :application.get_key(:clawd_ex, :vsn) do
+        {:ok, vsn} -> List.to_string(vsn)
+        _ -> "unknown"
+      end
+
+    {:ok,
+     %{
+       uptime_seconds: uptime_seconds,
+       uptime_human: format_uptime(uptime_seconds),
+       sessions: length(session_keys),
+       agent_loops: length(agent_loops),
+       memory: %{
+         total_mb: Float.round(memory[:total] / 1_048_576, 2),
+         processes_mb: Float.round(memory[:processes] / 1_048_576, 2),
+         ets_mb: Float.round(memory[:ets] / 1_048_576, 2)
+       },
+       version: version,
+       otp_release: :erlang.system_info(:otp_release) |> List.to_string(),
+       elixir_version: System.version()
+     }}
+  end
+
+  defp format_uptime(seconds) do
+    days = div(seconds, 86400)
+    hours = div(rem(seconds, 86400), 3600)
+    minutes = div(rem(seconds, 3600), 60)
+    secs = rem(seconds, 60)
+
+    parts =
+      [{days, "d"}, {hours, "h"}, {minutes, "m"}, {secs, "s"}]
+      |> Enum.reject(fn {v, _} -> v == 0 end)
+      |> Enum.map(fn {v, u} -> "#{v}#{u}" end)
+
+    case parts do
+      [] -> "0s"
+      _ -> Enum.join(parts, " ")
+    end
+  end
+
+  @valid_log_levels ~w(debug info warning error)
+
+  defp do_set_log_level(params) do
+    level = params["level"] || params[:level]
+
+    cond do
+      is_nil(level) or level == "" ->
+        # Return current level
+        current = Logger.level()
+        {:ok, %{current_level: to_string(current)}}
+
+      level in @valid_log_levels ->
+        level_atom = String.to_existing_atom(level)
+        Logger.configure(level: level_atom)
+        Logger.info("[Gateway] Log level changed to #{level}")
+        {:ok, %{status: "updated", level: level}}
+
+      true ->
+        {:error, "Invalid log level: #{level}. Must be one of: #{Enum.join(@valid_log_levels, ", ")}"}
+    end
+  end
 
   defp do_restart do
     Logger.info("[Gateway] Restart requested")
@@ -228,6 +316,10 @@ defmodule ClawdEx.Tools.Gateway do
           case save_config(new_config) do
             :ok ->
               Logger.info("[Gateway] Configuration patched")
+
+              # Auto-apply log level if logging.level was changed
+              maybe_apply_log_level(new_config)
+
               {:ok, %{status: "patched", config: new_config}}
 
             {:error, reason} ->
@@ -402,6 +494,18 @@ defmodule ClawdEx.Tools.Gateway do
   end
 
   defp validate_config(_), do: {:error, "Config must be an object"}
+
+  defp maybe_apply_log_level(config) do
+    case get_nested(config, ["logging", "level"]) do
+      level when level in @valid_log_levels ->
+        level_atom = String.to_existing_atom(level)
+        Logger.configure(level: level_atom)
+        Logger.info("[Gateway] Log level auto-applied: #{level}")
+
+      _ ->
+        :ok
+    end
+  end
 
   defp has_invalid_types?(config) when is_map(config) do
     Enum.any?(config, fn {_k, v} ->

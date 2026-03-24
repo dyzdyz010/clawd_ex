@@ -132,6 +132,107 @@ defmodule ClawdEx.Tools.GatewayTest do
     end
   end
 
+  describe "execute/2 - status" do
+    test "returns system status" do
+      assert {:ok, status} = Gateway.execute(%{"action" => "status"}, %{})
+      assert is_integer(status[:uptime_seconds])
+      assert status[:uptime_seconds] >= 0
+      assert is_binary(status[:uptime_human])
+      assert is_integer(status[:sessions])
+      assert is_integer(status[:agent_loops])
+      assert is_map(status[:memory])
+      assert is_float(status[:memory][:total_mb])
+      assert is_float(status[:memory][:processes_mb])
+      assert is_float(status[:memory][:ets_mb])
+      assert is_binary(status[:version])
+      assert is_binary(status[:otp_release])
+      assert is_binary(status[:elixir_version])
+    end
+
+    test "status action is in parameter enum" do
+      params = Gateway.parameters()
+      action_enum = params[:properties][:action][:enum]
+      assert "status" in action_enum
+    end
+  end
+
+  describe "execute/2 - log_level" do
+    test "returns current level when no level param" do
+      assert {:ok, %{current_level: level}} =
+               Gateway.execute(%{"action" => "log_level"}, %{})
+
+      assert level in ["debug", "info", "warning", "error", "notice"]
+    end
+
+    test "sets log level to debug" do
+      original_level = Logger.level()
+
+      assert {:ok, %{status: "updated", level: "debug"}} =
+               Gateway.execute(%{"action" => "log_level", "level" => "debug"}, %{})
+
+      assert Logger.level() == :debug
+
+      # Restore original level
+      Logger.configure(level: original_level)
+    end
+
+    test "sets log level to warning" do
+      original_level = Logger.level()
+
+      assert {:ok, %{status: "updated", level: "warning"}} =
+               Gateway.execute(%{"action" => "log_level", "level" => "warning"}, %{})
+
+      assert Logger.level() == :warning
+
+      # Restore original level
+      Logger.configure(level: original_level)
+    end
+
+    test "returns error for invalid level" do
+      assert {:error, msg} =
+               Gateway.execute(%{"action" => "log_level", "level" => "trace"}, %{})
+
+      assert String.contains?(msg, "Invalid log level")
+    end
+
+    test "log_level action is in parameter enum" do
+      params = Gateway.parameters()
+      action_enum = params[:properties][:action][:enum]
+      assert "log_level" in action_enum
+    end
+  end
+
+  describe "execute/2 - config.patch auto-applies log level" do
+    test "auto-applies log level when logging.level is patched" do
+      original_level = Logger.level()
+
+      # Set a known config first
+      initial_config = %{
+        "app" => %{"name" => "log_test", "version" => "1.0.0"},
+        "features" => %{"discord" => true, "telegram" => false, "web_api" => true},
+        "limits" => %{
+          "max_sessions" => 100,
+          "session_timeout_minutes" => 60,
+          "max_message_length" => 4096
+        },
+        "logging" => %{"level" => "info", "format" => "json"}
+      }
+
+      Gateway.execute(%{"action" => "config.apply", "config" => initial_config}, %{})
+
+      # Patch logging level
+      patch = %{"logging" => %{"level" => "debug"}}
+
+      assert {:ok, %{status: "patched"}} =
+               Gateway.execute(%{"action" => "config.patch", "config" => patch}, %{})
+
+      assert Logger.level() == :debug
+
+      # Restore
+      Logger.configure(level: original_level)
+    end
+  end
+
   describe "execute/2 - unknown action" do
     test "returns error for unknown action" do
       assert {:error, msg} = Gateway.execute(%{"action" => "unknown"}, %{})

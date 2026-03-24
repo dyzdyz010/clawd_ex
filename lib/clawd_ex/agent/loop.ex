@@ -227,13 +227,16 @@ defmodule ClawdEx.Agent.Loop do
 
     timeout_ref = Process.send_after(self(), {:run_timeout, run_id}, timeout_ms)
 
+    # Prefer model_override from config (set by session_status tool) over default
+    effective_model = data.config[:model_override] || data.config[:default_model]
+
     new_data = %{
       data
       | run_id: run_id,
         reply_to: nil,
         started_at: DateTime.utc_now(),
         timeout_ref: timeout_ref,
-        model: data.config[:default_model] |> Models.resolve(),
+        model: effective_model |> Models.resolve(),
         a2a_message_id: msg.message_id
     }
 

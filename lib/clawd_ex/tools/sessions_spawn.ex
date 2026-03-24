@@ -9,6 +9,9 @@ defmodule ClawdEx.Tools.SessionsSpawn do
   - 任务完成后通过 PubSub 通知父会话并回报渠道
   - 支持 cleanup: "delete" | "keep" 控制会话清理
   - 支持 thinking 参数控制思考级别
+  - 支持 Telegram Forum/Topic announce
+  - 超时通知父会话和渠道
+  - 支持 streamTo: "parent" 实时流式推送输出
 
   session_key 格式: agent:{agent_id}:subagent:{uuid}
   """
@@ -71,6 +74,11 @@ defmodule ClawdEx.Tools.SessionsSpawn do
           type: "string",
           enum: ["delete", "keep"],
           description: "Session cleanup after completion: 'delete' removes session, 'keep' preserves it (default: keep)"
+        },
+        streamTo: %{
+          type: "string",
+          enum: ["parent"],
+          description: "Stream child output to parent session in real-time (optional)"
         }
       },
       required: ["task"]
@@ -110,6 +118,7 @@ defmodule ClawdEx.Tools.SessionsSpawn do
     thinking = get_string_param(params, "thinking")
     timeout_seconds = get_timeout(params)
     cleanup = normalize_cleanup(params["cleanup"] || params[:cleanup])
+    stream_to = get_string_param(params, "streamTo")
 
     # 获取渠道信息用于结果回报
     channel = context[:channel]
@@ -137,6 +146,11 @@ defmodule ClawdEx.Tools.SessionsSpawn do
           cleanup: to_string(cleanup),
           parent_session_key: parent_session_key
         })
+
+        # 如果 streamTo == "parent"，设置流式转发
+        if stream_to == "parent" && parent_session_key do
+          setup_stream_to_parent(child_session_key, parent_session_key, parent_session_id, label)
+        end
 
         # 异步执行任务
         spawn_task_runner(%{
@@ -231,26 +245,36 @@ defmodule ClawdEx.Tools.SessionsSpawn do
 
       duration_ms = DateTime.diff(DateTime.utc_now(), started_at, :millisecond)
 
-      # 通知父会话 (PubSub)
-      announce_completion(
-        parent_session_key,
-        parent_session_id,
-        child_session_key,
-        result,
-        duration_ms,
-        label
-      )
+      # 超时专门处理：通知父会话 + announce 到渠道
+      if result == {:error, :timeout} do
+        handle_timeout_notification(
+          parent_session_key,
+          parent_session_id,
+          child_session_key,
+          label,
+          timeout_seconds,
+          channel,
+          channel_to,
+          cleanup
+        )
+      else
+        # 通知父会话 (PubSub)
+        announce_completion(
+          parent_session_key,
+          parent_session_id,
+          child_session_key,
+          result,
+          duration_ms,
+          label
+        )
 
-      # 向原渠道发送结果通知
-      announce_to_channel(channel, channel_to, label, result, duration_ms)
+        # 向原渠道发送结果通知（带 topic 支持）
+        announce_to_channel(channel, channel_to, parent_session_key, label, result, duration_ms)
 
-      # 根据 cleanup 参数决定是否清理
-      if cleanup == :delete do
-        Logger.info("Cleaning up subagent session: #{child_session_key}")
-        # 先停止进程
-        SessionManager.stop_session(child_session_key)
-        # 再删除数据库记录
-        delete_session_from_db(child_session_key)
+        # 根据 cleanup 参数决定是否清理
+        if cleanup == :delete do
+          cleanup_session(child_session_key)
+        end
       end
     end)
   end
@@ -310,11 +334,11 @@ defmodule ClawdEx.Tools.SessionsSpawn do
     end
   end
 
-  # 向原渠道发送结果通知
-  defp announce_to_channel(nil, _to, _label, _result, _duration_ms), do: :ok
-  defp announce_to_channel(_channel, nil, _label, _result, _duration_ms), do: :ok
+  # 向原渠道发送结果通知（带 Telegram topic 支持）
+  defp announce_to_channel(nil, _to, _parent_key, _label, _result, _duration_ms), do: :ok
+  defp announce_to_channel(_channel, nil, _parent_key, _label, _result, _duration_ms), do: :ok
 
-  defp announce_to_channel(channel, to, label, result, duration_ms) do
+  defp announce_to_channel(channel, to, parent_session_key, label, result, duration_ms) do
     status_emoji = if match?({:ok, _}, result), do: "✅", else: "❌"
     task_name = label || "子代理任务"
     duration_str = format_duration(duration_ms)
@@ -322,29 +346,66 @@ defmodule ClawdEx.Tools.SessionsSpawn do
     message =
       case result do
         {:ok, content} when is_binary(content) ->
-          summary = truncate(content, 500)
-          "#{status_emoji} **#{task_name}** 完成 (#{duration_str})\n\n#{summary}"
+          summary = truncate(content, 2000)
+          "#{status_emoji} 子代理 [#{task_name}] 完成 (#{duration_str})\n---\n#{summary}"
 
         {:ok, _} ->
-          "#{status_emoji} **#{task_name}** 完成 (#{duration_str})"
+          "#{status_emoji} 子代理 [#{task_name}] 完成 (#{duration_str})"
 
         {:error, reason} ->
-          "#{status_emoji} **#{task_name}** 失败 (#{duration_str})\n\n错误: #{inspect(reason)}"
+          "#{status_emoji} 子代理 [#{task_name}] 失败 (#{duration_str})\n---\n错误: #{inspect(reason)}"
       end
 
     # 通过渠道发送消息
-    case channel do
-      "telegram" ->
-        ClawdEx.Channels.Telegram.send_message(to, message)
+    send_result =
+      case channel do
+        "telegram" ->
+          # 解析 topic_id 从父会话 session_key
+          topic_id = extract_topic_id(parent_session_key)
+          opts = if topic_id, do: [message_thread_id: topic_id], else: []
+          ClawdEx.Channels.Telegram.send_message(to, message, opts)
 
-      "discord" ->
-        ClawdEx.Channels.Discord.send_message(to, message)
+        "discord" ->
+          ClawdEx.Channels.Discord.send_message(to, message)
+
+        _ ->
+          Logger.debug("Unknown channel for announcement: #{channel}")
+          :ok
+      end
+
+    # announce 失败时通过 PubSub fallback 通知父会话
+    case send_result do
+      {:error, reason} ->
+        Logger.warning("Channel announce failed (#{channel}): #{inspect(reason)}, falling back to PubSub")
+        if parent_session_key do
+          Phoenix.PubSub.broadcast(
+            ClawdEx.PubSub,
+            "session:#{parent_session_key}",
+            {:subagent_announce_fallback, %{
+              label: label,
+              message: message,
+              channel_error: inspect(reason)
+            }}
+          )
+        end
 
       _ ->
-        Logger.debug("Unknown channel for announcement: #{channel}")
         :ok
     end
   end
+
+  # 从 session_key 中提取 Telegram topic ID
+  # 格式: agent:ceo:telegram:group:-xxx:topic:21
+  defp extract_topic_id(nil), do: nil
+
+  defp extract_topic_id(session_key) when is_binary(session_key) do
+    case Regex.run(~r/:topic:(\d+)/, session_key) do
+      [_, topic_id] -> topic_id
+      _ -> nil
+    end
+  end
+
+  defp extract_topic_id(_), do: nil
 
   defp format_duration(ms) when ms < 1000, do: "#{ms}ms"
   defp format_duration(ms) when ms < 60_000, do: "#{Float.round(ms / 1000, 1)}s"
@@ -390,6 +451,160 @@ defmodule ClawdEx.Tools.SessionsSpawn do
         "agent:#{parent_session_id}",
         {:subagent_completed, completion_data}
       )
+    end
+  end
+
+  # 超时处理：通知父会话 + announce 到渠道 + cleanup
+  defp handle_timeout_notification(
+         parent_session_key,
+         parent_session_id,
+         child_session_key,
+         label,
+         timeout_seconds,
+         channel,
+         channel_to,
+         cleanup
+       ) do
+    task_name = label || "子代理任务"
+    timeout_message = "⚠️ 子代理 [#{task_name}] 超时 (#{timeout_seconds}s)"
+
+    # 1. 通过 PubSub 通知父会话
+    if parent_session_key do
+      Phoenix.PubSub.broadcast(
+        ClawdEx.PubSub,
+        "session:#{parent_session_key}",
+        {:subagent_timeout, %{
+          childSessionKey: child_session_key,
+          label: label,
+          timeoutSeconds: timeout_seconds,
+          message: timeout_message
+        }}
+      )
+    end
+
+    if parent_session_id do
+      Phoenix.PubSub.broadcast(
+        ClawdEx.PubSub,
+        "agent:#{parent_session_id}",
+        {:subagent_timeout, %{
+          childSessionKey: child_session_key,
+          label: label,
+          timeoutSeconds: timeout_seconds,
+          message: timeout_message
+        }}
+      )
+    end
+
+    # 2. announce 超时到渠道
+    if channel && channel_to do
+      announce_to_channel(
+        channel,
+        channel_to,
+        parent_session_key,
+        label,
+        {:error, :timeout},
+        timeout_seconds * 1000
+      )
+    end
+
+    # 3. cleanup 超时的子代理 session
+    if cleanup == :delete do
+      cleanup_session(child_session_key)
+    end
+  end
+
+  # 统一的会话清理函数
+  defp cleanup_session(child_session_key) do
+    Logger.info("Cleaning up subagent session: #{child_session_key}")
+    # 先停止进程
+    SessionManager.stop_session(child_session_key)
+    # 再删除数据库记录
+    delete_session_from_db(child_session_key)
+  end
+
+  # 设置 streamTo: "parent" 的流式转发
+  # 监听子会话的 output 事件并转发给父会话
+  defp setup_stream_to_parent(child_session_key, parent_session_key, parent_session_id, label) do
+    # 获取子会话的 session_id 用于订阅 PubSub
+    child_session_id = get_session_id_by_key(child_session_key)
+
+    if child_session_id do
+      Task.Supervisor.start_child(ClawdEx.AgentTaskSupervisor, fn ->
+        # 订阅子代理的输出事件
+        Phoenix.PubSub.subscribe(ClawdEx.PubSub, "output:#{child_session_id}")
+        Phoenix.PubSub.subscribe(ClawdEx.PubSub, "agent:#{child_session_id}")
+
+        # 转发循环
+        stream_forward_loop(parent_session_key, parent_session_id, label)
+      end)
+    else
+      Logger.warning("Cannot setup streamTo: child session_id not found for #{child_session_key}")
+    end
+  end
+
+  # 流式转发循环：监听子代理输出并推送给父会话
+  defp stream_forward_loop(parent_session_key, parent_session_id, label) do
+    receive do
+      # OutputManager 输出段
+      {:output_segment, _run_id, content, metadata} when content != "" ->
+        forward_to_parent(parent_session_key, parent_session_id, label, content, metadata)
+        stream_forward_loop(parent_session_key, parent_session_id, label)
+
+      # Agent 段输出（兼容）
+      {:agent_segment, _run_id, content, _opts} when is_binary(content) and content != "" ->
+        forward_to_parent(parent_session_key, parent_session_id, label, content, %{type: :segment})
+        stream_forward_loop(parent_session_key, parent_session_id, label)
+
+      # 运行完成 — 停止转发
+      {:output_complete, _run_id, _content, _metadata} ->
+        Logger.debug("Stream forward completed for subagent #{label || "unknown"}")
+        :ok
+
+      # 忽略其他事件但继续监听
+      _ ->
+        stream_forward_loop(parent_session_key, parent_session_id, label)
+    after
+      # 安全超时 15 分钟，防止僵尸进程
+      900_000 ->
+        Logger.warning("Stream forward loop timed out for subagent #{label || "unknown"}")
+        :ok
+    end
+  end
+
+  # 将子代理输出转发给父会话
+  defp forward_to_parent(parent_session_key, parent_session_id, label, content, metadata) do
+    prefix = if label, do: "[#{label}] ", else: ""
+
+    stream_data = %{
+      label: label,
+      content: content,
+      metadata: metadata
+    }
+
+    if parent_session_key do
+      Phoenix.PubSub.broadcast(
+        ClawdEx.PubSub,
+        "session:#{parent_session_key}",
+        {:subagent_stream, stream_data}
+      )
+    end
+
+    if parent_session_id do
+      Phoenix.PubSub.broadcast(
+        ClawdEx.PubSub,
+        "agent:#{parent_session_id}",
+        {:subagent_stream, stream_data}
+      )
+    end
+
+    Logger.debug("Forwarded stream from subagent #{prefix}: #{String.slice(content, 0, 50)}...")
+  end
+
+  # 通过 session_key 获取数据库中的 session_id
+  defp get_session_id_by_key(session_key) do
+    case ClawdEx.Repo.get_by(ClawdEx.Sessions.Session, session_key: session_key) do
+      nil -> nil
+      session -> session.id
     end
   end
 

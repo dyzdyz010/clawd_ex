@@ -64,6 +64,7 @@ defmodule ClawdEx.Channels.Telegram do
   defp do_send_message(token, chat_id, content, opts) do
     chat_id = ensure_integer(chat_id)
     reply_to = Keyword.get(opts, :reply_to)
+    thread_id = Keyword.get(opts, :message_thread_id)
 
     # 分割长消息
     chunks = split_message(content, @max_message_length)
@@ -74,7 +75,7 @@ defmodule ClawdEx.Channels.Telegram do
       |> Enum.map(fn {chunk, index} ->
         # 只有第一个分块使用 reply_to
         chunk_reply_to = if index == 0, do: reply_to, else: nil
-        send_single_message(token, chat_id, chunk, chunk_reply_to)
+        send_single_message(token, chat_id, chunk, chunk_reply_to, thread_id)
       end)
 
     # 返回最后一个成功的结果，或第一个错误
@@ -84,10 +85,11 @@ defmodule ClawdEx.Channels.Telegram do
     end
   end
 
-  defp send_single_message(token, chat_id, content, reply_to) do
+  defp send_single_message(token, chat_id, content, reply_to, thread_id) do
     params =
       [chat_id: chat_id, text: content, parse_mode: "Markdown"]
       |> maybe_add_reply_params(reply_to)
+      |> maybe_add_thread_id(thread_id)
 
     case Telegram.Api.request(token, "sendMessage", params) do
       {:ok, message} ->
@@ -99,7 +101,7 @@ defmodule ClawdEx.Channels.Telegram do
              String.contains?(description, "parse") or
              String.contains?(description, "too long") do
           Logger.warning("Markdown/length error, retrying as plain text: #{description}")
-          send_plain_text(token, chat_id, content, reply_to)
+          send_plain_text(token, chat_id, content, reply_to, thread_id)
         else
           Logger.error("Telegram send failed: #{description}")
           {:error, description}
@@ -111,7 +113,7 @@ defmodule ClawdEx.Channels.Telegram do
              String.contains?(description, "parse") or
              String.contains?(description, "too long") do
           Logger.warning("Markdown/length error, retrying as plain text: #{description}")
-          send_plain_text(token, chat_id, content, reply_to)
+          send_plain_text(token, chat_id, content, reply_to, thread_id)
         else
           Logger.error("Telegram send failed: #{description}")
           {:error, description}
@@ -123,10 +125,11 @@ defmodule ClawdEx.Channels.Telegram do
     end
   end
 
-  defp send_plain_text(token, chat_id, content, reply_to) do
+  defp send_plain_text(token, chat_id, content, reply_to, thread_id) do
     params =
       [chat_id: chat_id, text: content]
       |> maybe_add_reply_params(reply_to)
+      |> maybe_add_thread_id(thread_id)
 
     case Telegram.Api.request(token, "sendMessage", params) do
       {:ok, message} ->
@@ -892,5 +895,11 @@ defmodule ClawdEx.Channels.Telegram do
   defp maybe_add_reply_params(params, reply_id) do
     reply_params = %{message_id: ensure_integer(reply_id)}
     Keyword.put(params, :reply_parameters, {:json, reply_params})
+  end
+
+  defp maybe_add_thread_id(params, nil), do: params
+
+  defp maybe_add_thread_id(params, thread_id) do
+    Keyword.put(params, :message_thread_id, ensure_integer(thread_id))
   end
 end

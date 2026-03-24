@@ -6,6 +6,7 @@ defmodule ClawdEx.Tools.SessionStatus do
 
   alias ClawdEx.Repo
   alias ClawdEx.Sessions.Session
+  alias ClawdEx.AI.Models
 
   @impl true
   def name, do: "session_status"
@@ -46,9 +47,14 @@ defmodule ClawdEx.Tools.SessionStatus do
 
         session ->
           # Handle model override if provided
-          session = maybe_set_model_override(session, params)
-          status = format_session_status(session)
-          {:ok, status}
+          case maybe_set_model_override(session, params) do
+            {:ok, updated_session} ->
+              status = format_session_status(updated_session)
+              {:ok, status}
+
+            {:error, reason} ->
+              {:error, reason}
+          end
       end
     end
   end
@@ -56,15 +62,32 @@ defmodule ClawdEx.Tools.SessionStatus do
   defp maybe_set_model_override(session, params) do
     model = params["model"] || params[:model]
 
-    if is_binary(model) && model != "" do
-      case session
-           |> Session.changeset(%{model_override: model})
-           |> Repo.update() do
-        {:ok, updated} -> updated
-        {:error, _} -> session
-      end
-    else
-      session
+    cond do
+      # No model param or empty string — no change
+      !is_binary(model) or model == "" ->
+        {:ok, session}
+
+      # "default" resets the override
+      String.downcase(model) == "default" ->
+        case session
+             |> Session.changeset(%{model_override: nil})
+             |> Repo.update() do
+          {:ok, updated} -> {:ok, updated}
+          {:error, _} -> {:ok, session}
+        end
+
+      # Validate model exists before setting
+      Models.exists?(model) ->
+        case session
+             |> Session.changeset(%{model_override: model})
+             |> Repo.update() do
+          {:ok, updated} -> {:ok, updated}
+          {:error, _} -> {:ok, session}
+        end
+
+      # Unknown model
+      true ->
+        {:error, "Unknown model: #{model}. Use a valid model name or alias, or \"default\" to reset."}
     end
   end
 

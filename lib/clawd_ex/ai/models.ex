@@ -431,6 +431,15 @@ defmodule ClawdEx.AI.Models do
   end
 
   @doc """
+  检查模型名（或别名）是否对应一个已知模型
+  """
+  @spec exists?(String.t()) :: boolean()
+  def exists?(model_or_alias) do
+    resolved = resolve(model_or_alias)
+    Map.has_key?(@models, resolved)
+  end
+
+  @doc """
   获取模型的最大输出 token 数
   """
   @spec max_tokens(String.t()) :: integer()

@@ -127,7 +127,8 @@ defmodule ClawdEx.Sessions.SessionWorker do
       config = %{
         default_model: get_agent_model(session.agent_id),
         workspace: get_agent_workspace(session.agent_id),
-        channel: channel
+        channel: channel,
+        model_override: session.model_override
       }
 
       # 启动 Agent Loop
@@ -209,6 +210,8 @@ defmodule ClawdEx.Sessions.SessionWorker do
               {:ok, :fresh} ->
                 # 更新最后活动时间
                 update_last_activity(state.session_id)
+                # Refresh model_override from DB (may have changed via session_status tool)
+                opts = maybe_apply_model_override(session, opts)
                 result = safe_run_agent(state.loop_pid, content, opts)
                 {:reply, result, state}
             end
@@ -287,6 +290,13 @@ defmodule ClawdEx.Sessions.SessionWorker do
 
     # 更新最后活动时间 (ignore DB errors)
     safe_update_last_activity(state.session_id)
+
+    # Refresh model_override from DB for async path too
+    opts =
+      case Repo.get(Session, state.session_id) do
+        nil -> opts
+        session -> maybe_apply_model_override(session, opts)
+      end
 
     # 标记 agent 正在运行
     state = %{state | agent_running: true}
@@ -657,7 +667,8 @@ defmodule ClawdEx.Sessions.SessionWorker do
     # 启动新的 Agent Loop
     config = %{
       default_model: get_agent_model(new_session.agent_id),
-      workspace: get_agent_workspace(new_session.agent_id)
+      workspace: get_agent_workspace(new_session.agent_id),
+      model_override: new_session.model_override
     }
 
     {:ok, new_loop_pid} =
@@ -677,6 +688,16 @@ defmodule ClawdEx.Sessions.SessionWorker do
         loop_pid: new_loop_pid,
         config: config
     }
+  end
+
+  # Apply model_override from session DB to the opts passed to AgentLoop.run
+  # This ensures the loop uses the session's override model if set
+  defp maybe_apply_model_override(session, opts) do
+    case session.model_override do
+      nil -> opts
+      "" -> opts
+      override -> Keyword.put_new(opts, :model, Models.resolve(override))
+    end
   end
 
   defp update_last_activity(session_id) do

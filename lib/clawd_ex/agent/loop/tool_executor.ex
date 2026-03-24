@@ -31,10 +31,18 @@ defmodule ClawdEx.Agent.Loop.ToolExecutor do
     tool_name = tool_call["name"] || get_in(tool_call, ["function", "name"])
     params = extract_tool_params(tool_call)
 
+    # Build rich context for tools that need session/channel info (e.g. sessions_spawn)
+    config = Map.get(data, :config, %{})
+    inbound_metadata = Map.get(data, :inbound_metadata, %{}) || %{}
+
     context = %{
       session_id: data.session_id,
       agent_id: data.agent_id,
-      run_id: data.run_id
+      run_id: data.run_id,
+      session_key: resolve_session_key(data.session_id),
+      channel: config[:channel] || inbound_metadata[:channel],
+      channel_to: inbound_metadata[:channel_id] || inbound_metadata["channel_id"],
+      config: config
     }
 
     Logger.debug("Executing tool #{tool_name} with params: #{inspect(params)}")
@@ -43,6 +51,18 @@ defmodule ClawdEx.Agent.Loop.ToolExecutor do
       {:ok, result} -> {:ok, result}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  # Resolve session_key from session_id via database
+  defp resolve_session_key(nil), do: nil
+
+  defp resolve_session_key(session_id) do
+    case ClawdEx.Repo.get(ClawdEx.Sessions.Session, session_id) do
+      nil -> nil
+      session -> session.session_key
+    end
+  rescue
+    _ -> nil
   end
 
   @doc "Extract tool parameters, compatible with both Anthropic and OpenAI formats"

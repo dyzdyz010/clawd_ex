@@ -79,30 +79,30 @@ defmodule ClawdEx.Tools.SessionStatusTest do
 
       assert {:ok, status} =
                SessionStatus.execute(
-                 %{"model" => "gpt-4-turbo"},
+                 %{"model" => "anthropic/claude-sonnet-4-5"},
                  %{session_id: session.id}
                )
 
-      assert String.contains?(status, "gpt-4-turbo")
+      assert String.contains?(status, "anthropic/claude-sonnet-4-5")
 
       # Verify it was persisted
       updated = Repo.get!(Session, session.id)
-      assert updated.model_override == "gpt-4-turbo"
+      assert updated.model_override == "anthropic/claude-sonnet-4-5"
     end
 
     test "updates existing model_override" do
-      {_agent, session} = create_test_session(%{model_override: "old-model"})
+      {_agent, session} = create_test_session(%{model_override: "sonnet"})
 
       assert {:ok, status} =
                SessionStatus.execute(
-                 %{"model" => "new-model"},
+                 %{"model" => "opus"},
                  %{session_id: session.id}
                )
 
-      assert String.contains?(status, "new-model")
+      assert String.contains?(status, "opus")
 
       updated = Repo.get!(Session, session.id)
-      assert updated.model_override == "new-model"
+      assert updated.model_override == "opus"
     end
 
     test "does not change model_override when model param is empty string" do
@@ -139,6 +139,81 @@ defmodule ClawdEx.Tools.SessionStatusTest do
                SessionStatus.execute(%{}, %{session_id: session.id})
 
       assert String.contains?(status, "default")
+    end
+
+    test "resets model_override when model='default'" do
+      {_agent, session} = create_test_session(%{model_override: "some-model"})
+
+      assert {:ok, status} =
+               SessionStatus.execute(
+                 %{"model" => "default"},
+                 %{session_id: session.id}
+               )
+
+      assert String.contains?(status, "default")
+
+      updated = Repo.get!(Session, session.id)
+      assert is_nil(updated.model_override)
+    end
+
+    test "resets model_override when model='Default' (case insensitive)" do
+      {_agent, session} = create_test_session(%{model_override: "some-model"})
+
+      assert {:ok, _status} =
+               SessionStatus.execute(
+                 %{"model" => "Default"},
+                 %{session_id: session.id}
+               )
+
+      updated = Repo.get!(Session, session.id)
+      assert is_nil(updated.model_override)
+    end
+
+    test "returns error for unknown model" do
+      {_agent, session} = create_test_session()
+
+      assert {:error, msg} =
+               SessionStatus.execute(
+                 %{"model" => "nonexistent-model-xyz"},
+                 %{session_id: session.id}
+               )
+
+      assert String.contains?(msg, "Unknown model")
+      assert String.contains?(msg, "nonexistent-model-xyz")
+
+      # Verify model_override was NOT changed
+      updated = Repo.get!(Session, session.id)
+      assert is_nil(updated.model_override)
+    end
+
+    test "accepts valid model alias" do
+      {_agent, session} = create_test_session()
+
+      assert {:ok, status} =
+               SessionStatus.execute(
+                 %{"model" => "sonnet"},
+                 %{session_id: session.id}
+               )
+
+      assert String.contains?(status, "sonnet")
+
+      updated = Repo.get!(Session, session.id)
+      assert updated.model_override == "sonnet"
+    end
+
+    test "accepts valid full model name" do
+      {_agent, session} = create_test_session()
+
+      assert {:ok, status} =
+               SessionStatus.execute(
+                 %{"model" => "anthropic/claude-opus-4-5"},
+                 %{session_id: session.id}
+               )
+
+      assert String.contains?(status, "anthropic/claude-opus-4-5")
+
+      updated = Repo.get!(Session, session.id)
+      assert updated.model_override == "anthropic/claude-opus-4-5"
     end
   end
 end
