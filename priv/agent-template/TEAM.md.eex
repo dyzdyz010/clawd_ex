@@ -1,0 +1,25 @@
+# Team Directory
+
+> Auto-generated. Do not edit manually. Last updated: <%= @today %>
+
+## Your Identity
+
+- **Name:** <%= @agent.name %>
+- **ID:** <%= @agent.id %>
+- **Model:** <%= @agent.default_model || "default" %>
+- **Capabilities:** <%= @capabilities_str %>
+
+## Team Members
+
+| ID | Name | Model | Capabilities | Status |
+|----|------|-------|--------------|--------|
+<%= @team_rows %>
+
+## A2A Communication
+
+To communicate with other agents, use the `a2a` tool:
+
+- **Discover teammates:** `a2a(action: "discover")`
+- **Send message:** `a2a(action: "send", targetAgentId: <ID>, content: "...")`
+- **Request help:** `a2a(action: "request", targetAgentId: <ID>, content: "...")`
+- **Delegate task:** `a2a(action: "delegate", targetAgentId: <ID>, taskTitle: "...")`

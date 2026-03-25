@@ -10,6 +10,7 @@ defmodule ClawdEx.CLI.Agents do
   import Ecto.Query
   alias ClawdEx.Repo
   alias ClawdEx.Agents.Agent
+  alias ClawdEx.Agents.WorkspaceManager
 
   def run(args, opts \\ [])
 
@@ -112,6 +113,17 @@ defmodule ClawdEx.CLI.Agents do
 
     case %Agent{} |> Agent.changeset(attrs) |> Repo.insert() do
       {:ok, agent} ->
+        # Initialize per-agent workspace
+        case WorkspaceManager.init_agent_workspace(agent) do
+          {:ok, path} ->
+            IO.puts("  Workspace: #{path}")
+
+          {:error, reason} ->
+            IO.puts("  ⚠ Workspace init failed: #{inspect(reason)}")
+        end
+
+        agent = Repo.get!(Agent, agent.id)
+
         IO.puts("""
         ✓ Agent created successfully!
 

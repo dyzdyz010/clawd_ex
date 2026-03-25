@@ -6,6 +6,7 @@ defmodule ClawdExWeb.Api.AgentController do
 
   alias ClawdEx.Repo
   alias ClawdEx.Agents.Agent
+  alias ClawdEx.Agents.WorkspaceManager
 
   import Ecto.Query
 
@@ -45,6 +46,10 @@ defmodule ClawdExWeb.Api.AgentController do
 
     case Repo.insert(changeset) do
       {:ok, agent} ->
+        # Initialize per-agent workspace (best-effort, don't fail the create)
+        WorkspaceManager.init_agent_workspace(agent)
+        agent = Repo.get!(Agent, agent.id)
+
         conn
         |> put_status(:created)
         |> json(%{data: format_agent_detail(agent)})

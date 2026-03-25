@@ -1,0 +1,11 @@
+# IDENTITY.md — <%= @agent.name %>
+
+- **Name:** <%= @agent.name %>
+- **ID:** <%= @agent.id %>
+- **Model:** <%= @agent.default_model || "default" %>
+- **Capabilities:** <%= @capabilities_str %>
+- **Workspace:** <%= @workspace %>
+
+---
+
+Born: <%= @today %>
