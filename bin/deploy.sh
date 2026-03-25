@@ -22,9 +22,12 @@ cd "$APP_DIR"
 log "Stopping current service..."
 if [ -x "$RELEASE_DIR/bin/clawd_ex" ]; then
   "$RELEASE_DIR/bin/clawd_ex" stop 2>/dev/null || true
-  # Wait for Telegram long-poll HTTP request to expire (30s timeout + 5s buffer)
-  log "Waiting for old long-poll connections to expire..."
-  sleep 35
+  # Wait for BEAM process to actually exit (up to 40s for long-poll to expire)
+  log "Waiting for old process to exit..."
+  for i in $(seq 1 40); do
+    pgrep -f "clawd_ex.*beam" > /dev/null 2>&1 || break
+    sleep 1
+  done
 fi
 # Kill any orphan epmd from old releases
 pkill -f "clawd_ex.*epmd" 2>/dev/null || true
