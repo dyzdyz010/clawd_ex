@@ -707,10 +707,8 @@ defmodule ClawdEx.Channels.Telegram do
           agent_id: resolve_agent_for_user(user_id, is_private)
         }
 
-        case ClawdEx.Commands.Handler.handle(text, context) do
-          {:ok, response} -> send_message(chat_id, response)
-          {:error, reason} -> send_message(chat_id, "❌ #{inspect(reason)}")
-        end
+        {:ok, response} = ClawdEx.Commands.Handler.handle(text, context)
+        send_message(chat_id, response)
 
       # --- Normal message processing ---
       true ->
