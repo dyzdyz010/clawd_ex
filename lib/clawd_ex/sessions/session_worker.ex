@@ -293,9 +293,13 @@ defmodule ClawdEx.Sessions.SessionWorker do
 
     # Refresh model_override from DB for async path too
     opts =
-      case Repo.get(Session, state.session_id) do
-        nil -> opts
-        session -> maybe_apply_model_override(session, opts)
+      try do
+        case Repo.get(Session, state.session_id) do
+          nil -> opts
+          session -> maybe_apply_model_override(session, opts)
+        end
+      rescue
+        _e in DBConnection.ConnectionError -> opts
       end
 
     # 标记 agent 正在运行

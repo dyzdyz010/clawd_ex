@@ -328,10 +328,18 @@ defmodule ClawdEx.Tools.SessionsSpawn do
               {:error, :timeout}
           end
         rescue
+          e in DBConnection.ConnectionError ->
+            Logger.warning("Subagent DB connection lost: #{Exception.message(e)}")
+            {:error, {:db_connection_lost, Exception.message(e)}}
+
           e ->
             Logger.error("Subagent task failed: #{inspect(e)}")
             {:error, {:exception, Exception.message(e)}}
         catch
+          :exit, {:shutdown, %DBConnection.ConnectionError{} = e} ->
+            Logger.warning("Subagent DB connection shutdown: #{Exception.message(e)}")
+            {:error, {:db_connection_lost, Exception.message(e)}}
+
           :exit, reason ->
             Logger.error("Subagent exit: #{inspect(reason)}")
             {:error, {:exit, reason}}
@@ -380,23 +388,29 @@ defmodule ClawdEx.Tools.SessionsSpawn do
     # 过滤掉 nil 值
     meta = meta |> Enum.reject(fn {_k, v} -> is_nil(v) end) |> Map.new()
 
-    case ClawdEx.Repo.get_by(ClawdEx.Sessions.Session, session_key: session_key) do
-      nil ->
-        Logger.debug("Session #{session_key} not found for metadata update")
+    try do
+      case ClawdEx.Repo.get_by(ClawdEx.Sessions.Session, session_key: session_key) do
+        nil ->
+          Logger.debug("Session #{session_key} not found for metadata update")
+          :ok
+
+        session ->
+          merged = Map.merge(session.metadata || %{}, meta)
+
+          session
+          |> ClawdEx.Sessions.Session.changeset(%{metadata: merged})
+          |> ClawdEx.Repo.update()
+          |> case do
+            {:ok, _} -> :ok
+            {:error, reason} ->
+              Logger.warning("Failed to store metadata for #{session_key}: #{inspect(reason)}")
+              :ok
+          end
+      end
+    rescue
+      e in DBConnection.ConnectionError ->
+        Logger.warning("DB connection lost storing metadata for #{session_key}: #{Exception.message(e)}")
         :ok
-
-      session ->
-        merged = Map.merge(session.metadata || %{}, meta)
-
-        session
-        |> ClawdEx.Sessions.Session.changeset(%{metadata: merged})
-        |> ClawdEx.Repo.update()
-        |> case do
-          {:ok, _} -> :ok
-          {:error, reason} ->
-            Logger.warning("Failed to store metadata for #{session_key}: #{inspect(reason)}")
-            :ok
-        end
     end
   end
 
@@ -404,27 +418,33 @@ defmodule ClawdEx.Tools.SessionsSpawn do
   defp delete_session_from_db(session_key) do
     import Ecto.Query
 
-    case ClawdEx.Repo.get_by(ClawdEx.Sessions.Session, session_key: session_key) do
-      nil ->
-        Logger.debug("Session #{session_key} not found in DB for cleanup")
+    try do
+      case ClawdEx.Repo.get_by(ClawdEx.Sessions.Session, session_key: session_key) do
+        nil ->
+          Logger.debug("Session #{session_key} not found in DB for cleanup")
+          :ok
+
+        session ->
+          # 先删除关联的消息
+          ClawdEx.Repo.delete_all(
+            from(m in ClawdEx.Sessions.Message, where: m.session_id == ^session.id)
+          )
+
+          # 再删除会话
+          case ClawdEx.Repo.delete(session) do
+            {:ok, _} ->
+              Logger.info("Session #{session_key} deleted from DB")
+              :ok
+
+            {:error, reason} ->
+              Logger.error("Failed to delete session #{session_key}: #{inspect(reason)}")
+              {:error, reason}
+          end
+      end
+    rescue
+      e in DBConnection.ConnectionError ->
+        Logger.warning("DB connection lost during cleanup of #{session_key}: #{Exception.message(e)}")
         :ok
-
-      session ->
-        # 先删除关联的消息
-        ClawdEx.Repo.delete_all(
-          from(m in ClawdEx.Sessions.Message, where: m.session_id == ^session.id)
-        )
-
-        # 再删除会话
-        case ClawdEx.Repo.delete(session) do
-          {:ok, _} ->
-            Logger.info("Session #{session_key} deleted from DB")
-            :ok
-
-          {:error, reason} ->
-            Logger.error("Failed to delete session #{session_key}: #{inspect(reason)}")
-            {:error, reason}
-        end
     end
   end
 
@@ -610,10 +630,21 @@ defmodule ClawdEx.Tools.SessionsSpawn do
   # 统一的会话清理函数
   defp cleanup_session(child_session_key) do
     Logger.info("Cleaning up subagent session: #{child_session_key}")
-    # 先停止进程
-    SessionManager.stop_session(child_session_key)
-    # 再删除数据库记录
-    delete_session_from_db(child_session_key)
+
+    try do
+      # 先停止进程
+      SessionManager.stop_session(child_session_key)
+      # 再删除数据库记录
+      delete_session_from_db(child_session_key)
+    rescue
+      e in DBConnection.ConnectionError ->
+        Logger.warning("DB connection lost during session cleanup of #{child_session_key}: #{Exception.message(e)}")
+        :ok
+    catch
+      :exit, reason ->
+        Logger.warning("Session cleanup exited for #{child_session_key}: #{inspect(reason)}")
+        :ok
+    end
   end
 
   # 设置 streamTo: "parent" 的流式转发
@@ -696,9 +727,15 @@ defmodule ClawdEx.Tools.SessionsSpawn do
 
   # 通过 session_key 获取数据库中的 session_id
   defp get_session_id_by_key(session_key) do
-    case ClawdEx.Repo.get_by(ClawdEx.Sessions.Session, session_key: session_key) do
-      nil -> nil
-      session -> session.id
+    try do
+      case ClawdEx.Repo.get_by(ClawdEx.Sessions.Session, session_key: session_key) do
+        nil -> nil
+        session -> session.id
+      end
+    rescue
+      e in DBConnection.ConnectionError ->
+        Logger.warning("DB connection lost getting session_id for #{session_key}: #{Exception.message(e)}")
+        nil
     end
   end
 
