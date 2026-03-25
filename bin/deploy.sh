@@ -22,7 +22,9 @@ cd "$APP_DIR"
 log "Stopping current service..."
 if [ -x "$RELEASE_DIR/bin/clawd_ex" ]; then
   "$RELEASE_DIR/bin/clawd_ex" stop 2>/dev/null || true
-  sleep 2
+  # Wait for Telegram long-poll HTTP request to expire (30s timeout + 5s buffer)
+  log "Waiting for old long-poll connections to expire..."
+  sleep 35
 fi
 # Kill any orphan epmd from old releases
 pkill -f "clawd_ex.*epmd" 2>/dev/null || true

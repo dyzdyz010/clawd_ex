@@ -564,13 +564,17 @@ defmodule ClawdEx.Channels.Telegram do
   def init(_opts) do
     case configure_token() do
       {:ok, token} ->
+        # Clear any stale webhook/polling state
+        Telegram.Api.request(token, "deleteWebhook", drop_pending_updates: false)
+
         case Telegram.Api.request(token, "getMe") do
           {:ok, bot_info} ->
             Logger.info("Telegram bot started: @#{bot_info["username"]}")
             # Register slash command menu with Telegram (fire-and-forget)
             Task.start(fn -> register_bot_commands() end)
+            saved_offset = load_saved_offset()
             send(self(), :poll)
-            {:ok, %__MODULE__{token: token, bot_info: bot_info, offset: 0, running: true}}
+            {:ok, %__MODULE__{token: token, bot_info: bot_info, offset: saved_offset, running: true}}
 
           {:error, reason} ->
             Logger.error("Failed to get bot info: #{inspect(reason)}")
@@ -601,14 +605,15 @@ defmodule ClawdEx.Channels.Telegram do
     # 同步轮询：完成当前请求后再发起下一次
     case poll_updates(state) do
       {:ok, new_offset} ->
+        save_offset(new_offset)
         # 成功时立即发起下一次轮询（getUpdates 本身有 30 秒长轮询）
         send(self(), :poll)
         {:noreply, %{state | offset: new_offset}}
 
       {:error, {:conflict, _}} ->
-        # Conflict 错误需要更长时间等待（其他实例可能还在运行）
-        Logger.warning("Telegram conflict detected, waiting 30s before retry...")
-        Process.send_after(self(), :poll, 30_000)
+        # Conflict: another instance may still be polling, retry quickly
+        Logger.warning("Telegram conflict detected, retrying in 5s...")
+        Process.send_after(self(), :poll, 5_000)
         {:noreply, state}
 
       {:error, _reason} ->
@@ -618,7 +623,47 @@ defmodule ClawdEx.Channels.Telegram do
     end
   end
 
+  @impl true
+  def terminate(_reason, state) do
+    if state.running do
+      Logger.info("Telegram bot shutting down, saving offset #{state.offset}")
+      save_offset(state.offset)
+    end
+
+    :ok
+  end
+
   # Private Functions
+
+  # --- Offset persistence ---
+
+  defp offset_file do
+    Path.join(System.get_env("HOME", "/tmp"), ".clawd/telegram_poll_offset")
+  end
+
+  defp load_saved_offset do
+    case File.read(offset_file()) do
+      {:ok, content} ->
+        case Integer.parse(String.trim(content)) do
+          {offset, _} ->
+            Logger.info("Loaded saved Telegram poll offset: #{offset}")
+            offset
+
+          :error ->
+            0
+        end
+
+      {:error, _} ->
+        0
+    end
+  end
+
+  defp save_offset(offset) when offset > 0 do
+    File.mkdir_p!(Path.dirname(offset_file()))
+    File.write!(offset_file(), Integer.to_string(offset))
+  end
+
+  defp save_offset(_), do: :ok
 
   defp configure_token do
     token =
