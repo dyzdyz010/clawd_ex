@@ -1,11 +1,11 @@
 {
   "app": {
-    "name": "log_test",
+    "name": "patch_test",
     "version": "1.0.0"
   },
   "features": {
     "discord": true,
-    "telegram": false,
+    "telegram": true,
     "web_api": true
   },
   "limits": {
@@ -15,6 +15,6 @@
   },
   "logging": {
     "format": "json",
-    "level": "debug"
+    "level": "info"
   }
 }
