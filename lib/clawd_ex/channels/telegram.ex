@@ -278,6 +278,9 @@ defmodule ClawdEx.Channels.Telegram do
     session_key = "telegram:#{chat_id}"
     reply_to = message.id
 
+    # 立即发送 typing 状态 — 在任何 session 初始化之前
+    stop_typing = start_typing_indicator(chat_id)
+
     # 启动或获取会话
     case SessionManager.start_session(
            session_key: session_key,
@@ -303,9 +306,6 @@ defmodule ClawdEx.Channels.Telegram do
       Phoenix.PubSub.subscribe(ClawdEx.PubSub, "output:#{session_id}")
       Phoenix.PubSub.subscribe(ClawdEx.PubSub, "agent:#{session_id}")
     end
-
-    # 启动持续的 typing 指示器
-    stop_typing = start_typing_indicator(chat_id)
 
     # 异步发送消息 — 不再同步等待整个 run 完成
     parent = self()
