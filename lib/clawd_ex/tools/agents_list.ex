@@ -7,6 +7,8 @@ defmodule ClawdEx.Tools.AgentsList do
   """
   @behaviour ClawdEx.Tools.Tool
 
+  import Ecto.Query
+
   @impl true
   def name, do: "agents_list"
 
@@ -22,7 +24,7 @@ defmodule ClawdEx.Tools.AgentsList do
       properties: %{
         filter: %{
           type: "string",
-          description: "Optional filter pattern to match agent IDs (substring match)"
+          description: "Optional filter pattern to match agent names or capabilities (substring match)"
         }
       },
       required: []
@@ -31,56 +33,84 @@ defmodule ClawdEx.Tools.AgentsList do
 
   @impl true
   def execute(params, _context) do
-    config = get_agents_config()
-    agents = config[:agents] || []
-    allow_any = config[:allow_any] || false
-
-    # Apply filter if provided
+    agents = list_agents_from_db()
     filter = params["filter"] || params[:filter]
 
-    filtered_agents =
+    filtered =
       if filter && filter != "" do
         filter_agents(agents, filter)
       else
         agents
       end
 
-    result = %{
-      agents: filtered_agents,
-      allow_any: allow_any,
-      total: length(agents),
-      filtered: length(filtered_agents)
-    }
-
-    {:ok, format_result(result)}
+    {:ok,
+     format_result(%{
+       agents: filtered,
+       allow_any: true,
+       total: length(agents),
+       filtered: length(filtered)
+     })}
   end
 
   # ============================================================================
   # Private
   # ============================================================================
 
-  defp get_agents_config do
-    Application.get_env(:clawd_ex, :agents, [])
+  defp list_agents_from_db do
+    try do
+      ClawdEx.Repo.all(
+        from(a in ClawdEx.Agents.Agent,
+          where: a.active == true,
+          order_by: a.id,
+          select: %{
+            id: a.id,
+            name: a.name,
+            capabilities: a.capabilities,
+            default_model: a.default_model
+          }
+        )
+      )
+    rescue
+      _ -> []
+    catch
+      :exit, _ -> []
+    end
   end
 
   defp filter_agents(agents, pattern) do
     pattern_lower = String.downcase(pattern)
 
     Enum.filter(agents, fn agent ->
-      agent
-      |> to_string()
-      |> String.downcase()
-      |> String.contains?(pattern_lower)
+      name_match =
+        agent.name
+        |> to_string()
+        |> String.downcase()
+        |> String.contains?(pattern_lower)
+
+      cap_match =
+        Enum.any?(agent.capabilities || [], fn cap ->
+          cap |> to_string() |> String.downcase() |> String.contains?(pattern_lower)
+        end)
+
+      name_match or cap_match
     end)
   end
 
   defp format_result(%{agents: agents, allow_any: allow_any, total: total, filtered: filtered}) do
     agents_list =
       if agents == [] do
-        "  (none configured)"
+        "  (none found)"
       else
         agents
-        |> Enum.map(&"  - #{&1}")
+        |> Enum.map(fn agent ->
+          caps = (agent.capabilities || []) |> Enum.join(", ")
+
+          if caps != "" do
+            "  - #{agent.name} (id: #{agent.id}) — capabilities: #{caps}"
+          else
+            "  - #{agent.name} (id: #{agent.id})"
+          end
+        end)
         |> Enum.join("\n")
       end
 

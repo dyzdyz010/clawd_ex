@@ -48,13 +48,15 @@ defmodule ClawdEx.A2A.RouterTest do
       assert agent.capabilities == []
     end
 
-    test "unregisters agent", %{agent1: agent1} do
+    test "unregisters agent from in-memory registry", %{agent1: agent1} do
       Router.register(agent1.id, ["cap1"])
       assert :ok = Router.unregister(agent1.id)
 
       {:ok, agents} = Router.discover()
       agent = Enum.find(agents, &(&1.agent_id == agent1.id))
-      assert agent == nil
+      # Agent is still discoverable from DB, but no longer in-memory registered
+      assert agent != nil
+      refute Map.has_key?(agent, :registered_at)
     end
   end
 

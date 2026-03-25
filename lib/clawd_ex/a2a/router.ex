@@ -237,24 +237,58 @@ defmodule ClawdEx.A2A.Router do
   def handle_call({:discover, opts}, _from, state) do
     capability_filter = Keyword.get(opts, :capability)
 
-    agents =
-      state.registry
-      |> Enum.map(fn {agent_id, info} ->
-        %{
-          agent_id: agent_id,
-          capabilities: info.capabilities,
-          registered_at: info.registered_at
-        }
-      end)
-      |> then(fn agents ->
-        if capability_filter do
-          Enum.filter(agents, fn a ->
-            Enum.any?(a.capabilities, &String.contains?(&1, capability_filter))
-          end)
-        else
-          agents
+    # Query DB for all active agents
+    db_agents =
+      try do
+        from(a in ClawdEx.Agents.Agent,
+          where: a.active == true,
+          select: %{id: a.id, name: a.name, capabilities: a.capabilities}
+        )
+        |> Repo.all()
+      rescue
+        _ -> []
+      catch
+        :exit, _ -> []
+      end
+
+    # Merge: DB agents as base, override with in-memory info if registered
+    db_ids = MapSet.new(db_agents, & &1.id)
+
+    merged =
+      Enum.map(db_agents, fn db_agent ->
+        case Map.get(state.registry, db_agent.id) do
+          nil ->
+            %{agent_id: db_agent.id, name: db_agent.name, capabilities: db_agent.capabilities}
+
+          in_memory ->
+            %{
+              agent_id: db_agent.id,
+              name: db_agent.name,
+              capabilities: in_memory.capabilities,
+              registered_at: in_memory.registered_at
+            }
         end
       end)
+
+    # Include in-memory-only agents not in DB
+    in_memory_only =
+      state.registry
+      |> Enum.reject(fn {id, _} -> MapSet.member?(db_ids, id) end)
+      |> Enum.map(fn {id, info} ->
+        %{agent_id: id, capabilities: info.capabilities, registered_at: info.registered_at}
+      end)
+
+    agents = merged ++ in_memory_only
+
+    # Apply capability filter
+    agents =
+      if capability_filter do
+        Enum.filter(agents, fn a ->
+          Enum.any?(a.capabilities, &String.contains?(&1, capability_filter))
+        end)
+      else
+        agents
+      end
 
     {:reply, {:ok, agents}, state}
   end

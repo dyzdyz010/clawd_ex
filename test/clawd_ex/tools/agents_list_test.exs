@@ -1,7 +1,8 @@
 defmodule ClawdEx.Tools.AgentsListTest do
-  use ExUnit.Case, async: true
+  use ClawdEx.DataCase, async: false
 
   alias ClawdEx.Tools.AgentsList
+  alias ClawdEx.Agents.Agent
 
   describe "AgentsList tool" do
     test "returns tool metadata" do
@@ -17,8 +18,7 @@ defmodule ClawdEx.Tools.AgentsListTest do
       assert Map.has_key?(params.properties, :filter)
     end
 
-    test "returns empty list when no agents configured" do
-      # Default config has no agents
+    test "returns empty list when no agents in DB" do
       assert {:ok, result} = AgentsList.execute(%{}, %{})
       assert is_binary(result)
       assert result =~ "Available Agents"
@@ -41,29 +41,27 @@ defmodule ClawdEx.Tools.AgentsListTest do
     end
   end
 
-  describe "AgentsList with configured agents" do
+  describe "AgentsList with agents in DB" do
     setup do
-      # Save original config
-      original = Application.get_env(:clawd_ex, :agents)
+      {:ok, _a1} =
+        %Agent{}
+        |> Agent.changeset(%{name: "agent-alpha", capabilities: ["code", "review"]})
+        |> Repo.insert()
 
-      # Set test config
-      Application.put_env(:clawd_ex, :agents,
-        agents: ["agent-alpha", "agent-beta", "agent-gamma"],
-        allow_any: true
-      )
+      {:ok, _a2} =
+        %Agent{}
+        |> Agent.changeset(%{name: "agent-beta", capabilities: ["testing"]})
+        |> Repo.insert()
 
-      on_exit(fn ->
-        if original do
-          Application.put_env(:clawd_ex, :agents, original)
-        else
-          Application.delete_env(:clawd_ex, :agents)
-        end
-      end)
+      {:ok, _a3} =
+        %Agent{}
+        |> Agent.changeset(%{name: "agent-gamma", capabilities: ["deploy"]})
+        |> Repo.insert()
 
       :ok
     end
 
-    test "lists all configured agents" do
+    test "lists all agents from DB" do
       assert {:ok, result} = AgentsList.execute(%{}, %{})
       assert result =~ "agent-alpha"
       assert result =~ "agent-beta"
@@ -71,7 +69,7 @@ defmodule ClawdEx.Tools.AgentsListTest do
       assert result =~ "Allow Any:** true"
     end
 
-    test "filters agents by pattern" do
+    test "filters agents by name" do
       assert {:ok, result} = AgentsList.execute(%{"filter" => "alpha"}, %{})
       assert result =~ "agent-alpha"
       refute result =~ "agent-beta"
@@ -88,31 +86,44 @@ defmodule ClawdEx.Tools.AgentsListTest do
       assert {:ok, result} = AgentsList.execute(%{"filter" => "gamma"}, %{})
       assert result =~ "(1/3 shown)"
     end
+
+    test "filters by capability" do
+      assert {:ok, result} = AgentsList.execute(%{"filter" => "testing"}, %{})
+      assert result =~ "agent-beta"
+      refute result =~ "agent-alpha"
+    end
+
+    test "displays agent id and capabilities" do
+      assert {:ok, result} = AgentsList.execute(%{}, %{})
+      assert result =~ "id:"
+      assert result =~ "capabilities:"
+    end
   end
 
-  describe "AgentsList with allow_any false" do
+  describe "AgentsList with inactive agents" do
     setup do
-      original = Application.get_env(:clawd_ex, :agents)
+      {:ok, _active} =
+        %Agent{}
+        |> Agent.changeset(%{name: "active-agent", active: true})
+        |> Repo.insert()
 
-      Application.put_env(:clawd_ex, :agents,
-        agents: ["restricted-agent"],
-        allow_any: false
-      )
-
-      on_exit(fn ->
-        if original do
-          Application.put_env(:clawd_ex, :agents, original)
-        else
-          Application.delete_env(:clawd_ex, :agents)
-        end
-      end)
+      {:ok, _inactive} =
+        %Agent{}
+        |> Agent.changeset(%{name: "inactive-agent", active: false})
+        |> Repo.insert()
 
       :ok
     end
 
-    test "shows allow_any as false" do
+    test "only shows active agents" do
       assert {:ok, result} = AgentsList.execute(%{}, %{})
-      assert result =~ "Allow Any:** false"
+      assert result =~ "active-agent"
+      refute result =~ "inactive-agent"
+    end
+
+    test "shows allow_any as true" do
+      assert {:ok, result} = AgentsList.execute(%{}, %{})
+      assert result =~ "Allow Any:** true"
     end
   end
 end
