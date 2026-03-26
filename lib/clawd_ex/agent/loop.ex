@@ -25,7 +25,7 @@ defmodule ClawdEx.Agent.Loop do
 
   @doc "Get the maximum tool iterations limit (configurable via :clawd_ex, :max_tool_iterations)"
   def max_tool_iterations do
-    Application.get_env(:clawd_ex, :max_tool_iterations, 200)
+    Application.get_env(:clawd_ex, :max_tool_iterations, 25)
   end
 
   # State data structure
