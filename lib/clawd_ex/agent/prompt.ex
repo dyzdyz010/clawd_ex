@@ -65,7 +65,8 @@ defmodule ClawdEx.Agent.Prompt do
     is_group = metadata[:is_group] || false
 
     sections = [
-      identity_section(),
+      identity_section(agent),
+      agent_context_section(agent, metadata),
       tooling_section(config),
       tool_call_style_section(),
       safety_section(),
@@ -73,7 +74,7 @@ defmodule ClawdEx.Agent.Prompt do
       memory_section(config),
       workspace_section(agent, config),
       bootstrap_section(agent, config, is_group),
-      inbound_context_section(metadata),
+      inbound_context_section(metadata, agent),
       group_chat_section(metadata),
       reply_tags_section(),
       messaging_section(config),
@@ -93,8 +94,57 @@ defmodule ClawdEx.Agent.Prompt do
   # Prompt Sections
   # ============================================================================
 
-  defp identity_section do
+  defp identity_section(nil) do
     "You are a personal assistant powered by ClawdEx."
+  end
+
+  defp identity_section(agent) do
+    role =
+      if agent.config["role_description"],
+        do: "\nRole: #{agent.config["role_description"]}",
+        else: ""
+
+    expertise =
+      if agent.config["expertise"],
+        do: "\nExpertise: #{Enum.join(agent.config["expertise"], ", ")}",
+        else: ""
+
+    "You are **#{agent.name}**, an AI agent powered by ClawdEx.#{role}#{expertise}"
+  end
+
+  defp agent_context_section(nil, _metadata), do: nil
+  defp agent_context_section(_agent, %{is_group: false}), do: nil
+  defp agent_context_section(_agent, metadata) when metadata == %{} or metadata == nil, do: nil
+
+  defp agent_context_section(agent, metadata) do
+    if metadata[:is_group] do
+      other_agents = list_other_active_agents(agent)
+
+      team_list =
+        Enum.map_join(other_agents, "\n", fn a ->
+          caps =
+            if a.capabilities != [],
+              do: " — #{Enum.join(a.capabilities, ", ")}",
+              else: ""
+
+          "- #{a.name} (id: #{a.id})#{caps}"
+        end)
+
+      """
+      ## Team Context
+      You are part of a multi-agent team. Other agents in this workspace:
+      #{team_list}
+
+      ### Communication Rules
+      - Users address you by name (e.g. "@#{agent.name}" or "#{agent.name}")
+      - Only respond when addressed to you or when the message is relevant to your role
+      - To collaborate with another agent, use the `a2a` tool with action "send" or "request"
+      - When you need another agent's expertise, delegate via A2A rather than attempting it yourself
+      - Keep responses focused on your area of expertise
+      """
+    else
+      nil
+    end
   end
 
   defp tooling_section(config) do
@@ -353,9 +403,10 @@ defmodule ClawdEx.Agent.Prompt do
   # Inbound Context — sender/chat metadata from the channel
   # ============================================================================
 
-  defp inbound_context_section(metadata) when metadata == %{} or metadata == nil, do: nil
+  defp inbound_context_section(metadata, _agent) when metadata == %{} or metadata == nil,
+    do: nil
 
-  defp inbound_context_section(metadata) do
+  defp inbound_context_section(metadata, agent) do
     chat_type = metadata[:chat_type] || "private"
     channel = metadata[:channel] || "unknown"
 
@@ -369,7 +420,9 @@ defmodule ClawdEx.Agent.Prompt do
       is_group: metadata[:is_group] || false,
       is_forum: metadata[:is_forum] || false,
       topic_id: metadata[:topic_id],
-      group_subject: metadata[:group_subject]
+      group_subject: metadata[:group_subject],
+      agent_id: agent && agent.id,
+      agent_name: agent && agent.name
     }
     |> Enum.reject(fn {_, v} -> is_nil(v) end)
     |> Map.new()
@@ -456,6 +509,18 @@ defmodule ClawdEx.Agent.Prompt do
   # ============================================================================
   # Helpers
   # ============================================================================
+
+  defp list_other_active_agents(nil), do: []
+
+  defp list_other_active_agents(agent) do
+    import Ecto.Query
+
+    Agent
+    |> where([a], a.active == true and a.id != ^agent.id)
+    |> Repo.all()
+  rescue
+    _ -> []
+  end
 
   defp truncate_content(content, max_chars) when byte_size(content) <= max_chars do
     content

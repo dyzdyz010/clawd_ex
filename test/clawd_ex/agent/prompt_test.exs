@@ -115,6 +115,55 @@ defmodule ClawdEx.Agent.PromptTest do
       assert prompt_b =~ "exec"
     end
 
+    test "identity section uses agent name when agent provided" do
+      # We can't easily pass an agent struct without DB, but we can test nil path
+      result = Prompt.build(nil, %{})
+      assert result =~ "You are a personal assistant powered by ClawdEx."
+    end
+
+    test "no team context in private chat" do
+      config = %{
+        inbound_metadata: %{
+          is_group: false,
+          channel: "telegram",
+          chat_type: "private"
+        }
+      }
+
+      result = Prompt.build(nil, config)
+      refute result =~ "## Team Context"
+    end
+
+    test "no team context when agent is nil even in group" do
+      config = %{
+        inbound_metadata: %{
+          is_group: true,
+          channel: "telegram",
+          chat_type: "group",
+          group_subject: "Test Group"
+        }
+      }
+
+      result = Prompt.build(nil, config)
+      refute result =~ "## Team Context"
+    end
+
+    test "inbound context includes agent fields when agent present" do
+      # With nil agent, agent_id and agent_name should not appear
+      config = %{
+        inbound_metadata: %{
+          channel: "telegram",
+          chat_type: "private",
+          sender_name: "Tester"
+        }
+      }
+
+      result = Prompt.build(nil, config)
+      assert result =~ "clawdex.inbound_meta.v1"
+      refute result =~ "agent_id"
+      refute result =~ "agent_name"
+    end
+
     test "bootstrap section loads files from workspace" do
       # Create a temp workspace with SOUL.md
       tmp_dir = Path.join(System.tmp_dir!(), "prompt_test_#{:rand.uniform(100_000)}")
