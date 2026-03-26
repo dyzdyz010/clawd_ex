@@ -28,6 +28,9 @@ defmodule ClawdEx.Tools.Message do
     - send: Send a text message (with optional media)
     - react: Add an emoji reaction to a message
     - delete: Delete a message
+
+    For Telegram forum groups, use topicId to target a specific topic/thread.
+    You can find topic IDs from the agent config (default_topics) or from received messages.
     """
   end
 
@@ -73,6 +76,11 @@ defmodule ClawdEx.Tools.Message do
         caption: %{
           type: "string",
           description: "Caption for media (for 'send' action with media)"
+        },
+        topicId: %{
+          type: "string",
+          description:
+            "Forum topic/thread ID for Telegram forum groups. Use this to send messages to a specific topic."
         }
       },
       required: ["action", "channel", "target"]
@@ -115,16 +123,20 @@ defmodule ClawdEx.Tools.Message do
     media = get_param(params, :media)
     reply_to = get_param(params, :replyTo)
     caption = get_param(params, :caption)
+    topic_id = get_param(params, :topicId)
+
+    opts = [reply_to: reply_to]
+    opts = if topic_id, do: Keyword.put(opts, :message_thread_id, topic_id), else: opts
 
     cond do
       is_nil(message) and is_nil(media) ->
         {:error, "Either 'message' or 'media' is required for send action"}
 
       not is_nil(media) ->
-        send_media(channel, target, media, caption || message, reply_to: reply_to)
+        send_media(channel, target, media, caption || message, opts)
 
       true ->
-        send_text(channel, target, message, reply_to: reply_to)
+        send_text(channel, target, message, opts)
     end
   end
 
@@ -241,6 +253,7 @@ defmodule ClawdEx.Tools.Message do
   defp do_send_telegram_media(token, chat_id, media_url, caption, opts) do
     chat_id = ensure_integer(chat_id)
     reply_to = Keyword.get(opts, :reply_to)
+    thread_id = Keyword.get(opts, :message_thread_id)
 
     # 根据 URL 后缀判断媒体类型
     media_type = detect_media_type(media_url)
@@ -269,6 +282,7 @@ defmodule ClawdEx.Tools.Message do
       [{:chat_id, chat_id}, {media_param, media_url}]
       |> maybe_add_caption(caption)
       |> maybe_add_reply_params(reply_to)
+      |> maybe_add_thread_id(thread_id)
 
     case Telegram.Api.request(token, method, params) do
       {:ok, message} ->
@@ -463,5 +477,11 @@ defmodule ClawdEx.Tools.Message do
   defp maybe_add_reply_params(params, reply_id) do
     reply_params = %{message_id: ensure_integer(reply_id)}
     Keyword.put(params, :reply_parameters, {:json, reply_params})
+  end
+
+  defp maybe_add_thread_id(params, nil), do: params
+
+  defp maybe_add_thread_id(params, thread_id) do
+    Keyword.put(params, :message_thread_id, ensure_integer(thread_id))
   end
 end

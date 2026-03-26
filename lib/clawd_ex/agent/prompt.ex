@@ -130,11 +130,13 @@ defmodule ClawdEx.Agent.Prompt do
           "- #{a.name} (id: #{a.id})#{caps}"
         end)
 
+      channel_info = build_channel_info(agent, metadata)
+
       """
       ## Team Context
       You are part of a multi-agent team. Other agents in this workspace:
       #{team_list}
-
+      #{channel_info}
       ### Communication Rules
       - Users address you by name (e.g. "@#{agent.name}" or "#{agent.name}")
       - Only respond when addressed to you or when the message is relevant to your role
@@ -152,6 +154,72 @@ defmodule ClawdEx.Agent.Prompt do
       nil
     end
   end
+
+  # Build channel info section showing the agent's default topics and how to send to them
+  defp build_channel_info(agent, metadata) do
+    channel = metadata[:channel] || "unknown"
+    chat_id = metadata[:channel_id] || metadata[:chat_id]
+    default_topics = get_in(agent.config || %{}, ["default_topics"])
+
+    topic_ids = resolve_topic_ids(default_topics, channel, chat_id)
+
+    if chat_id || topic_ids != [] do
+      lines = ["### Your Channel Info"]
+
+      lines =
+        if chat_id do
+          lines ++ ["- #{channel} group: #{channel}:#{chat_id}"]
+        else
+          lines
+        end
+
+      lines =
+        if topic_ids != [] do
+          ids_str = Enum.join(topic_ids, ", ")
+          lines ++ ["- Your default topic(s): #{ids_str}"]
+        else
+          lines
+        end
+
+      lines =
+        if chat_id && topic_ids != [] do
+          first_topic = hd(topic_ids)
+
+          lines ++
+            [
+              "- To send a message to your topic: use message tool with channel=\"#{channel}\", target=\"#{chat_id}\", topicId=\"#{first_topic}\""
+            ]
+        else
+          lines
+        end
+
+      Enum.join(lines, "\n") <> "\n"
+    else
+      ""
+    end
+  end
+
+  # Resolve topic IDs from default_topics config
+  # Supports two formats:
+  # 1. Map: {"telegram:-100xxx": [144, 145]}
+  # 2. List: [144, "144"]
+  defp resolve_topic_ids(nil, _channel, _chat_id), do: []
+
+  defp resolve_topic_ids(default_topics, channel, chat_id) when is_map(default_topics) do
+    key = "#{channel}:#{chat_id}"
+
+    case Map.get(default_topics, key) do
+      nil -> []
+      ids when is_list(ids) -> Enum.map(ids, &to_string/1)
+      id -> [to_string(id)]
+    end
+  end
+
+  defp resolve_topic_ids(default_topics, _channel, _chat_id) when is_list(default_topics) do
+    Enum.map(default_topics, &to_string/1)
+  end
+
+  defp resolve_topic_ids(_, _channel, _chat_id), do: []
 
   defp tooling_section(config) do
     tools = Map.get(config, :tools, [])

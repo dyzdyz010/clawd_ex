@@ -1439,6 +1439,7 @@ defmodule ClawdEx.Channels.Telegram do
         is_group: is_group,
         is_forum: is_forum,
         topic_id: message["message_thread_id"],
+        channel_id: to_string(chat["id"]),
         username: from["username"],
         sender_id: to_string(from["id"]),
         sender_name: build_display_name(from),
