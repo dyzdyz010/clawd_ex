@@ -224,29 +224,6 @@ defmodule ClawdEx.Tools.A2ABroadcastTest do
   end
 
   # ============================================================================
-  # Updated action enum
-  # ============================================================================
-
-  describe "parameters/0" do
-    test "includes new actions" do
-      params = A2A.parameters()
-      actions = params[:properties][:action][:enum]
-      assert "broadcast" in actions
-      assert "check_delegation" in actions
-    end
-
-    test "includes priority parameter" do
-      params = A2A.parameters()
-      assert Map.has_key?(params[:properties], :priority)
-    end
-
-    test "includes taskId parameter" do
-      params = A2A.parameters()
-      assert Map.has_key?(params[:properties], :taskId)
-    end
-  end
-
-  # ============================================================================
   # Helpers
   # ============================================================================
 

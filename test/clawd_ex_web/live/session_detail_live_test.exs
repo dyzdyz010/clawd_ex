@@ -39,115 +39,50 @@ defmodule ClawdExWeb.SessionDetailLiveTest do
     {:ok, message} =
       %Message{}
       |> Message.changeset(
-        Map.merge(
-          %{
-            role: :user,
-            content: "Test message content",
-            session_id: session.id
-          },
-          attrs
-        )
+        Map.merge(%{role: :user, content: "Test message content", session_id: session.id}, attrs)
       )
       |> Repo.insert()
 
     message
   end
 
-  describe "mount" do
-    test "renders session detail page", %{conn: conn} do
-      agent = create_agent()
-      session = create_session(agent)
+  test "renders session detail with key sections", %{conn: conn} do
+    agent = create_agent(%{name: "detail-test-agent"})
+    session = create_session(agent)
 
-      {:ok, _view, html} = live(conn, "/sessions/#{session.id}")
+    {:ok, _view, html} = live(conn, "/sessions/#{session.id}")
 
-      assert html =~ session.session_key
-    end
-
-    test "displays session info", %{conn: conn} do
-      agent = create_agent(%{name: "detail-test-agent"})
-      session = create_session(agent)
-
-      {:ok, _view, html} = live(conn, "/sessions/#{session.id}")
-
-      assert html =~ "Session Info"
-      assert html =~ "detail-test-agent"
-      assert html =~ "test"
-    end
-
-    test "shows messages section", %{conn: conn} do
-      agent = create_agent()
-      session = create_session(agent)
-
-      {:ok, _view, html} = live(conn, "/sessions/#{session.id}")
-
-      assert html =~ "Messages"
-    end
-
-    test "shows empty state when no messages", %{conn: conn} do
-      agent = create_agent()
-      session = create_session(agent)
-
-      {:ok, _view, html} = live(conn, "/sessions/#{session.id}")
-
-      assert html =~ "No messages in this session"
-    end
-
-    test "displays messages when they exist", %{conn: conn} do
-      agent = create_agent()
-      session = create_session(agent)
-      create_message(session, %{content: "Hello from test"})
-      create_message(session, %{role: :assistant, content: "Response from assistant"})
-
-      {:ok, _view, html} = live(conn, "/sessions/#{session.id}")
-
-      assert html =~ "Hello from test"
-      assert html =~ "Response from assistant"
-    end
-
-    test "shows total message count", %{conn: conn} do
-      agent = create_agent()
-      session = create_session(agent)
-      create_message(session, %{content: "msg 1"})
-      create_message(session, %{content: "msg 2"})
-
-      {:ok, _view, html} = live(conn, "/sessions/#{session.id}")
-
-      assert html =~ "Messages (2)"
-    end
+    assert html =~ session.session_key
+    assert html =~ "Session Info"
+    assert html =~ "detail-test-agent"
+    assert html =~ "Messages"
+    assert html =~ "No messages in this session"
   end
 
-  describe "events" do
-    test "load_more does not crash", %{conn: conn} do
-      agent = create_agent()
-      session = create_session(agent)
+  test "displays messages with count", %{conn: conn} do
+    agent = create_agent()
+    session = create_session(agent)
+    create_message(session, %{content: "Hello from test"})
+    create_message(session, %{role: :assistant, content: "Response from assistant"})
 
-      # Create enough messages to potentially trigger load_more
-      for i <- 1..5 do
-        create_message(session, %{content: "Message #{i}"})
-      end
+    {:ok, _view, html} = live(conn, "/sessions/#{session.id}")
 
-      {:ok, view, _html} = live(conn, "/sessions/#{session.id}")
+    assert html =~ "Hello from test"
+    assert html =~ "Response from assistant"
+    assert html =~ "Messages (2)"
+  end
 
-      # load_more should not crash even if there's nothing more to load
-      html = render(view)
-      # If has_more is false, the button won't be there, but the page should be fine
-      assert html =~ "Messages"
-    end
+  test "delete_message removes a message", %{conn: conn} do
+    agent = create_agent()
+    session = create_session(agent)
+    message = create_message(session, %{content: "Message to delete"})
 
-    test "delete_message removes a message", %{conn: conn} do
-      agent = create_agent()
-      session = create_session(agent)
-      message = create_message(session, %{content: "Message to delete"})
+    {:ok, view, _html} = live(conn, "/sessions/#{session.id}")
 
-      {:ok, view, _html} = live(conn, "/sessions/#{session.id}")
+    view |> render_click("delete_message", %{"id" => to_string(message.id)})
 
-      # Trigger delete event
-      view
-      |> render_click("delete_message", %{"id" => to_string(message.id)})
-
-      html = render(view)
-      refute html =~ "Message to delete"
-      assert html =~ "Message deleted"
-    end
+    html = render(view)
+    refute html =~ "Message to delete"
+    assert html =~ "Message deleted"
   end
 end

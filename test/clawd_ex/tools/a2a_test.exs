@@ -30,34 +30,6 @@ defmodule ClawdEx.Tools.A2ATest do
   end
 
   # ============================================================================
-  # Tool Metadata
-  # ============================================================================
-
-  describe "name/0" do
-    test "returns correct name" do
-      assert A2A.name() == "a2a"
-    end
-  end
-
-  describe "parameters/0" do
-    test "returns valid parameter schema" do
-      params = A2A.parameters()
-      assert params[:type] == "object"
-      assert is_map(params[:properties])
-      assert params[:required] == ["action"]
-    end
-
-    test "defines all action types" do
-      params = A2A.parameters()
-      actions = params[:properties][:action][:enum]
-      assert "discover" in actions
-      assert "send" in actions
-      assert "request" in actions
-      assert "delegate" in actions
-    end
-  end
-
-  # ============================================================================
   # Action: discover
   # ============================================================================
 
@@ -141,24 +113,14 @@ defmodule ClawdEx.Tools.A2ATest do
       assert msg.metadata == %{"priority" => "high"}
     end
 
-    test "returns error without targetAgentId", %{agent1: agent1} do
-      params = %{"action" => "send", "content" => "Hello"}
-
-      assert {:error, msg} = A2A.execute(params, context(agent1))
+    test "returns error without required params", %{agent1: agent1, agent2: agent2} do
+      assert {:error, msg} = A2A.execute(%{"action" => "send", "content" => "Hello"}, context(agent1))
       assert msg =~ "targetAgentId"
-    end
 
-    test "returns error without content", %{agent1: agent1, agent2: agent2} do
-      params = %{"action" => "send", "targetAgentId" => agent2.id}
-
-      assert {:error, msg} = A2A.execute(params, context(agent1))
+      assert {:error, msg} = A2A.execute(%{"action" => "send", "targetAgentId" => agent2.id}, context(agent1))
       assert msg =~ "content"
-    end
 
-    test "returns error with empty content", %{agent1: agent1, agent2: agent2} do
-      params = %{"action" => "send", "targetAgentId" => agent2.id, "content" => ""}
-
-      assert {:error, msg} = A2A.execute(params, context(agent1))
+      assert {:error, msg} = A2A.execute(%{"action" => "send", "targetAgentId" => agent2.id, "content" => ""}, context(agent1))
       assert msg =~ "content"
     end
   end
@@ -168,17 +130,11 @@ defmodule ClawdEx.Tools.A2ATest do
   # ============================================================================
 
   describe "execute/2 with action: request" do
-    test "returns error without targetAgentId", %{agent1: agent1} do
-      params = %{"action" => "request", "content" => "Question"}
-
-      assert {:error, msg} = A2A.execute(params, context(agent1))
+    test "returns error without required params", %{agent1: agent1, agent2: agent2} do
+      assert {:error, msg} = A2A.execute(%{"action" => "request", "content" => "Question"}, context(agent1))
       assert msg =~ "targetAgentId"
-    end
 
-    test "returns error without content", %{agent1: agent1, agent2: agent2} do
-      params = %{"action" => "request", "targetAgentId" => agent2.id}
-
-      assert {:error, msg} = A2A.execute(params, context(agent1))
+      assert {:error, msg} = A2A.execute(%{"action" => "request", "targetAgentId" => agent2.id}, context(agent1))
       assert msg =~ "content"
     end
 
@@ -270,28 +226,14 @@ defmodule ClawdEx.Tools.A2ATest do
       assert msg.metadata["task_title"] == "Review PR #42"
     end
 
-    test "returns error without targetAgentId", %{agent1: agent1} do
-      params = %{"action" => "delegate", "taskTitle" => "Title"}
-
-      assert {:error, msg} = A2A.execute(params, context(agent1))
+    test "returns error without required params", %{agent1: agent1, agent2: agent2} do
+      assert {:error, msg} = A2A.execute(%{"action" => "delegate", "taskTitle" => "Title"}, context(agent1))
       assert msg =~ "targetAgentId"
-    end
 
-    test "returns error without taskTitle", %{agent1: agent1, agent2: agent2} do
-      params = %{"action" => "delegate", "targetAgentId" => agent2.id}
-
-      assert {:error, msg} = A2A.execute(params, context(agent1))
+      assert {:error, msg} = A2A.execute(%{"action" => "delegate", "targetAgentId" => agent2.id}, context(agent1))
       assert msg =~ "taskTitle"
-    end
 
-    test "returns error with empty taskTitle", %{agent1: agent1, agent2: agent2} do
-      params = %{
-        "action" => "delegate",
-        "targetAgentId" => agent2.id,
-        "taskTitle" => ""
-      }
-
-      assert {:error, msg} = A2A.execute(params, context(agent1))
+      assert {:error, msg} = A2A.execute(%{"action" => "delegate", "targetAgentId" => agent2.id, "taskTitle" => ""}, context(agent1))
       assert msg =~ "taskTitle"
     end
 

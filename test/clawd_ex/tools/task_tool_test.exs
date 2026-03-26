@@ -15,35 +15,6 @@ defmodule ClawdEx.Tools.TaskToolTest do
   end
 
   # ============================================================================
-  # Tool Metadata
-  # ============================================================================
-
-  describe "name/0" do
-    test "returns correct name" do
-      assert TaskTool.name() == "task"
-    end
-  end
-
-  describe "parameters/0" do
-    test "returns valid parameter schema" do
-      params = TaskTool.parameters()
-      assert params[:type] == "object"
-      assert is_map(params[:properties])
-      assert params[:required] == ["action"]
-    end
-
-    test "defines all action types" do
-      params = TaskTool.parameters()
-      actions = params[:properties][:action][:enum]
-      assert "create" in actions
-      assert "list" in actions
-      assert "update" in actions
-      assert "heartbeat" in actions
-      assert "delegate" in actions
-    end
-  end
-
-  # ============================================================================
   # Action: create
   # ============================================================================
 

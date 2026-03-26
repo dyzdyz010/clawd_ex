@@ -36,127 +36,55 @@ defmodule ClawdExWeb.A2ALiveTest do
     msg
   end
 
-  describe "mount" do
-    test "renders A2A communication page", %{conn: conn} do
-      {:ok, _view, html} = live(conn, "/a2a")
+  test "renders A2A page with key elements", %{conn: conn} do
+    {:ok, _view, html} = live(conn, "/a2a")
 
-      assert html =~ "A2A Communication"
-    end
-
-    test "displays stats section", %{conn: conn} do
-      {:ok, _view, html} = live(conn, "/a2a")
-
-      assert html =~ "Total Messages"
-      assert html =~ "Pending"
-      assert html =~ "Delivered"
-      assert html =~ "Processed"
-      assert html =~ "Expired"
-    end
-
-    test "shows messages tab by default", %{conn: conn} do
-      {:ok, _view, html} = live(conn, "/a2a")
-
-      assert html =~ "Messages"
-      assert html =~ "Agent Registry"
-    end
-
-    test "shows empty state when no messages", %{conn: conn} do
-      {:ok, _view, html} = live(conn, "/a2a")
-
-      assert html =~ "No messages found"
-    end
-
-    test "has filter controls", %{conn: conn} do
-      {:ok, _view, html} = live(conn, "/a2a")
-
-      assert html =~ "Type"
-      assert html =~ "Status"
-    end
+    assert html =~ "A2A Communication"
+    assert html =~ "Total Messages"
+    assert html =~ "Pending"
+    assert html =~ "Delivered"
+    assert html =~ "Processed"
+    assert html =~ "Expired"
+    assert html =~ "Messages"
+    assert html =~ "Agent Registry"
+    assert html =~ "No messages found"
+    assert html =~ "Type"
+    assert html =~ "Status"
   end
 
-  describe "events" do
-    test "switch_tab to registry does not crash", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/a2a")
+  test "tab switching works", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/a2a")
 
-      view
-      |> render_click("switch_tab", %{"tab" => "registry"})
+    html = view |> render_click("switch_tab", %{"tab" => "registry"})
+    assert html =~ "A2A Communication"
 
-      html = render(view)
-      assert html =~ "A2A Communication"
-    end
+    html = view |> render_click("switch_tab", %{"tab" => "messages"})
+    assert html =~ "A2A Communication"
+  end
 
-    test "switch_tab back to messages does not crash", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/a2a")
+  test "filter events do not crash", %{conn: conn} do
+    agent = create_agent(%{name: "a2a-filter-agent", active: true})
+    {:ok, view, _html} = live(conn, "/a2a")
 
-      view |> render_click("switch_tab", %{"tab" => "registry"})
-      view |> render_click("switch_tab", %{"tab" => "messages"})
-
-      html = render(view)
-      assert html =~ "A2A Communication"
-    end
-
-    test "filter_type event does not crash", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/a2a")
-
-      view
-      |> render_click("filter_type", %{"type" => "request"})
-
-      html = render(view)
-      assert html =~ "A2A Communication"
-    end
-
-    test "filter_type all does not crash", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/a2a")
-
-      view |> render_click("filter_type", %{"type" => "request"})
-      view |> render_click("filter_type", %{"type" => "all"})
-
-      html = render(view)
-      assert html =~ "A2A Communication"
-    end
-
-    test "filter_status event does not crash", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/a2a")
-
-      view
-      |> render_click("filter_status", %{"status" => "pending"})
-
-      html = render(view)
-      assert html =~ "A2A Communication"
-    end
-
-    test "filter_status all does not crash", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/a2a")
-
-      view |> render_click("filter_status", %{"status" => "delivered"})
-      view |> render_click("filter_status", %{"status" => "all"})
-
-      html = render(view)
-      assert html =~ "A2A Communication"
-    end
-
-    test "filter_agent event does not crash", %{conn: conn} do
-      agent = create_agent(%{name: "a2a-filter-agent", active: true})
-
-      {:ok, view, _html} = live(conn, "/a2a")
-
-      view
-      |> render_click("filter_agent", %{"agent" => to_string(agent.id)})
-
-      html = render(view)
+    for {event, params} <- [
+          {"filter_type", %{"type" => "request"}},
+          {"filter_type", %{"type" => "all"}},
+          {"filter_status", %{"status" => "pending"}},
+          {"filter_status", %{"status" => "all"}},
+          {"filter_agent", %{"agent" => to_string(agent.id)}}
+        ] do
+      html = view |> render_click(event, params)
       assert html =~ "A2A Communication"
     end
   end
 
-  describe "with data" do
-    test "displays A2A messages when they exist", %{conn: conn} do
-      agent1 = create_agent(%{name: "sender-agent", active: true})
-      agent2 = create_agent(%{name: "receiver-agent", active: true})
-      create_a2a_message(agent1, agent2, %{content: "Hello from A2A test"})
+  test "displays A2A messages when they exist", %{conn: conn} do
+    agent1 = create_agent(%{name: "sender-agent", active: true})
+    agent2 = create_agent(%{name: "receiver-agent", active: true})
+    create_a2a_message(agent1, agent2, %{content: "Hello from A2A test"})
 
-      {:ok, _view, html} = live(conn, "/a2a")
+    {:ok, _view, html} = live(conn, "/a2a")
 
-      assert html =~ "Hello from A2A test"
-    end
+    assert html =~ "Hello from A2A test"
   end
 end

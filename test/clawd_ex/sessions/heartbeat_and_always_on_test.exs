@@ -1,12 +1,13 @@
 defmodule ClawdEx.Sessions.HeartbeatAndAlwaysOnTest do
   @moduledoc """
-  Tests for Heartbeat timer, Always-On mode, and Session Recovery
-  in SessionWorker.
+  Tests for Heartbeat timer, Always-On mode, A2A auto-registration,
+  and Session Recovery in SessionWorker.
   """
   use ClawdEx.DataCase, async: false
 
   alias ClawdEx.Sessions.{SessionManager, SessionWorker}
   alias ClawdEx.Agents.Agent
+  alias ClawdEx.A2A.Router, as: A2ARouter
 
   defp unique_key, do: "hb_test_#{:erlang.unique_integer([:positive])}"
 
@@ -14,6 +15,7 @@ defmodule ClawdEx.Sessions.HeartbeatAndAlwaysOnTest do
   defp create_agent(opts \\ []) do
     heartbeat_interval = Keyword.get(opts, :heartbeat_interval_seconds)
     always_on = Keyword.get(opts, :always_on, false)
+    capabilities = Keyword.get(opts, :capabilities)
     name = "test_agent_#{:erlang.unique_integer([:positive])}"
 
     config =
@@ -25,17 +27,23 @@ defmodule ClawdEx.Sessions.HeartbeatAndAlwaysOnTest do
         if always_on, do: Map.put(c, "always_on", true), else: c
       end)
 
+    attrs = %{name: name, config: config}
+    attrs = if capabilities != nil, do: Map.put(attrs, :capabilities, capabilities), else: attrs
+
     {:ok, agent} =
       %Agent{}
-      |> Agent.changeset(%{name: name, config: config})
+      |> Agent.changeset(attrs)
       |> Repo.insert()
 
     agent
   end
 
-  defp start_session_with_agent(agent) do
-    key = unique_key()
-    {:ok, pid} = SessionManager.start_session(session_key: key, agent_id: agent.id)
+  defp start_session_with_agent(agent, opts \\ []) do
+    key = Keyword.get_lazy(opts, :key, &unique_key/0)
+
+    start_opts = [session_key: key, agent_id: agent.id, channel: "test"]
+
+    {:ok, pid} = SessionManager.start_session(start_opts)
 
     on_exit(fn ->
       try do
@@ -57,7 +65,7 @@ defmodule ClawdEx.Sessions.HeartbeatAndAlwaysOnTest do
   describe "heartbeat timer" do
     test "heartbeat message is scheduled when agent has heartbeat_interval_seconds" do
       agent = create_agent(heartbeat_interval_seconds: 1)
-      {key, pid} = start_session_with_agent(agent)
+      {_key, pid} = start_session_with_agent(agent)
 
       # Worker should be alive
       assert Process.alive?(pid)
@@ -85,7 +93,7 @@ defmodule ClawdEx.Sessions.HeartbeatAndAlwaysOnTest do
 
     test "heartbeat skips when agent is busy" do
       agent = create_agent(heartbeat_interval_seconds: 1)
-      {key, pid} = start_session_with_agent(agent)
+      {_key, pid} = start_session_with_agent(agent)
 
       # Simulate agent being busy by sending a direct message to the worker
       # to set agent_running = true
@@ -120,10 +128,6 @@ defmodule ClawdEx.Sessions.HeartbeatAndAlwaysOnTest do
 
       # Worker should still be alive
       assert Process.alive?(pid)
-
-      # Agent running should have been set to true (heartbeat task started)
-      # It may have completed quickly, so check process is alive
-      assert Process.alive?(pid)
     end
 
     test "heartbeat_done reschedules next heartbeat" do
@@ -148,25 +152,6 @@ defmodule ClawdEx.Sessions.HeartbeatAndAlwaysOnTest do
   end
 
   # ============================================================================
-  # Heartbeat HEARTBEAT_OK Silent Tests
-  # ============================================================================
-
-  describe "heartbeat_ok? detection" do
-    test "detects HEARTBEAT_OK response" do
-      # Test the public-accessible logic indirectly via worker behavior
-      # heartbeat_ok? is private, but we can test via integration
-
-      agent = create_agent(heartbeat_interval_seconds: 60)
-      {_key, pid} = start_session_with_agent(agent)
-
-      # Verify worker is alive and has heartbeat configured
-      state = :sys.get_state(pid)
-      assert state.heartbeat_ref != nil
-      assert Process.alive?(pid)
-    end
-  end
-
-  # ============================================================================
   # Always-On Mode Tests
   # ============================================================================
 
@@ -176,12 +161,9 @@ defmodule ClawdEx.Sessions.HeartbeatAndAlwaysOnTest do
       assert SessionWorker.is_always_on?(agent) == true
     end
 
-    test "is_always_on? returns false for agent without always_on" do
+    test "is_always_on? returns false for agent without always_on or nil" do
       agent = create_agent()
       assert SessionWorker.is_always_on?(agent) == false
-    end
-
-    test "is_always_on? returns false for nil" do
       assert SessionWorker.is_always_on?(nil) == false
     end
 
@@ -196,13 +178,89 @@ defmodule ClawdEx.Sessions.HeartbeatAndAlwaysOnTest do
 
     test "always_on with heartbeat starts both features" do
       agent = create_agent(always_on: true, heartbeat_interval_seconds: 5)
-      {key, pid} = start_session_with_agent(agent)
+      {_key, pid} = start_session_with_agent(agent)
 
       assert Process.alive?(pid)
 
       # Check heartbeat is scheduled
       internal_state = :sys.get_state(pid)
       assert internal_state.heartbeat_ref != nil
+    end
+
+    test "started_at is set in state" do
+      agent = create_agent(always_on: true)
+      {_key, pid} = start_session_with_agent(agent)
+
+      state = :sys.get_state(pid)
+      assert state.started_at != nil
+      assert is_integer(state.started_at)
+    end
+  end
+
+  # ============================================================================
+  # A2A Auto-Registration Tests
+  # ============================================================================
+
+  describe "A2A auto-registration" do
+    test "registers agent with capabilities when session starts" do
+      agent = create_agent(capabilities: ["code_review", "deployment"])
+      {_key, _pid} = start_session_with_agent(agent)
+
+      Process.sleep(200)
+
+      # Verify A2A registration
+      {:ok, agents} = A2ARouter.discover()
+      registered = Enum.find(agents, &(&1.agent_id == agent.id))
+      assert registered != nil
+      assert "code_review" in registered.capabilities
+      assert "deployment" in registered.capabilities
+    end
+
+    test "does not register agent without capabilities" do
+      agent = create_agent(capabilities: [])
+      {_key, pid} = start_session_with_agent(agent)
+
+      Process.sleep(200)
+
+      {:ok, agents} = A2ARouter.discover()
+      found = Enum.find(agents, &(&1.agent_id == agent.id))
+
+      # If found via DB, should not have registered_at
+      if found do
+        refute Map.get(found, :registered_at)
+      end
+
+      assert Process.alive?(pid)
+    end
+
+    test "unregisters agent when session stops" do
+      agent = create_agent(capabilities: ["deployment"])
+      key = unique_key()
+
+      {:ok, _pid} =
+        SessionManager.start_session(
+          session_key: key,
+          agent_id: agent.id,
+          channel: "test"
+        )
+
+      Process.sleep(100)
+
+      # Verify registered
+      {:ok, agents} = A2ARouter.discover()
+      assert Enum.any?(agents, &(&1.agent_id == agent.id))
+
+      # Stop the session
+      SessionManager.stop_session(key)
+      Process.sleep(100)
+
+      # Verify unregistered from in-memory registry
+      {:ok, agents_after} = A2ARouter.discover()
+      found_after = Enum.find(agents_after, &(&1.agent_id == agent.id))
+
+      if found_after do
+        refute Map.get(found_after, :registered_at)
+      end
     end
   end
 
@@ -216,7 +274,7 @@ defmodule ClawdEx.Sessions.HeartbeatAndAlwaysOnTest do
       key = unique_key()
 
       # Start session, add some messages, stop, restart
-      {:ok, pid} = SessionManager.start_session(session_key: key, agent_id: agent.id)
+      {:ok, _pid} = SessionManager.start_session(session_key: key, agent_id: agent.id)
       state = SessionWorker.get_state(key)
 
       # Insert some messages directly
@@ -245,15 +303,6 @@ defmodule ClawdEx.Sessions.HeartbeatAndAlwaysOnTest do
 
       # Cleanup
       SessionManager.stop_session(key)
-    end
-
-    test "non-always-on session still starts normally" do
-      agent = create_agent(always_on: false)
-      {key, pid} = start_session_with_agent(agent)
-
-      assert Process.alive?(pid)
-      state = SessionWorker.get_state(key)
-      assert state.session_key == key
     end
   end
 

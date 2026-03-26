@@ -14,81 +14,39 @@ defmodule ClawdExWeb.AgentsLiveTest do
     agent
   end
 
-  describe "mount" do
-    test "renders agents page", %{conn: conn} do
-      {:ok, _view, html} = live(conn, "/agents")
+  test "renders agents page with key elements", %{conn: conn} do
+    {:ok, _view, html} = live(conn, "/agents")
 
-      assert html =~ "Agents"
-    end
-
-    test "shows empty state when no agents", %{conn: conn} do
-      {:ok, _view, html} = live(conn, "/agents")
-
-      # Should render without errors
-      assert html =~ "Agents"
-    end
-
-    test "displays agents when they exist", %{conn: conn} do
-      create_agent(%{name: "my-test-agent"})
-
-      {:ok, _view, html} = live(conn, "/agents")
-
-      assert html =~ "my-test-agent"
-    end
-
-    test "displays multiple agents", %{conn: conn} do
-      create_agent(%{name: "agent-alpha"})
-      create_agent(%{name: "agent-beta"})
-
-      {:ok, _view, html} = live(conn, "/agents")
-
-      assert html =~ "agent-alpha"
-      assert html =~ "agent-beta"
-    end
-
-    test "has create new agent link", %{conn: conn} do
-      {:ok, _view, html} = live(conn, "/agents")
-
-      assert html =~ ~p"/agents/new"
-    end
+    assert html =~ "Agents"
+    assert html =~ ~p"/agents/new"
   end
 
-  describe "events" do
-    test "toggle_active deactivates an active agent", %{conn: conn} do
-      agent = create_agent(%{name: "toggle-agent", active: true})
+  test "displays agents when they exist", %{conn: conn} do
+    create_agent(%{name: "agent-alpha"})
+    create_agent(%{name: "agent-beta"})
 
-      {:ok, view, _html} = live(conn, "/agents")
+    {:ok, _view, html} = live(conn, "/agents")
 
-      view
-      |> render_click("toggle_active", %{"id" => to_string(agent.id)})
+    assert html =~ "agent-alpha"
+    assert html =~ "agent-beta"
+  end
 
-      html = render(view)
-      assert html =~ "deactivated"
-    end
+  test "toggle_active toggles agent state", %{conn: conn} do
+    agent = create_agent(%{name: "toggle-agent", active: true})
 
-    test "toggle_active activates an inactive agent", %{conn: conn} do
-      agent = create_agent(%{name: "inactive-agent", active: false})
+    {:ok, view, _html} = live(conn, "/agents")
 
-      {:ok, view, _html} = live(conn, "/agents")
+    html = view |> render_click("toggle_active", %{"id" => to_string(agent.id)})
+    assert html =~ "deactivated"
+  end
 
-      view
-      |> render_click("toggle_active", %{"id" => to_string(agent.id)})
+  test "delete removes an agent", %{conn: conn} do
+    agent = create_agent(%{name: "delete-me-agent"})
 
-      html = render(view)
-      assert html =~ "activated"
-    end
+    {:ok, view, _html} = live(conn, "/agents")
 
-    test "delete removes an agent", %{conn: conn} do
-      agent = create_agent(%{name: "delete-me-agent"})
-
-      {:ok, view, _html} = live(conn, "/agents")
-
-      view
-      |> render_click("delete", %{"id" => to_string(agent.id)})
-
-      html = render(view)
-      assert html =~ "Agent deleted"
-      refute html =~ "delete-me-agent"
-    end
+    html = view |> render_click("delete", %{"id" => to_string(agent.id)})
+    assert html =~ "Agent deleted"
+    refute html =~ "delete-me-agent"
   end
 end

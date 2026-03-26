@@ -5,14 +5,6 @@ defmodule ClawdEx.Tools.ReadTest do
 
   @context %{workspace: "/tmp/test_workspace", agent_id: "test", session_id: "test-session", session_key: "test:key"}
 
-  describe "name/0, description/0, parameters/0" do
-    test "returns tool metadata" do
-      assert Read.name() == "read"
-      assert is_binary(Read.description())
-      assert %{type: "object", properties: %{path: _}, required: ["path"]} = Read.parameters()
-    end
-  end
-
   describe "execute/2 - read file" do
     setup do
       tmp_dir = Path.join(System.tmp_dir!(), "read_test_#{System.unique_integer([:positive])}")

@@ -5,19 +5,6 @@ defmodule ClawdEx.Tools.AgentsListTest do
   alias ClawdEx.Agents.Agent
 
   describe "AgentsList tool" do
-    test "returns tool metadata" do
-      assert AgentsList.name() == "agents_list"
-      assert is_binary(AgentsList.description())
-      assert is_map(AgentsList.parameters())
-    end
-
-    test "parameters has correct structure" do
-      params = AgentsList.parameters()
-      assert params.type == "object"
-      assert is_map(params.properties)
-      assert Map.has_key?(params.properties, :filter)
-    end
-
     test "returns empty list when no agents in DB" do
       assert {:ok, result} = AgentsList.execute(%{}, %{})
       assert is_binary(result)

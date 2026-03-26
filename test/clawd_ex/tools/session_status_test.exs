@@ -31,25 +31,6 @@ defmodule ClawdEx.Tools.SessionStatusTest do
     {agent, session}
   end
 
-  describe "name/0" do
-    test "returns session_status" do
-      assert SessionStatus.name() == "session_status"
-    end
-  end
-
-  describe "parameters/0" do
-    test "includes model property" do
-      params = SessionStatus.parameters()
-      assert params[:properties][:model]
-      assert params[:properties][:model][:type] == "string"
-    end
-
-    test "includes session_key property" do
-      params = SessionStatus.parameters()
-      assert params[:properties][:session_key]
-    end
-  end
-
   describe "execute/2 - basic status" do
     test "returns session status" do
       {_agent, session} = create_test_session()

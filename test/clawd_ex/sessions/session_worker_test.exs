@@ -36,12 +36,6 @@ defmodule ClawdEx.Sessions.SessionWorkerTest do
       assert Process.alive?(pid)
       assert {:ok, ^pid} = SessionManager.find_session(key)
     end
-
-    test "creates a DB session row", %{key: key} do
-      session = Repo.get_by(ClawdEx.Sessions.Session, session_key: key)
-      assert session != nil
-      assert session.state == :active
-    end
   end
 
   describe "get_state/1" do

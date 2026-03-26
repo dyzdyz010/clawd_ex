@@ -4,43 +4,30 @@ defmodule ClawdEx.Tools.SessionsSpawnTest do
   alias ClawdEx.Tools.SessionsSpawn
   alias ClawdEx.Sessions.SessionManager
 
-  describe "name/0" do
-    test "returns correct tool name" do
-      assert SessionsSpawn.name() == "sessions_spawn"
-    end
-  end
-
-  describe "description/0" do
-    test "returns description string" do
-      desc = SessionsSpawn.description()
-      assert is_binary(desc)
-      assert desc =~ "sub-agent"
-    end
-  end
-
   describe "parameters/0" do
-    test "returns parameter schema" do
+    test "returns schema with required task and all expected fields" do
       params = SessionsSpawn.parameters()
       assert params.type == "object"
-      assert Map.has_key?(params.properties, :task)
       assert "task" in params.required
-    end
 
-    test "includes optional parameters" do
-      params = SessionsSpawn.parameters()
       props = params.properties
-
+      assert Map.has_key?(props, :task)
       assert Map.has_key?(props, :label)
       assert Map.has_key?(props, :agentId)
       assert Map.has_key?(props, :model)
       assert Map.has_key?(props, :runTimeoutSeconds)
       assert Map.has_key?(props, :cleanup)
+      assert Map.has_key?(props, :streamTo)
+      assert props[:streamTo].enum == ["parent"]
+      assert Map.has_key?(props, :runtime)
+      assert props[:runtime].enum == ["subagent", "acp"]
+      assert Map.has_key?(props, :mode)
+      assert props[:mode].enum == ["run", "session"]
     end
   end
 
   describe "execute/2" do
     setup do
-      # 创建测试 agent
       {:ok, agent} =
         %ClawdEx.Agents.Agent{}
         |> ClawdEx.Agents.Agent.changeset(%{name: "test-agent"})
@@ -54,7 +41,6 @@ defmodule ClawdEx.Tools.SessionsSpawnTest do
       }
 
       on_exit(fn ->
-        # 清理可能创建的会话
         SessionManager.list_sessions()
         |> Enum.filter(&String.contains?(&1, "subagent"))
         |> Enum.each(&SessionManager.stop_session/1)
@@ -63,77 +49,22 @@ defmodule ClawdEx.Tools.SessionsSpawnTest do
       %{agent: agent, context: context}
     end
 
-    test "returns error when task is missing", %{context: context} do
+    test "returns error when task is missing or empty", %{context: context} do
       assert {:error, "task is required"} = SessionsSpawn.execute(%{}, context)
-    end
-
-    test "returns error when task is empty", %{context: context} do
       assert {:error, "task is required"} = SessionsSpawn.execute(%{"task" => ""}, context)
     end
 
-    test "spawns subagent and returns session key", %{context: context} do
-      params = %{
-        "task" => "echo Hello from subagent",
-        "label" => "test-subagent"
-      }
+    test "spawns subagent with correct session key format and agent_id", %{
+      agent: agent,
+      context: context
+    } do
+      params = %{"task" => "echo Hello from subagent", "label" => "test-subagent"}
 
       assert {:ok, result} = SessionsSpawn.execute(params, context)
       assert result.status == "spawned"
-      assert is_binary(result.childSessionKey)
-      assert result.childSessionKey =~ "subagent"
       assert result.label == "test-subagent"
 
-      # Note: We don't verify session registration because:
-      # 1. The subagent starts asynchronously 
-      # 2. Test database connections can close before subagent completes
-      # The key assertion is that spawn returns successfully with expected values
-    end
-
-    test "uses parent agent_id by default", %{agent: agent, context: context} do
-      params = %{"task" => "simple task"}
-
-      assert {:ok, result} = SessionsSpawn.execute(params, context)
-      assert result.childSessionKey =~ "agent:#{agent.id}"
-    end
-
-    test "respects custom timeout", %{context: context} do
-      params = %{
-        "task" => "quick task",
-        "runTimeoutSeconds" => 5
-      }
-
-      # 应该不会报错
-      assert {:ok, _result} = SessionsSpawn.execute(params, context)
-    end
-
-    test "caps timeout at 3600 seconds", %{context: context} do
-      params = %{
-        "task" => "task",
-        "runTimeoutSeconds" => 99999
-      }
-
-      # 应该成功（内部会限制到 3600）
-      assert {:ok, _result} = SessionsSpawn.execute(params, context)
-    end
-  end
-
-  describe "session key format" do
-    setup do
-      {:ok, agent} =
-        %ClawdEx.Agents.Agent{}
-        |> ClawdEx.Agents.Agent.changeset(%{name: "format-test-agent-#{System.unique_integer()}"})
-        |> ClawdEx.Repo.insert()
-
-      %{agent: agent}
-    end
-
-    test "generates valid session key format", %{agent: agent} do
-      context = %{agent_id: agent.id}
-      params = %{"task" => "test"}
-
-      assert {:ok, result} = SessionsSpawn.execute(params, context)
-
-      # 验证格式: agent:{id}:subagent:{uuid}
+      # Verify session key format: agent:{id}:subagent:{uuid}
       [prefix, agent_id, subagent, uuid] = String.split(result.childSessionKey, ":")
       assert prefix == "agent"
       assert agent_id == "#{agent.id}"
@@ -141,70 +72,87 @@ defmodule ClawdEx.Tools.SessionsSpawnTest do
       assert String.length(uuid) > 10
     end
 
-    test "uses default when agent_id is nil - creates default agent" do
-      # 创建默认代理
-      {:ok, default_agent} =
-        %ClawdEx.Agents.Agent{}
-        |> ClawdEx.Agents.Agent.changeset(%{name: "default"})
-        |> ClawdEx.Repo.insert()
+    test "timeout handling - respects custom and caps at 3600", %{context: context} do
+      assert {:ok, _} = SessionsSpawn.execute(%{"task" => "quick", "runTimeoutSeconds" => 5}, context)
+      # Should succeed (internally capped to 3600)
+      assert {:ok, _} = SessionsSpawn.execute(%{"task" => "task", "runTimeoutSeconds" => 99999}, context)
+    end
 
-      context = %{agent_id: default_agent.id}
-      params = %{"task" => "test"}
+    test "cleanup options - keep, delete, and boolean backward compat", %{context: context} do
+      assert {:ok, _} = SessionsSpawn.execute(%{"task" => "t", "cleanup" => "keep"}, context)
+      assert {:ok, _} = SessionsSpawn.execute(%{"task" => "t", "cleanup" => "delete"}, context)
+      # true should be converted to :delete
+      assert {:ok, _} = SessionsSpawn.execute(%{"task" => "t", "cleanup" => true}, context)
+    end
 
-      assert {:ok, result} = SessionsSpawn.execute(params, context)
-      # 带有实际代理ID的会话key
-      assert result.childSessionKey =~ "agent:#{default_agent.id}:subagent:"
+    test "accepts streamTo and thinking parameters", %{context: context} do
+      assert {:ok, result} =
+               SessionsSpawn.execute(
+                 %{"task" => "streaming", "streamTo" => "parent", "thinking" => "high"},
+                 context
+               )
+
+      assert result.status == "spawned"
+    end
+
+    test "runtime defaults to subagent", %{context: context} do
+      assert {:ok, result} = SessionsSpawn.execute(%{"task" => "test"}, context)
+      assert result.status == "spawned"
+      assert result.childSessionKey =~ "subagent"
+
+      # Explicit subagent runtime also works
+      assert {:ok, result2} =
+               SessionsSpawn.execute(%{"task" => "test", "runtime" => "subagent"}, context)
+
+      assert result2.childSessionKey =~ "subagent"
+    end
+
+    test "unknown runtime returns error", %{context: context} do
+      assert {:error, msg} =
+               SessionsSpawn.execute(%{"task" => "test", "runtime" => "invalid"}, context)
+
+      assert msg =~ "Unknown runtime"
     end
   end
 
-  describe "cleanup option" do
+  describe "Telegram topic support" do
     setup do
       {:ok, agent} =
         %ClawdEx.Agents.Agent{}
         |> ClawdEx.Agents.Agent.changeset(%{
-          name: "cleanup-test-agent-#{System.unique_integer()}"
+          name: "topic-test-agent-#{System.unique_integer()}"
         })
         |> ClawdEx.Repo.insert()
 
-      context = %{agent_id: agent.id, session_key: "parent"}
-      %{context: context, agent: agent}
+      %{agent: agent}
     end
 
-    test "session persists when cleanup is keep", %{context: context, agent: _agent} do
-      params = %{
-        "task" => "echo done",
-        "cleanup" => "keep"
+    test "works with and without topic in session_key", %{agent: agent} do
+      # With topic
+      context_with_topic = %{
+        agent_id: agent.id,
+        session_key: "agent:ceo:telegram:group:-1003768565369:topic:21",
+        channel: "telegram",
+        channel_to: "-1003768565369"
       }
 
-      assert {:ok, result} = SessionsSpawn.execute(params, context)
+      assert {:ok, result} =
+               SessionsSpawn.execute(%{"task" => "topic test"}, context_with_topic)
 
-      # 给任务时间完成
-      Process.sleep(500)
+      assert result.status == "spawned"
 
-      # 会话应该仍然存在
-      sessions = SessionManager.list_sessions()
-      # 注意：由于任务可能已完成，这取决于实际执行情况
-      # 这里我们只验证 spawn 成功
-      assert is_list(sessions)
-    end
-
-    test "accepts cleanup as delete string", %{context: context} do
-      params = %{
-        "task" => "quick task",
-        "cleanup" => "delete"
+      # Without topic
+      context_no_topic = %{
+        agent_id: agent.id,
+        session_key: "agent:ceo:telegram:group:-1003768565369",
+        channel: "telegram",
+        channel_to: "-1003768565369"
       }
 
-      assert {:ok, _result} = SessionsSpawn.execute(params, context)
-    end
+      assert {:ok, result2} =
+               SessionsSpawn.execute(%{"task" => "no topic test"}, context_no_topic)
 
-    test "accepts cleanup as boolean for backward compatibility", %{context: context} do
-      params = %{
-        "task" => "quick task",
-        "cleanup" => true
-      }
-
-      # true 应该被转换为 :delete
-      assert {:ok, _result} = SessionsSpawn.execute(params, context)
+      assert result2.status == "spawned"
     end
   end
 
@@ -221,15 +169,12 @@ defmodule ClawdEx.Tools.SessionsSpawnTest do
     end
 
     test "rejects spawn from subagent session", %{agent: agent} do
-      # 模拟从子代理会话调用
       context = %{
         agent_id: agent.id,
         session_key: "agent:#{agent.id}:subagent:abc123"
       }
 
-      params = %{"task" => "nested task"}
-
-      assert {:error, message} = SessionsSpawn.execute(params, context)
+      assert {:error, message} = SessionsSpawn.execute(%{"task" => "nested task"}, context)
       assert message =~ "not allowed from sub-agent"
     end
 
@@ -239,172 +184,7 @@ defmodule ClawdEx.Tools.SessionsSpawnTest do
         session_key: "agent:#{agent.id}:main"
       }
 
-      params = %{"task" => "normal task"}
-
-      assert {:ok, result} = SessionsSpawn.execute(params, context)
-      assert result.status == "spawned"
-    end
-  end
-
-  describe "thinking parameter" do
-    setup do
-      {:ok, agent} =
-        %ClawdEx.Agents.Agent{}
-        |> ClawdEx.Agents.Agent.changeset(%{
-          name: "thinking-test-agent-#{System.unique_integer()}"
-        })
-        |> ClawdEx.Repo.insert()
-
-      context = %{agent_id: agent.id, session_key: "parent:main"}
-      %{context: context}
-    end
-
-    test "accepts thinking parameter", %{context: context} do
-      params = %{
-        "task" => "complex task",
-        "thinking" => "high"
-      }
-
-      assert {:ok, result} = SessionsSpawn.execute(params, context)
-      assert result.status == "spawned"
-    end
-  end
-
-  describe "streamTo parameter" do
-    setup do
-      {:ok, agent} =
-        %ClawdEx.Agents.Agent{}
-        |> ClawdEx.Agents.Agent.changeset(%{
-          name: "stream-test-agent-#{System.unique_integer()}"
-        })
-        |> ClawdEx.Repo.insert()
-
-      context = %{
-        agent_id: agent.id,
-        session_key: "agent:#{agent.id}:main",
-        session_id: 1
-      }
-
-      %{context: context}
-    end
-
-    test "accepts streamTo parameter", %{context: context} do
-      params = %{
-        "task" => "streaming task",
-        "streamTo" => "parent"
-      }
-
-      assert {:ok, result} = SessionsSpawn.execute(params, context)
-      assert result.status == "spawned"
-    end
-
-    test "parameters schema includes streamTo" do
-      params = SessionsSpawn.parameters()
-      assert Map.has_key?(params.properties, :streamTo)
-      assert params.properties[:streamTo].enum == ["parent"]
-    end
-  end
-
-  describe "announce_to_channel formatting" do
-    test "formats completion message correctly" do
-      # Test the format_duration helper via the module
-      # We test indirectly through the announce logic
-      # The formatted message should follow:
-      # ✅ 子代理 [{label}] 完成 ({duration})
-      # ---
-      # {result_summary}
-      assert SessionsSpawn.parameters().properties[:task].type == "string"
-    end
-  end
-
-  describe "Telegram topic support" do
-    setup do
-      {:ok, agent} =
-        %ClawdEx.Agents.Agent{}
-        |> ClawdEx.Agents.Agent.changeset(%{
-          name: "topic-test-agent-#{System.unique_integer()}"
-        })
-        |> ClawdEx.Repo.insert()
-
-      %{agent: agent}
-    end
-
-    test "extract_topic_id parses topic from session_key" do
-      # Test via the module's internal logic by checking spawn works
-      # with a topic-bearing session_key
-      context = %{
-        agent_id: nil,
-        session_key: "agent:ceo:telegram:group:-1003768565369:topic:21",
-        channel: "telegram",
-        channel_to: "-1003768565369"
-      }
-
-      # Create agent for this test
-      {:ok, agent} =
-        %ClawdEx.Agents.Agent{}
-        |> ClawdEx.Agents.Agent.changeset(%{
-          name: "topic-extract-agent-#{System.unique_integer()}"
-        })
-        |> ClawdEx.Repo.insert()
-
-      context = Map.put(context, :agent_id, agent.id)
-
-      params = %{
-        "task" => "topic test task",
-        "label" => "topic-test"
-      }
-
-      assert {:ok, result} = SessionsSpawn.execute(params, context)
-      assert result.status == "spawned"
-    end
-
-    test "session_key without topic works normally" do
-      {:ok, agent} =
-        %ClawdEx.Agents.Agent{}
-        |> ClawdEx.Agents.Agent.changeset(%{
-          name: "no-topic-agent-#{System.unique_integer()}"
-        })
-        |> ClawdEx.Repo.insert()
-
-      context = %{
-        agent_id: agent.id,
-        session_key: "agent:ceo:telegram:group:-1003768565369",
-        channel: "telegram",
-        channel_to: "-1003768565369"
-      }
-
-      params = %{
-        "task" => "no topic test",
-        "label" => "no-topic-test"
-      }
-
-      assert {:ok, result} = SessionsSpawn.execute(params, context)
-      assert result.status == "spawned"
-    end
-  end
-
-  describe "extract_topic_id/1" do
-    # We test the private function indirectly through a helper approach.
-    # Since extract_topic_id is private, we verify behavior through spawn with topic session_keys.
-
-    test "spawn with topic session_key includes topic context" do
-      {:ok, agent} =
-        %ClawdEx.Agents.Agent{}
-        |> ClawdEx.Agents.Agent.changeset(%{
-          name: "topic-context-agent-#{System.unique_integer()}"
-        })
-        |> ClawdEx.Repo.insert()
-
-      # Session key with topic
-      context = %{
-        agent_id: agent.id,
-        session_key: "agent:ceo:telegram:group:-12345:topic:42",
-        channel: "telegram",
-        channel_to: "-12345"
-      }
-
-      params = %{"task" => "test topic context"}
-      assert {:ok, result} = SessionsSpawn.execute(params, context)
+      assert {:ok, result} = SessionsSpawn.execute(%{"task" => "normal task"}, context)
       assert result.status == "spawned"
     end
   end
@@ -430,7 +210,6 @@ defmodule ClawdEx.Tools.SessionsSpawnTest do
     end
 
     test "spawn with very short timeout succeeds", %{context: context} do
-      # Subscribe to PubSub to verify timeout notifications
       Phoenix.PubSub.subscribe(ClawdEx.PubSub, "session:#{context[:session_key]}")
 
       params = %{
@@ -442,18 +221,13 @@ defmodule ClawdEx.Tools.SessionsSpawnTest do
       assert {:ok, result} = SessionsSpawn.execute(params, context)
       assert result.status == "spawned"
 
-      # Wait for the task to timeout (1s + buffer)
-      # We expect a timeout notification via PubSub
       receive do
         {:subagent_timeout, data} ->
           assert data.label == "timeout-test"
           assert data.timeoutSeconds == 1
           assert data.message =~ "超时"
       after
-        5_000 ->
-          # Timeout might have been handled already or DB connection issue
-          # in test environment — this is acceptable
-          :ok
+        5_000 -> :ok
       end
     end
 
@@ -468,7 +242,6 @@ defmodule ClawdEx.Tools.SessionsSpawnTest do
       assert {:ok, result} = SessionsSpawn.execute(params, context)
       assert result.status == "spawned"
 
-      # Poll for cleanup completion (timeout + cleanup is async, may take a few seconds)
       cleaned_up =
         Enum.any?(1..10, fn _ ->
           Process.sleep(1000)
@@ -476,75 +249,13 @@ defmodule ClawdEx.Tools.SessionsSpawnTest do
           not Enum.any?(sessions, &String.contains?(&1, result.childSessionKey))
         end)
 
-      assert cleaned_up, "Session #{result.childSessionKey} should have been cleaned up after timeout"
-    end
-  end
-
-  describe "runtime parameter" do
-    test "parameters schema includes runtime field" do
-      params = SessionsSpawn.parameters()
-      assert Map.has_key?(params.properties, :runtime)
-      assert params.properties[:runtime].enum == ["subagent", "acp"]
-    end
-
-    test "parameters schema includes mode field" do
-      params = SessionsSpawn.parameters()
-      assert Map.has_key?(params.properties, :mode)
-      assert params.properties[:mode].enum == ["run", "session"]
-    end
-
-    test "defaults to subagent runtime" do
-      {:ok, agent} =
-        %ClawdEx.Agents.Agent{}
-        |> ClawdEx.Agents.Agent.changeset(%{
-          name: "runtime-default-agent-#{System.unique_integer()}"
-        })
-        |> ClawdEx.Repo.insert()
-
-      context = %{agent_id: agent.id, session_key: "parent:main"}
-
-      params = %{"task" => "test task"}
-      assert {:ok, result} = SessionsSpawn.execute(params, context)
-      # Default runtime is subagent, which returns "spawned" status
-      assert result.status == "spawned"
-      assert result.childSessionKey =~ "subagent"
-    end
-
-    test "explicit subagent runtime works" do
-      {:ok, agent} =
-        %ClawdEx.Agents.Agent{}
-        |> ClawdEx.Agents.Agent.changeset(%{
-          name: "runtime-explicit-agent-#{System.unique_integer()}"
-        })
-        |> ClawdEx.Repo.insert()
-
-      context = %{agent_id: agent.id, session_key: "parent:main"}
-
-      params = %{"task" => "test task", "runtime" => "subagent"}
-      assert {:ok, result} = SessionsSpawn.execute(params, context)
-      assert result.status == "spawned"
-      assert result.childSessionKey =~ "subagent"
-    end
-
-    test "unknown runtime returns error" do
-      {:ok, agent} =
-        %ClawdEx.Agents.Agent{}
-        |> ClawdEx.Agents.Agent.changeset(%{
-          name: "runtime-unknown-agent-#{System.unique_integer()}"
-        })
-        |> ClawdEx.Repo.insert()
-
-      context = %{agent_id: agent.id, session_key: "parent:main"}
-
-      params = %{"task" => "test task", "runtime" => "invalid"}
-      assert {:error, msg} = SessionsSpawn.execute(params, context)
-      assert msg =~ "Unknown runtime"
+      assert cleaned_up,
+             "Session #{result.childSessionKey} should have been cleaned up after timeout"
     end
   end
 
   describe "runtime=acp" do
     setup do
-      # Register a mock ACP backend for testing
       :ok = ClawdEx.ACP.Registry.register_backend("cli", ClawdEx.ACP.MockBackend)
 
       on_exit(fn ->
@@ -586,16 +297,12 @@ defmodule ClawdEx.Tools.SessionsSpawnTest do
       assert result.childSessionKey =~ ":acp:"
       assert result.mode == "run"
 
-      # Cleanup
       Process.sleep(500)
       ClawdEx.ACP.Session.close(result.childSessionKey)
     end
 
     test "defaults agentId to codex", %{context: context} do
-      params = %{
-        "task" => "some task",
-        "runtime" => "acp"
-      }
+      params = %{"task" => "some task", "runtime" => "acp"}
 
       assert {:ok, result} = SessionsSpawn.execute(params, context)
       assert result.agentId == "codex"
@@ -605,11 +312,7 @@ defmodule ClawdEx.Tools.SessionsSpawnTest do
     end
 
     test "supports mode parameter", %{context: context} do
-      params = %{
-        "task" => "persistent task",
-        "runtime" => "acp",
-        "mode" => "session"
-      }
+      params = %{"task" => "persistent", "runtime" => "acp", "mode" => "session"}
 
       assert {:ok, result} = SessionsSpawn.execute(params, context)
       assert result.mode == "session"
@@ -619,10 +322,7 @@ defmodule ClawdEx.Tools.SessionsSpawnTest do
     end
 
     test "session key contains acp identifier", %{context: context, agent: agent} do
-      params = %{
-        "task" => "test",
-        "runtime" => "acp"
-      }
+      params = %{"task" => "test", "runtime" => "acp"}
 
       assert {:ok, result} = SessionsSpawn.execute(params, context)
       assert result.childSessionKey =~ "agent:#{agent.id}:acp:"
@@ -637,12 +337,9 @@ defmodule ClawdEx.Tools.SessionsSpawnTest do
         session_key: "agent:#{agent.id}:subagent:abc123"
       }
 
-      params = %{
-        "task" => "should fail",
-        "runtime" => "acp"
-      }
+      assert {:error, msg} =
+               SessionsSpawn.execute(%{"task" => "should fail", "runtime" => "acp"}, context)
 
-      assert {:error, msg} = SessionsSpawn.execute(params, context)
       assert msg =~ "not allowed from sub-agent"
     end
   end

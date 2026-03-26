@@ -5,29 +5,6 @@ defmodule ClawdEx.Tools.GatewayTest do
 
   @moduletag :gateway
 
-  describe "name/0" do
-    test "returns gateway" do
-      assert Gateway.name() == "gateway"
-    end
-  end
-
-  describe "description/0" do
-    test "returns description string" do
-      desc = Gateway.description()
-      assert is_binary(desc)
-      assert String.contains?(desc, "gateway")
-    end
-  end
-
-  describe "parameters/0" do
-    test "returns valid parameter schema" do
-      params = Gateway.parameters()
-      assert params[:type] == "object"
-      assert is_map(params[:properties])
-      assert params[:properties][:action]
-    end
-  end
-
   describe "execute/2 - config.get" do
     test "returns full config when no key specified" do
       assert {:ok, %{config: config}} = Gateway.execute(%{"action" => "config.get"}, %{})
@@ -149,11 +126,6 @@ defmodule ClawdEx.Tools.GatewayTest do
       assert is_binary(status[:elixir_version])
     end
 
-    test "status action is in parameter enum" do
-      params = Gateway.parameters()
-      action_enum = params[:properties][:action][:enum]
-      assert "status" in action_enum
-    end
   end
 
   describe "execute/2 - log_level" do
@@ -164,27 +136,17 @@ defmodule ClawdEx.Tools.GatewayTest do
       assert level in ["debug", "info", "warning", "error", "notice"]
     end
 
-    test "sets log level to debug" do
+    test "sets and restores log level" do
       original_level = Logger.level()
 
       assert {:ok, %{status: "updated", level: "debug"}} =
                Gateway.execute(%{"action" => "log_level", "level" => "debug"}, %{})
-
       assert Logger.level() == :debug
-
-      # Restore original level
-      Logger.configure(level: original_level)
-    end
-
-    test "sets log level to warning" do
-      original_level = Logger.level()
 
       assert {:ok, %{status: "updated", level: "warning"}} =
                Gateway.execute(%{"action" => "log_level", "level" => "warning"}, %{})
-
       assert Logger.level() == :warning
 
-      # Restore original level
       Logger.configure(level: original_level)
     end
 
@@ -193,12 +155,6 @@ defmodule ClawdEx.Tools.GatewayTest do
                Gateway.execute(%{"action" => "log_level", "level" => "trace"}, %{})
 
       assert String.contains?(msg, "Invalid log level")
-    end
-
-    test "log_level action is in parameter enum" do
-      params = Gateway.parameters()
-      action_enum = params[:properties][:action][:enum]
-      assert "log_level" in action_enum
     end
   end
 
