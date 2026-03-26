@@ -406,14 +406,11 @@ defmodule ClawdEx.Channels.Telegram do
         # Just continue waiting for it
         receive_loop(chat_id, send_opts, ref, state)
 
-      # Legacy: 收到消息段（工具调用前的文本）— 保留兼容性
-      {:agent_segment, _run_id, content, %{continuing: true}} when content != "" ->
-        # Only send if not already handled by output_segment
-        unless state.sent_segment do
-          Logger.info("Sending Telegram segment: #{String.slice(content, 0, 50)}...")
-          send_response_with_media(chat_id, content, send_opts)
-        end
-        receive_loop(chat_id, send_opts, ref, %{state | sent_segment: true})
+      # Legacy: agent_segment is no longer used for intermediate text.
+      # All intermediate output goes through OutputManager → {:output_segment, ...}
+      # Keep this clause to drain any stale messages without sending duplicates.
+      {:agent_segment, _run_id, _content, %{continuing: true}} ->
+        receive_loop(chat_id, send_opts, ref, state)
 
       # 收到工具开始执行事件
       {:agent_status, _run_id, :tools_start, %{tools: tools, count: count}}

@@ -378,12 +378,13 @@ defmodule ClawdEx.Agent.Loop do
 
         # 如果有文本内容，通过 OutputManager 立即推送中间段
         if content != "" do
+          # Only use OutputManager path to avoid duplicate messages.
+          # Previously both OutputManager and Broadcaster sent the same content,
+          # causing the same text to appear twice in Telegram.
           OutputManager.deliver_segment(data.run_id, content, %{
             type: :intermediate,
             tool_calls_pending: length(response[:tool_calls])
           })
-
-          Broadcaster.broadcast_segment(data, content, continuing: true)
         end
 
         new_data = %{
