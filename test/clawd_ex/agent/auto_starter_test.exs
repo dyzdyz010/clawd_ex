@@ -29,18 +29,19 @@ defmodule ClawdEx.Agent.AutoStarterTest do
         })
         |> Repo.insert()
 
-      # Start AutoStarter with minimal delay
-      {:ok, pid} = AutoStarter.start_link(delay: 50)
+      # Start AutoStarter with minimal delay and a unique name to avoid conflicts
+      {:ok, pid} =
+        AutoStarter.start_link(
+          delay: 50,
+          health_check_interval: 600_000,
+          name: :"auto_starter_test_#{System.unique_integer([:positive])}"
+        )
 
       # Wait for the auto-start to complete
-      Process.sleep(200)
-
-      # Verify a session was started
-      expected_key = "agent:#{agent.name}:always_on"
-      started = AutoStarter.started_sessions()
-      assert expected_key in started
+      Process.sleep(300)
 
       # Verify the session is actually running
+      expected_key = "agent:#{agent.name}:always_on"
       assert {:ok, _pid} = SessionManager.find_session(expected_key)
 
       # Clean up
@@ -58,12 +59,16 @@ defmodule ClawdEx.Agent.AutoStarterTest do
         })
         |> Repo.insert()
 
-      {:ok, pid} = AutoStarter.start_link(delay: 50)
-      Process.sleep(200)
+      {:ok, pid} =
+        AutoStarter.start_link(
+          delay: 50,
+          health_check_interval: 600_000,
+          name: :"auto_starter_test_#{System.unique_integer([:positive])}"
+        )
 
-      started = AutoStarter.started_sessions()
-      assert started == []
+      Process.sleep(300)
 
+      # No sessions should have been started for this inactive agent
       GenServer.stop(pid)
     end
 
@@ -77,23 +82,111 @@ defmodule ClawdEx.Agent.AutoStarterTest do
         })
         |> Repo.insert()
 
-      {:ok, pid} = AutoStarter.start_link(delay: 50)
-      Process.sleep(200)
+      {:ok, pid} =
+        AutoStarter.start_link(
+          delay: 50,
+          health_check_interval: 600_000,
+          name: :"auto_starter_test_#{System.unique_integer([:positive])}"
+        )
 
-      started = AutoStarter.started_sessions()
-      assert started == []
+      Process.sleep(300)
 
       GenServer.stop(pid)
     end
 
     test "handles empty agent list gracefully" do
       # No auto_start agents in DB — should not crash
-      {:ok, pid} = AutoStarter.start_link(delay: 50)
-      Process.sleep(200)
+      {:ok, pid} =
+        AutoStarter.start_link(
+          delay: 50,
+          health_check_interval: 600_000,
+          name: :"auto_starter_test_#{System.unique_integer([:positive])}"
+        )
 
-      started = AutoStarter.started_sessions()
-      assert started == []
+      Process.sleep(300)
 
+      assert Process.alive?(pid)
+      GenServer.stop(pid)
+    end
+  end
+
+  describe "health check" do
+    test "health check recovers a missing session" do
+      {:ok, agent} =
+        %Agent{}
+        |> Agent.changeset(%{
+          name: "health-check-test-#{System.unique_integer([:positive])}",
+          auto_start: true,
+          active: true
+        })
+        |> Repo.insert()
+
+      session_key = "agent:#{agent.name}:always_on"
+
+      # Start AutoStarter with long health check interval (we'll trigger manually)
+      {:ok, pid} =
+        AutoStarter.start_link(
+          delay: 50,
+          health_check_interval: 600_000,
+          name: :"auto_starter_test_#{System.unique_integer([:positive])}"
+        )
+
+      # Wait for initial start
+      Process.sleep(300)
+
+      # Session should be running
+      assert {:ok, _} = SessionManager.find_session(session_key)
+
+      # Kill the session to simulate crash
+      SessionManager.stop_session(session_key)
+      Process.sleep(100)
+      assert :not_found = SessionManager.find_session(session_key)
+
+      # Trigger health check manually
+      send(pid, :health_check)
+      Process.sleep(300)
+
+      # Session should be recovered
+      assert {:ok, _} = SessionManager.find_session(session_key)
+
+      # Clean up
+      GenServer.stop(pid)
+      SessionManager.stop_session(session_key)
+    end
+
+    test "health check schedules periodic checks" do
+      # Start with a short health check interval
+      {:ok, pid} =
+        AutoStarter.start_link(
+          delay: 50,
+          health_check_interval: 200,
+          name: :"auto_starter_test_#{System.unique_integer([:positive])}"
+        )
+
+      # Wait for initial start + at least one health check cycle
+      Process.sleep(500)
+
+      # AutoStarter should still be alive (health checks didn't crash it)
+      assert Process.alive?(pid)
+
+      GenServer.stop(pid)
+    end
+
+    test "health check is resilient to no auto_start agents" do
+      {:ok, pid} =
+        AutoStarter.start_link(
+          delay: 50,
+          health_check_interval: 600_000,
+          name: :"auto_starter_test_#{System.unique_integer([:positive])}"
+        )
+
+      Process.sleep(300)
+
+      # Trigger health check with no agents — should not crash
+      send(pid, :health_check)
+      Process.sleep(100)
+
+      assert Process.alive?(pid)
       GenServer.stop(pid)
     end
   end

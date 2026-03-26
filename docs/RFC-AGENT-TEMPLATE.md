@@ -142,6 +142,13 @@ EEx 变量：
 10. 测试：agent 启动 → A2A 发现其他 agent
 11. `mix test --no-start` 全绿
 
+## Exec 超时教训
+
+- `mix test --no-start` 需要 ~260 秒，timeout 至少设 400
+- `claude --print` 复杂任务需要 5-10 分钟，timeout 至少 600
+- `deploy.sh` 包含下载 + 解压 + 重启，timeout 至少 300
+- 长任务用 `background: true` + `process poll`，别用同步等
+
 ## 不做的事
 - 不改现有 `priv/bootstrap/` 文件（那是 default workspace 用的）
 - 不改系统提示构建逻辑（Prompt.build 从 workspace 读文件已经 OK）

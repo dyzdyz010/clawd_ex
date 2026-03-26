@@ -30,6 +30,7 @@ defmodule ClawdEx.Sessions.SessionWorker do
     :loop_pid,
     :config,
     :heartbeat_ref,
+    :started_at,
     # 跟踪是否有 agent 正在运行
     agent_running: false,
     # 缓存当前流式输出内容（用于页面切换后恢复）
@@ -151,7 +152,8 @@ defmodule ClawdEx.Sessions.SessionWorker do
         agent_id: session.agent_id,
         channel: channel,
         loop_pid: loop_pid,
-        config: config
+        config: config,
+        started_at: System.monotonic_time(:second)
       }
 
       # 订阅 agent 事件以缓存 streaming content
@@ -166,7 +168,13 @@ defmodule ClawdEx.Sessions.SessionWorker do
       # A2A auto-register: if agent has capabilities, register with A2A Router
       state = maybe_a2a_register(state, agent)
 
-      Logger.info("Session started: #{session_key}")
+      agent_name = if agent, do: agent.name, else: "unknown"
+      always_on = if agent, do: agent.always_on, else: false
+
+      Logger.info(
+        "[Session] Started: #{session_key} | agent=#{agent_name} | always_on=#{always_on} | a2a=#{state.a2a_registered}"
+      )
+
       {:ok, state}
     rescue
       e ->
@@ -182,6 +190,12 @@ defmodule ClawdEx.Sessions.SessionWorker do
 
   @impl true
   def handle_call({:send_message, content, opts}, _from, state) do
+    Logger.info(
+      "[Session] Message received: #{state.session_key} | length=#{byte_size(content)}"
+    )
+
+    msg_start = System.monotonic_time(:millisecond)
+
     # 确保 agent loop 超时与调用者超时一致（留 5 秒余量）
     # 默认 5 分钟，复杂任务需要更多时间
     caller_timeout = Keyword.get(opts, :timeout, 300_000)
@@ -205,6 +219,12 @@ defmodule ClawdEx.Sessions.SessionWorker do
                 new_session = Reset.reset_session!(session)
                 new_state = restart_with_new_session(state, new_session)
                 result = safe_run_agent(new_state.loop_pid, content, opts)
+                duration_ms = System.monotonic_time(:millisecond) - msg_start
+
+                Logger.info(
+                  "[Session] Response sent: #{state.session_key} | duration=#{duration_ms}ms"
+                )
+
                 {:reply, result, new_state}
 
               {:ok, :fresh} ->
@@ -213,6 +233,12 @@ defmodule ClawdEx.Sessions.SessionWorker do
                 # Refresh model_override from DB (may have changed via session_status tool)
                 opts = maybe_apply_model_override(session, opts)
                 result = safe_run_agent(state.loop_pid, content, opts)
+                duration_ms = System.monotonic_time(:millisecond) - msg_start
+
+                Logger.info(
+                  "[Session] Response sent: #{state.session_key} | duration=#{duration_ms}ms"
+                )
+
                 {:reply, result, state}
             end
         end
@@ -409,12 +435,23 @@ defmodule ClawdEx.Sessions.SessionWorker do
   end
 
   @impl true
-  def terminate(_reason, state) do
+  def terminate(reason, state) do
+    uptime_s =
+      if state.started_at do
+        System.monotonic_time(:second) - state.started_at
+      else
+        0
+      end
+
+    Logger.info(
+      "[Session] Terminated: #{state.session_key} | reason=#{inspect(reason)} | uptime=#{uptime_s}s"
+    )
+
     # A2A auto-unregister on session shutdown
     if state.a2a_registered and state.agent_id do
       try do
         A2ARouter.unregister(state.agent_id)
-        Logger.info("A2A: Unregistered agent #{state.agent_id} on session terminate")
+        Logger.info("[Session] A2A unregistered: agent_id=#{state.agent_id}")
       rescue
         _ -> :ok
       catch
@@ -573,7 +610,12 @@ defmodule ClawdEx.Sessions.SessionWorker do
     if capabilities != [] and state.agent_id do
       try do
         :ok = A2ARouter.register(state.agent_id, capabilities)
-        Logger.info("A2A: Auto-registered agent #{state.agent_id} with capabilities: #{inspect(capabilities)}")
+        agent_name = Map.get(agent, :name, "unknown")
+
+        Logger.info(
+          "[Session] A2A registered: agent=#{agent_name} (id=#{state.agent_id}) | capabilities=#{inspect(capabilities)}"
+        )
+
         %{state | a2a_registered: true}
       rescue
         e ->
