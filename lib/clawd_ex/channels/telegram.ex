@@ -228,6 +228,194 @@ defmodule ClawdEx.Channels.Telegram do
     end
   end
 
+  @doc """
+  发送文档到 Telegram
+  支持任意文件类型
+  """
+  def send_document(chat_id, file_path, opts \\ []) do
+    token = get_token()
+
+    if token do
+      do_send_document(token, chat_id, file_path, opts)
+    else
+      {:error, "Telegram bot not configured"}
+    end
+  end
+
+  defp do_send_document(token, chat_id, file_path, opts) do
+    chat_id = ensure_integer(chat_id)
+    caption = Keyword.get(opts, :caption)
+    reply_to = Keyword.get(opts, :reply_to)
+    thread_id = Keyword.get(opts, :message_thread_id)
+
+    document_param =
+      if String.starts_with?(file_path, "http") do
+        file_path
+      else
+        {:file, file_path}
+      end
+
+    params =
+      [chat_id: chat_id, document: document_param]
+      |> maybe_add_caption(caption)
+      |> maybe_add_reply_params(reply_to)
+      |> maybe_add_thread_id(thread_id)
+
+    case Telegram.Api.request(token, "sendDocument", params) do
+      {:ok, message} ->
+        {:ok, format_message(message)}
+
+      {:error, %{"description" => description}} ->
+        Logger.error("Telegram send document failed: #{description}")
+        {:error, description}
+
+      {:error, reason} ->
+        Logger.error("Telegram send document failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  发送音频到 Telegram
+  支持 mp3, ogg, wav, flac, m4a 等格式
+  """
+  def send_audio(chat_id, audio_path, opts \\ []) do
+    token = get_token()
+
+    if token do
+      do_send_audio(token, chat_id, audio_path, opts)
+    else
+      {:error, "Telegram bot not configured"}
+    end
+  end
+
+  defp do_send_audio(token, chat_id, audio_path, opts) do
+    chat_id = ensure_integer(chat_id)
+    caption = Keyword.get(opts, :caption)
+    reply_to = Keyword.get(opts, :reply_to)
+    thread_id = Keyword.get(opts, :message_thread_id)
+
+    audio_param =
+      if String.starts_with?(audio_path, "http") do
+        audio_path
+      else
+        {:file, audio_path}
+      end
+
+    params =
+      [chat_id: chat_id, audio: audio_param]
+      |> maybe_add_caption(caption)
+      |> maybe_add_reply_params(reply_to)
+      |> maybe_add_thread_id(thread_id)
+
+    case Telegram.Api.request(token, "sendAudio", params) do
+      {:ok, message} ->
+        {:ok, format_message(message)}
+
+      {:error, %{"description" => description}} ->
+        Logger.error("Telegram send audio failed: #{description}")
+        {:error, description}
+
+      {:error, reason} ->
+        Logger.error("Telegram send audio failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  发送语音消息到 Telegram
+  支持 ogg (opus 编码) 格式
+  """
+  def send_voice(chat_id, voice_path, opts \\ []) do
+    token = get_token()
+
+    if token do
+      do_send_voice(token, chat_id, voice_path, opts)
+    else
+      {:error, "Telegram bot not configured"}
+    end
+  end
+
+  defp do_send_voice(token, chat_id, voice_path, opts) do
+    chat_id = ensure_integer(chat_id)
+    caption = Keyword.get(opts, :caption)
+    reply_to = Keyword.get(opts, :reply_to)
+    thread_id = Keyword.get(opts, :message_thread_id)
+
+    voice_param =
+      if String.starts_with?(voice_path, "http") do
+        voice_path
+      else
+        {:file, voice_path}
+      end
+
+    params =
+      [chat_id: chat_id, voice: voice_param]
+      |> maybe_add_caption(caption)
+      |> maybe_add_reply_params(reply_to)
+      |> maybe_add_thread_id(thread_id)
+
+    case Telegram.Api.request(token, "sendVoice", params) do
+      {:ok, message} ->
+        {:ok, format_message(message)}
+
+      {:error, %{"description" => description}} ->
+        Logger.error("Telegram send voice failed: #{description}")
+        {:error, description}
+
+      {:error, reason} ->
+        Logger.error("Telegram send voice failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  发送视频到 Telegram
+  支持 mp4, webm 等格式
+  """
+  def send_video(chat_id, video_path, opts \\ []) do
+    token = get_token()
+
+    if token do
+      do_send_video(token, chat_id, video_path, opts)
+    else
+      {:error, "Telegram bot not configured"}
+    end
+  end
+
+  defp do_send_video(token, chat_id, video_path, opts) do
+    chat_id = ensure_integer(chat_id)
+    caption = Keyword.get(opts, :caption)
+    reply_to = Keyword.get(opts, :reply_to)
+    thread_id = Keyword.get(opts, :message_thread_id)
+
+    video_param =
+      if String.starts_with?(video_path, "http") do
+        video_path
+      else
+        {:file, video_path}
+      end
+
+    params =
+      [chat_id: chat_id, video: video_param]
+      |> maybe_add_caption(caption)
+      |> maybe_add_reply_params(reply_to)
+      |> maybe_add_thread_id(thread_id)
+
+    case Telegram.Api.request(token, "sendVideo", params) do
+      {:ok, message} ->
+        {:ok, format_message(message)}
+
+      {:error, %{"description" => description}} ->
+        Logger.error("Telegram send video failed: #{description}")
+        {:error, description}
+
+      {:error, reason} ->
+        Logger.error("Telegram send video failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
   defp maybe_add_caption(params, nil), do: params
   defp maybe_add_caption(params, caption), do: Keyword.put(params, :caption, caption)
 
@@ -508,12 +696,31 @@ defmodule ClawdEx.Channels.Telegram do
     end
   end
 
+  # 根据文件扩展名选择合适的发送方式
+  defp send_media_by_type(chat_id, file_path, opts) do
+    ext = Path.extname(file_path) |> String.downcase()
+
+    cond do
+      ext in [".jpg", ".jpeg", ".png", ".gif", ".webp"] ->
+        send_photo(chat_id, file_path, opts)
+
+      ext in [".mp3", ".ogg", ".wav", ".flac", ".m4a"] ->
+        send_audio(chat_id, file_path, opts)
+
+      ext in [".mp4", ".webm", ".avi", ".mov"] ->
+        send_video(chat_id, file_path, opts)
+
+      true ->
+        send_document(chat_id, file_path, opts)
+    end
+  end
+
   # 解析响应并发送，支持文本和媒体混合
   defp send_response_with_media(chat_id, response, opts) do
-    # 查找所有图片路径：
+    # 查找所有媒体路径：
     # 1. MEDIA: 标记的路径
-    # 2. 绝对路径 /path/to/image.png
-    # 3. URL https://...image.png
+    # 2. 绝对路径 /path/to/file.ext
+    # 3. URL https://...file.ext
     media_paths = extract_media_paths(response)
 
     case media_paths do
@@ -536,14 +743,14 @@ defmodule ClawdEx.Channels.Telegram do
           end
         end
 
-        # 发送所有媒体文件（只发送存在的文件）
+        # 发送所有媒体文件（根据类型选择发送方式）
         Enum.each(paths, fn path ->
           if File.exists?(path) or String.starts_with?(path, "http") do
             Logger.info("Sending media: #{path}")
 
-            case send_photo(chat_id, path, opts) do
-              {:ok, _} -> Logger.info("Telegram photo sent successfully: #{path}")
-              {:error, err} -> Logger.error("Telegram photo send failed: #{inspect(err)}")
+            case send_media_by_type(chat_id, path, opts) do
+              {:ok, _} -> Logger.info("Telegram media sent successfully: #{path}")
+              {:error, err} -> Logger.error("Telegram media send failed: #{inspect(err)}")
             end
           else
             Logger.warning("Media file not found: #{path}")
@@ -552,20 +759,25 @@ defmodule ClawdEx.Channels.Telegram do
     end
   end
 
-  # 提取响应中的所有图片路径
+  # 所有支持的媒体文件扩展名
+  @media_extensions ~w(png jpg jpeg gif webp mp3 ogg wav flac m4a mp4 webm avi mov pdf doc docx xls xlsx ppt pptx zip tar gz rar 7z txt csv json xml)
+
+  @media_ext_pattern Enum.join(@media_extensions, "|")
+
+  # 提取响应中的所有媒体路径
   defp extract_media_paths(response) do
     # 匹配模式：
-    # 1. MEDIA: /path/to/file.png
-    # 2. 绝对路径 /xxx/xxx.png (支持各种包裹字符)
-    # 3. URL https://xxx.png
+    # 1. MEDIA: /path/to/file.ext
+    # 2. 绝对路径 /xxx/xxx.ext (支持各种包裹字符)
+    # 3. URL https://xxx.ext
     patterns = [
-      # MEDIA: 标记
-      ~r/MEDIA:\s*(\S+\.(?:png|jpg|jpeg|gif|webp))/i,
-      # 绝对路径（以 / 开头，包含图片扩展名）
+      # MEDIA: 标记 (任意文件类型)
+      ~r/MEDIA:\s*(\S+\.(?:#{@media_ext_pattern}))/i,
+      # 绝对路径（以 / 开头，包含已知媒体扩展名）
       # 支持被空格、反引号、引号、换行等包裹
-      ~r/(?:^|[\s\n`'"*_\[（(])(\/[\w\-\.\/]+\.(?:png|jpg|jpeg|gif|webp))(?:[\s\n`'"*_\]）),]|$)/im,
+      ~r/(?:^|[\s\n`'"*_\[（(])(\/[\w\-\.\/]+\.(?:#{@media_ext_pattern}))(?:[\s\n`'"*_\]）),]|$)/im,
       # HTTP(S) URL
-      ~r/(https?:\/\/[^\s`'"<>]+\.(?:png|jpg|jpeg|gif|webp))/i
+      ~r/(https?:\/\/[^\s`'"<>]+\.(?:#{@media_ext_pattern}))/i
     ]
 
     paths =
@@ -589,7 +801,7 @@ defmodule ClawdEx.Channels.Telegram do
       # 移除 MEDIA: path 格式
       acc = Regex.replace(~r/MEDIA:\s*#{Regex.escape(path)}/i, acc, "")
       # 移除 "文件路径: path" 格式
-      acc = Regex.replace(~r/文件路径[：:]\s*#{Regex.escape(path)}/i, acc, "[已发送图片]")
+      acc = Regex.replace(~r/文件路径[：:]\s*#{Regex.escape(path)}/i, acc, "[已发送文件]")
       acc
     end)
   end
