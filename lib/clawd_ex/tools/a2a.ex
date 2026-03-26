@@ -124,11 +124,18 @@ defmodule ClawdEx.Tools.A2A do
            count: length(agents),
            agents:
              Enum.map(agents, fn a ->
-               %{
+               base = %{
                  agent_id: a.agent_id,
-                 capabilities: a.capabilities,
-                 registered_at: a.registered_at
+                 name: Map.get(a, :name),
+                 capabilities: Map.get(a, :capabilities, []),
+                 registered: Map.has_key?(a, :registered_at)
                }
+
+               if Map.has_key?(a, :registered_at) do
+                 Map.put(base, :registered_at, a.registered_at)
+               else
+                 base
+               end
              end)
          }}
     end
