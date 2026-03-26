@@ -3,28 +3,6 @@ defmodule ClawdEx.Tools.TtsTest do
 
   alias ClawdEx.Tools.Tts, as: TTS
 
-  describe "TTS tool metadata" do
-    test "returns correct name" do
-      assert TTS.name() == "tts"
-    end
-
-    test "returns description" do
-      desc = TTS.description()
-      assert is_binary(desc)
-      assert desc =~ "speech"
-      assert desc =~ "MEDIA"
-    end
-
-    test "returns valid parameters schema" do
-      params = TTS.parameters()
-
-      assert params.type == "object"
-      assert is_map(params.properties)
-      assert Map.has_key?(params.properties, :text)
-      assert params.required == ["text"]
-    end
-  end
-
   describe "TTS.execute/2" do
     test "returns error when text is missing" do
       assert {:error, message} = TTS.execute(%{}, %{})

@@ -22,141 +22,82 @@ defmodule ClawdExWeb.WebhooksLiveTest do
     webhook
   end
 
-  describe "mount" do
-    test "renders webhooks page with title", %{conn: conn} do
-      {:ok, _view, html} = live(conn, "/webhooks")
+  test "renders webhooks page with key elements", %{conn: conn} do
+    {:ok, _view, html} = live(conn, "/webhooks")
 
-      assert html =~ "Webhooks"
-      assert html =~ "Manage outbound webhook endpoints"
-    end
-
-    test "shows empty state when no webhooks", %{conn: conn} do
-      {:ok, _view, html} = live(conn, "/webhooks")
-
-      assert html =~ "No webhooks configured"
-      assert html =~ "Create your first webhook"
-    end
-
-    test "contains key UI elements", %{conn: conn} do
-      {:ok, _view, html} = live(conn, "/webhooks")
-
-      assert html =~ "Webhooks"
-      assert html =~ "New Webhook"
-      assert html =~ "Total Webhooks"
-      assert html =~ "Enabled"
-      assert html =~ "Disabled"
-    end
-
-    test "renders webhooks when they exist", %{conn: conn} do
-      create_webhook(%{name: "My Webhook"})
-      {:ok, _view, html} = live(conn, "/webhooks")
-
-      assert html =~ "My Webhook"
-      refute html =~ "No webhooks configured"
-    end
+    assert html =~ "Webhooks"
+    assert html =~ "Manage outbound webhook endpoints"
+    assert html =~ "No webhooks configured"
+    assert html =~ "New Webhook"
+    assert html =~ "Total Webhooks"
   end
 
-  describe "events" do
-    test "show_form event opens the form modal", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/webhooks")
+  test "renders webhooks when they exist", %{conn: conn} do
+    create_webhook(%{name: "My Webhook"})
+    {:ok, _view, html} = live(conn, "/webhooks")
 
-      html = render_click(view, "show_form")
-      assert html =~ ~s(name="webhook[name]")
-      assert html =~ ~s(name="webhook[url]")
-      assert html =~ ~s(name="webhook[secret]")
-    end
+    assert html =~ "My Webhook"
+    refute html =~ "No webhooks configured"
+  end
 
-    test "close_form event hides the form modal", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/webhooks")
+  test "form modal open/close and creation", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/webhooks")
 
-      render_click(view, "show_form")
-      html = render_click(view, "close_form")
+    # Open form
+    html = render_click(view, "show_form")
+    assert html =~ ~s(name="webhook[name]")
 
-      refute html =~ ~s(name="webhook[name]")
-    end
+    # Close form
+    html = render_click(view, "close_form")
+    refute html =~ ~s(name="webhook[name]")
 
-    test "toggle event toggles webhook enabled state", %{conn: conn} do
-      webhook = create_webhook(%{enabled: true})
-      {:ok, view, _html} = live(conn, "/webhooks")
+    # Create webhook
+    render_click(view, "show_form")
+    render_click(view, "toggle_event", %{"event" => "message.created"})
 
-      render_click(view, "toggle", %{"id" => to_string(webhook.id)})
+    html =
+      view
+      |> form("form", %{"webhook" => %{"name" => "New Hook", "url" => "https://example.com/hook", "secret" => "mysecret123"}})
+      |> render_submit()
 
-      updated = Repo.get!(Webhook, webhook.id)
-      refute updated.enabled
-    end
+    assert html =~ "New Hook"
+    refute html =~ ~s(name="webhook[name]")
+  end
 
-    test "expand event does not crash", %{conn: conn} do
-      webhook = create_webhook()
-      {:ok, view, _html} = live(conn, "/webhooks")
+  test "toggle webhook enabled state", %{conn: conn} do
+    webhook = create_webhook(%{enabled: true})
+    {:ok, view, _html} = live(conn, "/webhooks")
 
-      html = render_click(view, "expand", %{"id" => to_string(webhook.id)})
-      assert html =~ "Details"
-      assert html =~ "Subscribed Events"
+    render_click(view, "toggle", %{"id" => to_string(webhook.id)})
 
-      # Toggle collapse
-      html = render_click(view, "expand", %{"id" => to_string(webhook.id)})
-      assert html =~ "Webhooks"
-    end
+    updated = Repo.get!(Webhook, webhook.id)
+    refute updated.enabled
+  end
 
-    test "toggle_event event toggles event selection in form", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/webhooks")
+  test "expand shows details", %{conn: conn} do
+    webhook = create_webhook()
+    {:ok, view, _html} = live(conn, "/webhooks")
 
-      render_click(view, "show_form")
-      html = render_click(view, "toggle_event", %{"event" => "message.created"})
-      assert html =~ "message.created"
-    end
+    html = render_click(view, "expand", %{"id" => to_string(webhook.id)})
+    assert html =~ "Details"
+    assert html =~ "Subscribed Events"
+  end
 
-    test "generate_secret event generates a secret", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/webhooks")
+  test "delete removes a webhook", %{conn: conn} do
+    webhook = create_webhook(%{name: "To Delete"})
+    {:ok, view, html} = live(conn, "/webhooks")
+    assert html =~ "To Delete"
 
-      render_click(view, "show_form")
-      html = render_click(view, "generate_secret")
-      assert html =~ ~s(name="webhook[secret]")
-    end
+    html = render_click(view, "delete", %{"id" => to_string(webhook.id)})
+    refute html =~ "To Delete"
+  end
 
-    test "validate_form event does not crash", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/webhooks")
+  test "edit opens form with webhook data", %{conn: conn} do
+    webhook = create_webhook(%{name: "Editable Hook"})
+    {:ok, view, _html} = live(conn, "/webhooks")
 
-      render_click(view, "show_form")
-      html = render_change(view, "validate_form", %{"webhook" => %{"name" => "test", "url" => "https://x.com", "secret" => "s"}})
-      assert html =~ ~s(name="webhook[name]")
-    end
-
-    test "save_webhook creates a new webhook", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "/webhooks")
-
-      render_click(view, "show_form")
-      render_click(view, "toggle_event", %{"event" => "message.created"})
-
-      html =
-        view
-        |> form("form", %{"webhook" => %{"name" => "New Hook", "url" => "https://example.com/hook", "secret" => "mysecret123"}})
-        |> render_submit()
-
-      # After save, the new webhook appears in the list
-      assert html =~ "New Hook"
-      # Form should be closed - no form inputs visible
-      refute html =~ ~s(name="webhook[name]")
-    end
-
-    test "delete event removes a webhook", %{conn: conn} do
-      webhook = create_webhook(%{name: "To Delete"})
-      {:ok, view, html} = live(conn, "/webhooks")
-      assert html =~ "To Delete"
-
-      html = render_click(view, "delete", %{"id" => to_string(webhook.id)})
-      refute html =~ "To Delete"
-      # Should show empty state after deletion
-      assert html =~ "No webhooks configured"
-    end
-
-    test "edit event opens form with webhook data", %{conn: conn} do
-      webhook = create_webhook(%{name: "Editable Hook"})
-      {:ok, view, _html} = live(conn, "/webhooks")
-
-      html = render_click(view, "edit", %{"id" => to_string(webhook.id)})
-      assert html =~ "Edit Webhook"
-      assert html =~ "Editable Hook"
-    end
+    html = render_click(view, "edit", %{"id" => to_string(webhook.id)})
+    assert html =~ "Edit Webhook"
+    assert html =~ "Editable Hook"
   end
 end

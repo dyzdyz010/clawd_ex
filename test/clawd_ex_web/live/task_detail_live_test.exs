@@ -20,13 +20,8 @@ defmodule ClawdExWeb.TaskDetailLiveTest do
       %Task{}
       |> Task.changeset(
         Map.merge(
-          %{
-            title: "Test Task #{System.unique_integer([:positive])}",
-            description: "A test task",
-            status: "pending",
-            priority: 5,
-            agent_id: agent.id
-          },
+          %{title: "Test Task #{System.unique_integer([:positive])}", description: "A test task",
+            status: "pending", priority: 5, agent_id: agent.id},
           attrs
         )
       )
@@ -35,100 +30,39 @@ defmodule ClawdExWeb.TaskDetailLiveTest do
     task
   end
 
-  describe "mount" do
-    test "renders task detail page", %{conn: conn} do
-      agent = create_agent()
-      task = create_task(agent, %{title: "My Test Task"})
+  test "renders task detail with key sections", %{conn: conn} do
+    agent = create_agent()
+    task = create_task(agent, %{title: "My Test Task", description: "Detailed description here", status: "pending", priority: 3})
 
-      {:ok, _view, html} = live(conn, "/tasks/#{task.id}")
+    {:ok, _view, html} = live(conn, "/tasks/#{task.id}")
 
-      assert html =~ "My Test Task"
-    end
-
-    test "displays task status", %{conn: conn} do
-      agent = create_agent()
-      task = create_task(agent, %{title: "Status Task", status: "pending"})
-
-      {:ok, _view, html} = live(conn, "/tasks/#{task.id}")
-
-      assert html =~ "Pending"
-    end
-
-    test "displays task priority", %{conn: conn} do
-      agent = create_agent()
-      task = create_task(agent, %{title: "Priority Task", priority: 3})
-
-      {:ok, _view, html} = live(conn, "/tasks/#{task.id}")
-
-      assert html =~ "P3"
-    end
-
-    test "displays task description", %{conn: conn} do
-      agent = create_agent()
-      task = create_task(agent, %{title: "Desc Task", description: "Detailed description here"})
-
-      {:ok, _view, html} = live(conn, "/tasks/#{task.id}")
-
-      assert html =~ "Detailed description here"
-    end
-
-    test "shows action buttons for pending task", %{conn: conn} do
-      agent = create_agent()
-      task = create_task(agent, %{status: "pending"})
-
-      {:ok, _view, html} = live(conn, "/tasks/#{task.id}")
-
-      assert html =~ "Start"
-    end
-
-    test "shows back link", %{conn: conn} do
-      agent = create_agent()
-      task = create_task(agent)
-
-      {:ok, _view, html} = live(conn, "/tasks/#{task.id}")
-
-      assert html =~ "Back"
-    end
+    assert html =~ "My Test Task"
+    assert html =~ "Pending"
+    assert html =~ "P3"
+    assert html =~ "Detailed description here"
+    assert html =~ "Start"
+    assert html =~ "Back"
   end
 
-  describe "events" do
-    test "start_task does not crash for pending task", %{conn: conn} do
-      agent = create_agent()
-      task = create_task(agent, %{status: "pending"})
+  test "task action events do not crash", %{conn: conn} do
+    agent = create_agent()
 
-      {:ok, view, _html} = live(conn, "/tasks/#{task.id}")
+    # Test start
+    task = create_task(agent, %{status: "pending"})
+    {:ok, view, _html} = live(conn, "/tasks/#{task.id}")
+    view |> render_click("start_task")
+    assert render(view) =~ task.title
 
-      # start_task calls TaskManager which may interact with sessions
-      # The event itself should not crash the LiveView
-      view |> render_click("start_task")
+    # Test cancel
+    task2 = create_task(agent, %{status: "running", started_at: DateTime.utc_now()})
+    {:ok, view2, _html} = live(conn, "/tasks/#{task2.id}")
+    view2 |> render_click("cancel_task")
+    assert render(view2) =~ task2.title
 
-      html = render(view)
-      # It should still show the task page (may show error flash or status change)
-      assert html =~ task.title
-    end
-
-    test "cancel_task does not crash", %{conn: conn} do
-      agent = create_agent()
-      task = create_task(agent, %{status: "running", started_at: DateTime.utc_now()})
-
-      {:ok, view, _html} = live(conn, "/tasks/#{task.id}")
-
-      view |> render_click("cancel_task")
-
-      html = render(view)
-      assert html =~ task.title
-    end
-
-    test "retry_task does not crash", %{conn: conn} do
-      agent = create_agent()
-      task = create_task(agent, %{status: "failed"})
-
-      {:ok, view, _html} = live(conn, "/tasks/#{task.id}")
-
-      view |> render_click("retry_task")
-
-      html = render(view)
-      assert html =~ task.title
-    end
+    # Test retry
+    task3 = create_task(agent, %{status: "failed"})
+    {:ok, view3, _html} = live(conn, "/tasks/#{task3.id}")
+    view3 |> render_click("retry_task")
+    assert render(view3) =~ task3.title
   end
 end

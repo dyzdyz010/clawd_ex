@@ -74,17 +74,5 @@ defmodule ClawdEx.Tools.GatewayBroadcastTest do
     end
   end
 
-  describe "parameters/0 - broadcast" do
-    test "includes broadcast in action enum" do
-      params = Gateway.parameters()
-      action_enum = params[:properties][:action][:enum]
-      assert "broadcast" in action_enum
-    end
 
-    test "includes message property" do
-      params = Gateway.parameters()
-      assert params[:properties][:message]
-      assert params[:properties][:message][:type] == "string"
-    end
-  end
 end

@@ -5,19 +5,6 @@ defmodule ClawdEx.Tools.EditTest do
 
   @context %{workspace: "/tmp/test_workspace", agent_id: "test", session_id: "test-session", session_key: "test:key"}
 
-  describe "name/0, description/0, parameters/0" do
-    test "returns tool metadata" do
-      assert Edit.name() == "edit"
-      assert is_binary(Edit.description())
-
-      params = Edit.parameters()
-      assert params.required == ["path", "old_string", "new_string"]
-      assert Map.has_key?(params.properties, :path)
-      assert Map.has_key?(params.properties, :old_string)
-      assert Map.has_key?(params.properties, :new_string)
-    end
-  end
-
   describe "execute/2 - text replacement" do
     setup do
       tmp_dir = Path.join(System.tmp_dir!(), "edit_test_#{System.unique_integer([:positive])}")

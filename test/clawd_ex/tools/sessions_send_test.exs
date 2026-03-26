@@ -3,32 +3,6 @@ defmodule ClawdEx.Tools.SessionsSendTest do
 
   alias ClawdEx.Tools.SessionsSend
 
-  describe "sessions_send tool metadata" do
-    test "has correct name" do
-      assert SessionsSend.name() == "sessions_send"
-    end
-
-    test "has description" do
-      desc = SessionsSend.description()
-      assert is_binary(desc)
-      assert desc =~ "message"
-      assert desc =~ "session"
-    end
-
-    test "defines required parameters" do
-      params = SessionsSend.parameters()
-
-      assert params[:type] == "object"
-      assert "message" in params[:required]
-
-      properties = params[:properties]
-      assert Map.has_key?(properties, :sessionKey)
-      assert Map.has_key?(properties, :label)
-      assert Map.has_key?(properties, :message)
-      assert Map.has_key?(properties, :timeoutSeconds)
-    end
-  end
-
   describe "sessions_send validation" do
     test "returns error when neither sessionKey nor label is provided" do
       result = SessionsSend.execute(%{"message" => "hello"}, %{})

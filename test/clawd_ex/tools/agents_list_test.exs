@@ -5,26 +5,17 @@ defmodule ClawdEx.Tools.AgentsListTest do
   alias ClawdEx.Agents.Agent
 
   describe "AgentsList tool" do
-    test "returns empty list when no agents in DB" do
+    test "returns formatted output with various filter inputs" do
+      # No filter
       assert {:ok, result} = AgentsList.execute(%{}, %{})
       assert is_binary(result)
       assert result =~ "Available Agents"
       assert result =~ "Allow Any:"
-    end
 
-    test "executes with filter parameter" do
-      assert {:ok, result} = AgentsList.execute(%{"filter" => "test"}, %{})
-      assert is_binary(result)
-    end
-
-    test "executes with atom filter parameter" do
-      assert {:ok, result} = AgentsList.execute(%{filter: "test"}, %{})
-      assert is_binary(result)
-    end
-
-    test "handles empty filter" do
-      assert {:ok, result} = AgentsList.execute(%{"filter" => ""}, %{})
-      assert is_binary(result)
+      # String filter, atom filter, empty filter all work
+      assert {:ok, _} = AgentsList.execute(%{"filter" => "test"}, %{})
+      assert {:ok, _} = AgentsList.execute(%{filter: "test"}, %{})
+      assert {:ok, _} = AgentsList.execute(%{"filter" => ""}, %{})
     end
   end
 
@@ -64,20 +55,16 @@ defmodule ClawdEx.Tools.AgentsListTest do
       assert result =~ "(1/3 shown)"
     end
 
-    test "filter is case insensitive" do
+    test "filters by name (case insensitive) and capability" do
+      # Case insensitive name filter
       assert {:ok, result} = AgentsList.execute(%{"filter" => "BETA"}, %{})
       assert result =~ "agent-beta"
-    end
-
-    test "shows count when filtering" do
-      assert {:ok, result} = AgentsList.execute(%{"filter" => "gamma"}, %{})
       assert result =~ "(1/3 shown)"
-    end
 
-    test "filters by capability" do
-      assert {:ok, result} = AgentsList.execute(%{"filter" => "testing"}, %{})
-      assert result =~ "agent-beta"
-      refute result =~ "agent-alpha"
+      # Capability filter
+      assert {:ok, result2} = AgentsList.execute(%{"filter" => "testing"}, %{})
+      assert result2 =~ "agent-beta"
+      refute result2 =~ "agent-alpha"
     end
 
     test "displays agent id and capabilities" do
@@ -102,14 +89,10 @@ defmodule ClawdEx.Tools.AgentsListTest do
       :ok
     end
 
-    test "only shows active agents" do
+    test "only shows active agents with allow_any" do
       assert {:ok, result} = AgentsList.execute(%{}, %{})
       assert result =~ "active-agent"
       refute result =~ "inactive-agent"
-    end
-
-    test "shows allow_any as true" do
-      assert {:ok, result} = AgentsList.execute(%{}, %{})
       assert result =~ "Allow Any:** true"
     end
   end

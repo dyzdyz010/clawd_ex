@@ -63,9 +63,7 @@ defmodule ClawdEx.Tools.TaskToolTest do
     end
 
     test "uses default title when none provided", %{agent: agent} do
-      params = %{"action" => "create"}
-
-      assert {:ok, result} = TaskTool.execute(params, context(agent))
+      assert {:ok, result} = TaskTool.execute(%{"action" => "create"}, context(agent))
       assert result.title == "Untitled Task"
     end
   end
@@ -173,21 +171,12 @@ defmodule ClawdEx.Tools.TaskToolTest do
       assert result.status == "completed"
     end
 
-    test "returns error without taskId", %{agent: agent} do
-      assert {:error, msg} =
-               TaskTool.execute(%{"action" => "update", "status" => "running"}, context(agent))
-
+    test "returns error without taskId or for non-existent task", %{agent: agent} do
+      assert {:error, msg} = TaskTool.execute(%{"action" => "update", "status" => "running"}, context(agent))
       assert msg =~ "taskId"
-    end
 
-    test "returns error for non-existent task", %{agent: agent} do
-      assert {:error, msg} =
-               TaskTool.execute(
-                 %{"action" => "update", "taskId" => -1, "status" => "running"},
-                 context(agent)
-               )
-
-      assert msg =~ "not found"
+      assert {:error, msg2} = TaskTool.execute(%{"action" => "update", "taskId" => -1, "status" => "running"}, context(agent))
+      assert msg2 =~ "not found"
     end
   end
 
@@ -208,16 +197,12 @@ defmodule ClawdEx.Tools.TaskToolTest do
       assert result.message =~ "Heartbeat"
     end
 
-    test "returns error without taskId", %{agent: agent} do
+    test "returns error without taskId or for non-existent task", %{agent: agent} do
       assert {:error, msg} = TaskTool.execute(%{"action" => "heartbeat"}, context(agent))
       assert msg =~ "taskId"
-    end
 
-    test "returns error for non-existent task", %{agent: agent} do
-      assert {:error, msg} =
-               TaskTool.execute(%{"action" => "heartbeat", "taskId" => -1}, context(agent))
-
-      assert msg =~ "not found"
+      assert {:error, msg2} = TaskTool.execute(%{"action" => "heartbeat", "taskId" => -1}, context(agent))
+      assert msg2 =~ "not found"
     end
   end
 
@@ -250,37 +235,21 @@ defmodule ClawdEx.Tools.TaskToolTest do
       assert result.message =~ "delegated"
     end
 
-    test "returns error without taskId", %{agent: agent} do
-      assert {:error, msg} =
-               TaskTool.execute(
-                 %{"action" => "delegate", "targetAgentId" => 999},
-                 context(agent)
-               )
-
-      assert msg =~ "taskId"
-    end
-
-    test "returns error without targetAgentId", %{agent: agent} do
+    test "returns error for missing params or non-existent task", %{agent: agent} do
       ctx = context(agent)
+
+      # Missing taskId
+      assert {:error, msg} = TaskTool.execute(%{"action" => "delegate", "targetAgentId" => 999}, ctx)
+      assert msg =~ "taskId"
+
+      # Missing targetAgentId
       {:ok, created} = TaskTool.execute(%{"action" => "create", "title" => "Task"}, ctx)
+      assert {:error, msg2} = TaskTool.execute(%{"action" => "delegate", "taskId" => created.task_id}, ctx)
+      assert msg2 =~ "targetAgentId"
 
-      assert {:error, msg} =
-               TaskTool.execute(
-                 %{"action" => "delegate", "taskId" => created.task_id},
-                 ctx
-               )
-
-      assert msg =~ "targetAgentId"
-    end
-
-    test "returns error for non-existent task", %{agent: agent} do
-      assert {:error, msg} =
-               TaskTool.execute(
-                 %{"action" => "delegate", "taskId" => -1, "targetAgentId" => 999},
-                 context(agent)
-               )
-
-      assert msg =~ "not found"
+      # Non-existent task
+      assert {:error, msg3} = TaskTool.execute(%{"action" => "delegate", "taskId" => -1, "targetAgentId" => 999}, ctx)
+      assert msg3 =~ "not found"
     end
   end
 

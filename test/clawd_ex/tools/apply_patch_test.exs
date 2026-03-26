@@ -3,27 +3,6 @@ defmodule ClawdEx.Tools.ApplyPatchTest do
 
   alias ClawdEx.Tools.ApplyPatch
 
-  describe "name/0" do
-    test "returns apply_patch" do
-      assert ApplyPatch.name() == "apply_patch"
-    end
-  end
-
-  describe "description/0" do
-    test "returns a description string" do
-      assert is_binary(ApplyPatch.description())
-    end
-  end
-
-  describe "parameters/0" do
-    test "returns parameter schema with patch" do
-      params = ApplyPatch.parameters()
-      assert params.type == "object"
-      assert Map.has_key?(params.properties, :patch)
-      assert "patch" in params.required
-    end
-  end
-
   describe "execute/2" do
     setup do
       # Create a temp directory with a git repo

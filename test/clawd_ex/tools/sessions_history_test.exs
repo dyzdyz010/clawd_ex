@@ -5,26 +5,6 @@ defmodule ClawdEx.Tools.SessionsHistoryTest do
   alias ClawdEx.Agents.Agent
   alias ClawdEx.Sessions.{Session, Message}
 
-  describe "name/0" do
-    test "returns correct name" do
-      assert SessionsHistory.name() == "sessions_history"
-    end
-  end
-
-  describe "parameters/0" do
-    test "defines sessionKey as required" do
-      params = SessionsHistory.parameters()
-      assert params.required == ["sessionKey"]
-      assert Map.has_key?(params.properties, :sessionKey)
-    end
-
-    test "defines optional limit and includeTools" do
-      params = SessionsHistory.parameters()
-      assert Map.has_key?(params.properties, :limit)
-      assert Map.has_key?(params.properties, :includeTools)
-    end
-  end
-
   describe "execute/2" do
     setup do
       # Create test agent

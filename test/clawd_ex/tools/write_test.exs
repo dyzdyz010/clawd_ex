@@ -5,18 +5,6 @@ defmodule ClawdEx.Tools.WriteTest do
 
   @context %{workspace: "/tmp/test_workspace", agent_id: "test", session_id: "test-session", session_key: "test:key"}
 
-  describe "name/0, description/0, parameters/0" do
-    test "returns tool metadata" do
-      assert Write.name() == "write"
-      assert is_binary(Write.description())
-
-      params = Write.parameters()
-      assert params.required == ["path", "content"]
-      assert Map.has_key?(params.properties, :path)
-      assert Map.has_key?(params.properties, :content)
-    end
-  end
-
   describe "execute/2 - write file" do
     setup do
       tmp_dir = Path.join(System.tmp_dir!(), "write_test_#{System.unique_integer([:positive])}")

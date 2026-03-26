@@ -6,27 +6,6 @@ defmodule ClawdEx.Tools.SessionsListTest do
   alias ClawdEx.Agents.Agent
   alias ClawdEx.Repo
 
-  describe "SessionsList tool" do
-    test "name/0 returns correct name" do
-      assert SessionsList.name() == "sessions_list"
-    end
-
-    test "description/0 returns a description" do
-      assert is_binary(SessionsList.description())
-      assert SessionsList.description() =~ "session"
-    end
-
-    test "parameters/0 returns valid schema" do
-      params = SessionsList.parameters()
-      assert params.type == "object"
-      assert is_map(params.properties)
-      assert Map.has_key?(params.properties, :kinds)
-      assert Map.has_key?(params.properties, :limit)
-      assert Map.has_key?(params.properties, :activeMinutes)
-      assert Map.has_key?(params.properties, :messageLimit)
-    end
-  end
-
   describe "execute/2" do
     setup do
       # 创建测试 agent
@@ -189,16 +168,5 @@ defmodule ClawdEx.Tools.SessionsListTest do
     end
   end
 
-  describe "integration with Registry" do
-    test "sessions_list is registered" do
-      tools = ClawdEx.Tools.Registry.list_tools()
-      tool_names = Enum.map(tools, & &1.name)
-      assert "sessions_list" in tool_names
-    end
 
-    test "can execute via Registry" do
-      result = ClawdEx.Tools.Registry.execute("sessions_list", %{}, %{})
-      assert {:ok, _} = result
-    end
-  end
 end

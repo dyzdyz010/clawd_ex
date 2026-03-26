@@ -235,14 +235,18 @@ defmodule ClawdEx.Tools.SessionsLabelCleanupTest do
   # ============================================================================
 
   describe "cleanup and label parameter schema" do
-    test "sessions_spawn includes cleanup and label in parameters" do
+    test "all tools include cleanup/label in parameters with correct defaults" do
+      # Spawn parameters
       params = SessionsSpawn.parameters()
       assert params.properties[:cleanup].type == "string"
       assert params.properties[:cleanup].enum == ["delete", "keep"]
       assert params.properties[:label].type == "string"
-    end
 
-    test "cleanup defaults to keep when not provided" do
+      # List and Send parameters
+      assert Map.has_key?(SessionsList.parameters().properties, :label)
+      assert Map.has_key?(SessionsSend.parameters()[:properties], :label)
+
+      # Verify cleanup defaults to keep
       {:ok, agent} =
         %Agent{}
         |> Agent.changeset(%{name: "cleanup-default-#{System.unique_integer()}"})
@@ -258,14 +262,6 @@ defmodule ClawdEx.Tools.SessionsLabelCleanupTest do
       assert session.metadata["cleanup"] == "keep"
 
       SessionManager.stop_session(result.childSessionKey)
-    end
-
-    test "sessions_list and sessions_send include label in parameters" do
-      list_params = SessionsList.parameters()
-      assert Map.has_key?(list_params.properties, :label)
-
-      send_params = SessionsSend.parameters()
-      assert Map.has_key?(send_params[:properties], :label)
     end
   end
 end
