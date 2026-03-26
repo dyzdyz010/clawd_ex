@@ -52,6 +52,9 @@ defmodule ClawdEx.Agent.AutoStarter do
 
   @impl true
   def handle_info(:auto_start, state) do
+    # Sync agent definitions from priv/agents.json → DB before starting sessions
+    ClawdEx.Agents.Seeder.sync!()
+
     started = start_auto_agents()
     now = System.monotonic_time(:second)
 
