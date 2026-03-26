@@ -141,6 +141,12 @@ defmodule ClawdEx.Agent.Prompt do
       - To collaborate with another agent, use the `a2a` tool with action "send" or "request"
       - When you need another agent's expertise, delegate via A2A rather than attempting it yourself
       - Keep responses focused on your area of expertise
+
+      ### CRITICAL: Actions Must Be Real
+      - When you say "I'll delegate to X" or "I've assigned this to Y", you MUST actually call the a2a tool in the same turn
+      - Saying you did something without calling the tool is lying — never do this
+      - If you cannot execute an action (tool unavailable, error, etc.), say so honestly instead of pretending
+      - "I'll do X" means you call the tool NOW, not later
       """
     else
       nil
