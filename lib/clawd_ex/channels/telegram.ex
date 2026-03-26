@@ -275,8 +275,25 @@ defmodule ClawdEx.Channels.Telegram do
   @impl ClawdEx.Channels.Channel
   def handle_message(message) do
     chat_id = message.channel_id
-    session_key = "telegram:#{chat_id}"
     reply_to = message.id
+
+    # Extract group/topic routing info from metadata
+    is_group = message.metadata[:is_group] || false
+    is_private = !is_group
+    topic_id = message.metadata[:topic_id]
+
+    # Resolve agent and build session key
+    {session_key, agent_id} =
+      if is_private do
+        # Private chat: keep legacy format, resolve via DM pairing
+        user_id = message.metadata[:sender_id]
+        agent_id = resolve_agent_for_dm(user_id)
+        {"telegram:#{chat_id}", agent_id}
+      else
+        # Group/topic: resolve agent from message content and topic config
+        agent_id = resolve_agent_for_group(message.content, chat_id, topic_id)
+        {build_group_session_key(chat_id, topic_id, agent_id), agent_id}
+      end
 
     # 立即发送 typing 状态 — 在任何 session 初始化之前
     stop_typing = start_typing_indicator(chat_id)
@@ -284,7 +301,7 @@ defmodule ClawdEx.Channels.Telegram do
     # 启动或获取会话
     case SessionManager.start_session(
            session_key: session_key,
-           agent_id: nil,
+           agent_id: agent_id,
            channel: "telegram"
          ) do
       {:ok, _pid} ->
@@ -307,6 +324,10 @@ defmodule ClawdEx.Channels.Telegram do
       Phoenix.PubSub.subscribe(ClawdEx.PubSub, "agent:#{session_id}")
     end
 
+    # Build send opts for intermediate messages (segments, tool status)
+    intermediate_send_opts = [reply_to: reply_to]
+    intermediate_send_opts = if topic_id, do: Keyword.put(intermediate_send_opts, :message_thread_id, topic_id), else: intermediate_send_opts
+
     # 异步发送消息 — 不再同步等待整个 run 完成
     parent = self()
     ref = make_ref()
@@ -320,7 +341,7 @@ defmodule ClawdEx.Channels.Telegram do
       end)
 
     # 接收循环：处理渐进式输出段和最终结果
-    final_result = receive_loop(chat_id, reply_to, ref, nil)
+    final_result = receive_loop(chat_id, intermediate_send_opts, ref, nil)
 
     # 清理
     stop_typing.()
@@ -331,29 +352,35 @@ defmodule ClawdEx.Channels.Telegram do
       Phoenix.PubSub.unsubscribe(ClawdEx.PubSub, "agent:#{session_id}")
     end
 
+    # Build response opts with thread_id for topic replies
+    response_opts = [reply_to: reply_to]
+    response_opts = if topic_id, do: Keyword.put(response_opts, :message_thread_id, topic_id), else: response_opts
+
     case final_result do
       {:ok, response} when is_binary(response) ->
         # Parse reply tags from response
         {response, effective_reply_to} = parse_reply_tags(response, reply_to)
+        response_opts = Keyword.put(response_opts, :reply_to, effective_reply_to)
 
         Logger.info(
           "Sending Telegram final response to #{chat_id}: #{String.slice(response, 0, 50)}..."
         )
 
-        send_response_with_media(chat_id, response, reply_to: effective_reply_to)
+        send_response_with_media(chat_id, response, response_opts)
         :ok
 
       {:error, reason} ->
         Logger.error("Session error: #{inspect(reason)}")
         error_msg = ClawdEx.Agent.Loop.friendly_error_message(reason)
-        send_message(chat_id, "⚠️ #{error_msg}")
+        send_message(chat_id, "⚠️ #{error_msg}", response_opts)
         {:error, reason}
     end
   end
 
   # 接收循环：处理渐进式输出段和等待最终结果
   # sent_tools_msg: 是否已发送工具执行消息（避免重复发送）
-  defp receive_loop(chat_id, reply_to, ref, state) do
+  # send_opts: keyword list with :reply_to and optionally :message_thread_id for topic routing
+  defp receive_loop(chat_id, send_opts, ref, state) do
     state = state || %{sent_segment: false, sent_tools_msg: false}
 
     receive do
@@ -361,23 +388,23 @@ defmodule ClawdEx.Channels.Telegram do
       {:output_segment, _run_id, content, metadata} when content != "" ->
         type = Map.get(metadata, :type, :intermediate)
         Logger.info("Sending Telegram output segment (#{type}): #{String.slice(content, 0, 50)}...")
-        send_response_with_media(chat_id, content, reply_to: reply_to)
-        receive_loop(chat_id, reply_to, ref, %{state | sent_segment: true})
+        send_response_with_media(chat_id, content, send_opts)
+        receive_loop(chat_id, send_opts, ref, %{state | sent_segment: true})
 
       # OutputManager: 运行完成信号
       {:output_complete, _run_id, _final_content, _metadata} ->
         # Don't send here — the final result comes via {:result, ref, ...}
         # Just continue waiting for it
-        receive_loop(chat_id, reply_to, ref, state)
+        receive_loop(chat_id, send_opts, ref, state)
 
       # Legacy: 收到消息段（工具调用前的文本）— 保留兼容性
       {:agent_segment, _run_id, content, %{continuing: true}} when content != "" ->
         # Only send if not already handled by output_segment
         unless state.sent_segment do
           Logger.info("Sending Telegram segment: #{String.slice(content, 0, 50)}...")
-          send_response_with_media(chat_id, content, reply_to: reply_to)
+          send_response_with_media(chat_id, content, send_opts)
         end
-        receive_loop(chat_id, reply_to, ref, %{state | sent_segment: true})
+        receive_loop(chat_id, send_opts, ref, %{state | sent_segment: true})
 
       # 收到工具开始执行事件
       {:agent_status, _run_id, :tools_start, %{tools: tools, count: count}}
@@ -386,17 +413,17 @@ defmodule ClawdEx.Channels.Telegram do
         tool_names = format_tool_names(tools)
         msg = "🔧 正在执行 #{count} 个工具：#{tool_names}..."
         Logger.info("Sending Telegram tools status: #{msg}")
-        send_message(chat_id, msg)
-        receive_loop(chat_id, reply_to, ref, %{state | sent_tools_msg: true})
+        send_message(chat_id, msg, send_opts)
+        receive_loop(chat_id, send_opts, ref, %{state | sent_tools_msg: true})
 
       # 收到工具执行完成事件 - 发送执行结果摘要
       {:agent_status, _run_id, :tools_done, %{tools: tools, iteration: iteration}} ->
         # 格式化工具执行结果
         msg = format_tools_done_message(tools, iteration)
         Logger.info("Sending Telegram tools done: #{String.slice(msg, 0, 50)}...")
-        send_message(chat_id, msg)
+        send_message(chat_id, msg, send_opts)
         # 重置状态，准备接收下一轮
-        receive_loop(chat_id, reply_to, ref, %{state | sent_tools_msg: false, sent_segment: false})
+        receive_loop(chat_id, send_opts, ref, %{state | sent_tools_msg: false, sent_segment: false})
 
       # 收到最终结果
       {:result, ^ref, result} ->
@@ -404,13 +431,13 @@ defmodule ClawdEx.Channels.Telegram do
 
       # 忽略其他 agent 事件
       {:agent_chunk, _run_id, _chunk} ->
-        receive_loop(chat_id, reply_to, ref, state)
+        receive_loop(chat_id, send_opts, ref, state)
 
       {:agent_status, _run_id, _status, _details} ->
-        receive_loop(chat_id, reply_to, ref, state)
+        receive_loop(chat_id, send_opts, ref, state)
 
       {:agent_segment, _run_id, _content, _opts} ->
-        receive_loop(chat_id, reply_to, ref, state)
+        receive_loop(chat_id, send_opts, ref, state)
     after
       # 10 分钟超时
       600_000 ->
@@ -744,17 +771,26 @@ defmodule ClawdEx.Channels.Telegram do
 
       # --- Slash command handling ---
       ClawdEx.Commands.Handler.command?(text) ->
-        session_key = "telegram:#{chat_id}"
+        topic_id = message["message_thread_id"]
+
+        {session_key, agent_id} =
+          if is_private do
+            {"telegram:#{chat_id}", resolve_agent_for_dm(user_id)}
+          else
+            aid = resolve_agent_for_group(text, chat_id, topic_id)
+            {build_group_session_key(chat_id, topic_id, aid), aid}
+          end
 
         context = %{
           session_key: session_key,
           chat_id: chat_id,
           user_id: user_id,
-          agent_id: resolve_agent_for_user(user_id, is_private)
+          agent_id: agent_id
         }
 
         {:ok, response} = ClawdEx.Commands.Handler.handle(text, context)
-        send_message(chat_id, response)
+        send_opts = if topic_id, do: [message_thread_id: topic_id], else: []
+        send_message(chat_id, response, send_opts)
 
       # --- Normal message processing ---
       true ->
@@ -777,9 +813,24 @@ defmodule ClawdEx.Channels.Telegram do
 
   defp process_update(_), do: :ok
 
-  # --- Agent resolution for commands ---
+  # ============================================================================
+  # Session Key Building & Agent Resolution
+  # ============================================================================
 
-  defp resolve_agent_for_user(user_id, true = _is_private) do
+  @doc false
+  # Build session key for group chats (with optional topic isolation)
+  # Private chats use the legacy format "telegram:{chat_id}" (handled separately)
+  def build_group_session_key(chat_id, nil = _topic_id, agent_id) do
+    "telegram:#{chat_id}:agent:#{agent_id}"
+  end
+
+  def build_group_session_key(chat_id, topic_id, agent_id) do
+    "telegram:#{chat_id}:topic:#{topic_id}:agent:#{agent_id}"
+  end
+
+  @doc false
+  # Resolve agent for DM (private chat) via DM pairing
+  def resolve_agent_for_dm(user_id) do
     if dm_pairing_available?() do
       case DmPairing.Server.lookup(user_id, "telegram") do
         {:ok, agent_id} -> agent_id
@@ -790,7 +841,125 @@ defmodule ClawdEx.Channels.Telegram do
     end
   end
 
-  defp resolve_agent_for_user(_user_id, _is_group), do: nil
+  @doc false
+  # Resolve which agent should handle a group/topic message.
+  #
+  # Priority:
+  # 1. Message starts with "@AgentName" → exact match
+  # 2. Message text contains an agent name → fuzzy match (first match wins)
+  # 3. Topic has a default agent configured via agent.config["default_topics"]
+  # 4. Fallback to default agent (first active agent or id=1)
+  def resolve_agent_for_group(content, chat_id, topic_id) do
+    agents = list_active_agents()
+
+    # 1. Try @mention at start of message (case-insensitive)
+    case match_agent_mention(content, agents) do
+      {:ok, agent_id} -> agent_id
+      :no_match ->
+        # 2. Try fuzzy name match anywhere in content
+        case match_agent_in_text(content, agents) do
+          {:ok, agent_id} -> agent_id
+          :no_match ->
+            # 3. Try topic default agent
+            case find_topic_default_agent(chat_id, topic_id, agents) do
+              {:ok, agent_id} -> agent_id
+              :no_match ->
+                # 4. Fallback to default agent
+                get_default_agent_id(agents)
+            end
+        end
+    end
+  end
+
+  # Match "@AgentName" at the start of message text
+  defp match_agent_mention(content, agents) when is_binary(content) do
+    trimmed = String.trim(content)
+
+    Enum.find_value(agents, :no_match, fn agent ->
+      name = agent.name
+      # Check for "@Name" or "@ Name" at start (case-insensitive)
+      pattern = ~r/^@\s*#{Regex.escape(name)}\b/iu
+
+      if Regex.match?(pattern, trimmed) do
+        {:ok, agent.id}
+      end
+    end)
+  end
+
+  defp match_agent_mention(_, _agents), do: :no_match
+
+  # Match agent name anywhere in text (case-insensitive, word boundary)
+  defp match_agent_in_text(content, agents) when is_binary(content) do
+    Enum.find_value(agents, :no_match, fn agent ->
+      name = agent.name
+      # Word boundary match, case-insensitive
+      pattern = ~r/\b#{Regex.escape(name)}\b/iu
+
+      if Regex.match?(pattern, content) do
+        {:ok, agent.id}
+      end
+    end)
+  end
+
+  defp match_agent_in_text(_, _agents), do: :no_match
+
+  # Find an agent configured as the default for a specific topic
+  # Looks in agent.config["default_topics"]["telegram:{chat_id}"] for topic_id
+  defp find_topic_default_agent(_chat_id, nil, _agents), do: :no_match
+
+  defp find_topic_default_agent(chat_id, topic_id, agents) do
+    topic_key = "telegram:#{chat_id}"
+    topic_id_int = to_integer(topic_id)
+
+    Enum.find_value(agents, :no_match, fn agent ->
+      topics_map = get_in(agent.config || %{}, ["default_topics"]) || %{}
+      topic_ids = Map.get(topics_map, topic_key, [])
+
+      if topic_id_int in Enum.map(topic_ids, &to_integer/1) do
+        {:ok, agent.id}
+      end
+    end)
+  end
+
+  defp to_integer(v) when is_integer(v), do: v
+  defp to_integer(v) when is_binary(v), do: String.to_integer(v)
+  defp to_integer(v), do: v
+
+  # Get the default agent (first active agent, or create one)
+  defp get_default_agent_id([]), do: get_or_create_default_agent_id()
+  defp get_default_agent_id([first | _]), do: first.id
+
+  defp list_active_agents do
+    import Ecto.Query
+
+    ClawdEx.Agents.Agent
+    |> where([a], a.active == true)
+    |> order_by([a], asc: a.id)
+    |> ClawdEx.Repo.all()
+  rescue
+    _ -> []
+  end
+
+  defp get_or_create_default_agent_id do
+    alias ClawdEx.Agents.Agent
+
+    case ClawdEx.Repo.get_by(Agent, name: "default") do
+      nil ->
+        case %Agent{} |> Agent.changeset(%{name: "default"}) |> ClawdEx.Repo.insert() do
+          {:ok, agent} -> agent.id
+          {:error, _} ->
+            case ClawdEx.Repo.get_by(Agent, name: "default") do
+              nil -> nil
+              agent -> agent.id
+            end
+        end
+
+      agent ->
+        agent.id
+    end
+  rescue
+    _ -> nil
+  end
 
   # --- Bot command menu registration ---
 
