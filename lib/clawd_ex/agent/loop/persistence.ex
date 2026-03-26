@@ -13,9 +13,11 @@ defmodule ClawdEx.Agent.Loop.Persistence do
   @doc "Load recent session messages (up to 100, ordered ascending)"
   def load_session_messages(session_id) do
     # Subquery: get the latest 100 messages (desc), then re-order ascending
+    # Exclude "system" role — Anthropic Messages API does not allow system messages
+    # in the messages array; system prompt is passed as a top-level parameter.
     latest =
       Message
-      |> where([m], m.session_id == ^session_id)
+      |> where([m], m.session_id == ^session_id and m.role != "system")
       |> order_by([m], desc: m.inserted_at)
       |> limit(100)
 
