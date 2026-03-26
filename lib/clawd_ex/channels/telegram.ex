@@ -345,7 +345,8 @@ defmodule ClawdEx.Channels.Telegram do
 
       {:error, reason} ->
         Logger.error("Session error: #{inspect(reason)}")
-        send_message(chat_id, "抱歉，处理消息时出错了。")
+        error_msg = ClawdEx.Agent.Loop.friendly_error_message(reason)
+        send_message(chat_id, "⚠️ #{error_msg}")
         {:error, reason}
     end
   end

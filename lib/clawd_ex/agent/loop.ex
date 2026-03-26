@@ -47,7 +47,10 @@ defmodule ClawdEx.Agent.Loop do
     :a2a_message_id,
     :task_ref,
     :inbound_metadata,
-    tool_iterations: 0
+    :retry_timer_ref,
+    tool_iterations: 0,
+    retry_count: 0,
+    max_retries: 3
   ]
 
   @type state :: :idle | :preparing | :inferring | :executing_tools | :streaming
@@ -123,6 +126,9 @@ defmodule ClawdEx.Agent.Loop do
     # 取消超时定时器（如果存在）
     if data.timeout_ref, do: Process.cancel_timer(data.timeout_ref)
 
+    # Cancel retry timer if pending
+    if data.retry_timer_ref, do: Process.cancel_timer(data.retry_timer_ref)
+
     # 清理状态，重置 tool_iterations（每次 run 重新计数）
     new_data = %{
       data
@@ -135,7 +141,9 @@ defmodule ClawdEx.Agent.Loop do
         tool_iterations: 0,
         output_manager_pid: nil,
         a2a_message_id: nil,
-        task_ref: nil
+        task_ref: nil,
+        retry_count: 0,
+        retry_timer_ref: nil
     }
 
     # Check A2A mailbox for pending messages
@@ -199,6 +207,12 @@ defmodule ClawdEx.Agent.Loop do
 
   # Ignore stale timeout messages
   def idle(:info, {:run_timeout, _run_id}, _data) do
+    :keep_state_and_data
+  end
+
+  # Ignore stale retry timers
+  def idle(:info, {:retry_ai, _run_id}, _data) do
+    Logger.debug("Ignoring stale :retry_ai message in idle state")
     :keep_state_and_data
   end
 
@@ -396,13 +410,55 @@ defmodule ClawdEx.Agent.Loop do
 
   def inferring(:info, {:ai_error, reason}, data) do
     Logger.error("AI error in run #{data.run_id}: #{inspect(reason)}")
-    reply_error(data.reply_to, reason, data)
-    {:next_state, :idle, data}
+
+    if retryable?(reason) and data.retry_count < data.max_retries do
+      new_retry = data.retry_count + 1
+      delay_ms = retry_delay_ms(new_retry)
+
+      Logger.warning(
+        "AI error is retryable, scheduling retry #{new_retry}/#{data.max_retries} " <>
+          "in #{delay_ms}ms for run #{data.run_id}"
+      )
+
+      # Broadcast retry status
+      Broadcaster.broadcast_status(data, :retrying, %{
+        retry: new_retry,
+        max_retries: data.max_retries,
+        delay_ms: delay_ms,
+        reason: inspect(reason)
+      })
+
+      # Schedule retry after exponential backoff
+      timer_ref = Process.send_after(self(), {:retry_ai, data.run_id}, delay_ms)
+
+      {:keep_state, %{data | retry_count: new_retry, retry_timer_ref: timer_ref, stream_buffer: ""}}
+    else
+      if data.retry_count >= data.max_retries do
+        Logger.error(
+          "AI error in run #{data.run_id}: exhausted #{data.max_retries} retries, giving up"
+        )
+      end
+
+      reply_error(data.reply_to, {:ai_error, reason, data.retry_count}, data)
+      {:next_state, :idle, data}
+    end
+  end
+
+  # Handle retry timer firing — re-invoke AI call
+  def inferring(:info, {:retry_ai, run_id}, %{run_id: run_id} = data) do
+    Logger.info("Retrying AI call (attempt #{data.retry_count}/#{data.max_retries}) for run #{run_id}")
+    {:keep_state, %{data | retry_timer_ref: nil}, [{:next_event, :internal, :call_ai}]}
+  end
+
+  # Ignore stale retry timers from old runs
+  def inferring(:info, {:retry_ai, _old_run_id}, _data) do
+    :keep_state_and_data
   end
 
   def inferring(:cast, :stop, data) do
     Logger.info("Stopping run #{data.run_id}")
     cancel_running_task(data)
+    if data.retry_timer_ref, do: Process.cancel_timer(data.retry_timer_ref)
     reply_error(data.reply_to, :cancelled, data)
     {:next_state, :idle, data}
   end
@@ -414,6 +470,7 @@ defmodule ClawdEx.Agent.Loop do
   def inferring(:info, {:run_timeout, run_id}, %{run_id: run_id} = data) do
     Logger.warning("Run #{run_id} timed out during inferring")
     cancel_running_task(data)
+    if data.retry_timer_ref, do: Process.cancel_timer(data.retry_timer_ref)
     reply_error(data.reply_to, :timeout, data)
     {:next_state, :idle, data}
   end
@@ -568,9 +625,119 @@ defmodule ClawdEx.Agent.Loop do
     :keep_state_and_data
   end
 
+  # Ignore stale retry timers during tool execution
+  def executing_tools(:info, {:retry_ai, _run_id}, _data) do
+    :keep_state_and_data
+  end
+
   # ============================================================================
   # Private Functions
   # ============================================================================
+
+  # ============================================================================
+  # Retry Logic
+  # ============================================================================
+
+  @doc false
+  # Determines if an AI error is retryable based on the error type.
+  # Retryable: overloaded, rate limits, server errors, timeouts, connection errors
+  # Not retryable: bad request, auth errors, content policy violations
+  def retryable?(:overloaded), do: true
+  def retryable?(:timeout), do: true
+  def retryable?(:closed), do: true
+  def retryable?(:econnrefused), do: true
+  def retryable?(:econnreset), do: true
+
+  # HTTP status-based errors
+  def retryable?({:api_error, status, _body}) when status in [429, 500, 502, 503, 529], do: true
+  def retryable?({:api_error, 400, _body}), do: false
+  def retryable?({:api_error, 401, _body}), do: false
+  def retryable?({:api_error, 403, _body}), do: false
+
+  # String-based error matching
+  def retryable?(reason) when is_binary(reason) do
+    reason_lower = String.downcase(reason)
+
+    cond do
+      String.contains?(reason_lower, "overloaded") -> true
+      String.contains?(reason_lower, "rate limit") -> true
+      String.contains?(reason_lower, "529") -> true
+      String.contains?(reason_lower, "timeout") -> true
+      String.contains?(reason_lower, "econnrefused") -> true
+      String.contains?(reason_lower, "content policy") -> false
+      String.contains?(reason_lower, "authentication") -> false
+      String.contains?(reason_lower, "unauthorized") -> false
+      String.contains?(reason_lower, "invalid api key") -> false
+      # Default for other string errors: not retryable
+      true -> false
+    end
+  end
+
+  # Tuple errors with string descriptions
+  def retryable?({:api_error, _status, body}) when is_binary(body) do
+    retryable?(body)
+  end
+
+  # Catch-all: not retryable
+  def retryable?(_), do: false
+
+  # Exponential backoff: 2s, 4s, 8s for attempts 1, 2, 3
+  defp retry_delay_ms(attempt) when attempt > 0 do
+    trunc(:math.pow(2, attempt) * 1000)
+  end
+
+  @doc """
+  Returns a user-friendly error message based on the AI error type.
+  Used by channels (Telegram, etc.) to display appropriate messages.
+  """
+  def friendly_error_message({:ai_error, reason, retry_count}) when retry_count > 0 do
+    base = friendly_error_reason(reason)
+    "#{base}（已自动重试 #{retry_count} 次）"
+  end
+
+  def friendly_error_message({:ai_error, reason, _retry_count}) do
+    friendly_error_reason(reason)
+  end
+
+  def friendly_error_message(reason), do: friendly_error_reason(reason)
+
+  defp friendly_error_reason(:timeout), do: "AI 响应超时，请稍后重试或简化问题"
+  defp friendly_error_reason(:overloaded), do: "AI 服务繁忙，请稍后重试"
+
+  defp friendly_error_reason({:api_error, 429, _}),
+    do: "AI 请求频率过高，请稍后重试"
+
+  defp friendly_error_reason({:api_error, status, _}) when status in [500, 502, 503, 529],
+    do: "AI 服务暂时不可用，请稍后重试"
+
+  defp friendly_error_reason({:api_error, 401, _}),
+    do: "AI 认证错误，请联系管理员"
+
+  defp friendly_error_reason({:api_error, 403, _}),
+    do: "AI 访问被拒绝，请联系管理员"
+
+  defp friendly_error_reason({:api_error, 400, body}) when is_binary(body) do
+    if String.contains?(String.downcase(body), "content policy") do
+      "消息内容可能违反了 AI 使用政策，请调整后重试"
+    else
+      "AI 请求格式错误，请重试"
+    end
+  end
+
+  defp friendly_error_reason(reason) when is_binary(reason) do
+    reason_lower = String.downcase(reason)
+
+    cond do
+      String.contains?(reason_lower, "overloaded") -> "AI 服务繁忙，请稍后重试"
+      String.contains?(reason_lower, "timeout") -> "AI 响应超时，请稍后重试或简化问题"
+      String.contains?(reason_lower, "rate limit") -> "AI 请求频率过高，请稍后重试"
+      String.contains?(reason_lower, "authentication") -> "AI 认证错误，请联系管理员"
+      String.contains?(reason_lower, "unauthorized") -> "AI 认证错误，请联系管理员"
+      true -> "AI 处理出错，请稍后重试"
+    end
+  end
+
+  defp friendly_error_reason(_reason), do: "AI 处理出错，请稍后重试"
 
   defp cancel_running_task(%{task_ref: pid}) when is_pid(pid) do
     Process.exit(pid, :shutdown)
