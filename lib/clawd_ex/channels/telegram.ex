@@ -380,16 +380,25 @@ defmodule ClawdEx.Channels.Telegram do
   # 接收循环：处理渐进式输出段和等待最终结果
   # sent_tools_msg: 是否已发送工具执行消息（避免重复发送）
   # send_opts: keyword list with :reply_to and optionally :message_thread_id for topic routing
+  # verbose_tools: 是否显示工具调用状态（默认 false，减少刷屏）
   defp receive_loop(chat_id, send_opts, ref, state) do
     state = state || %{sent_segment: false, sent_tools_msg: false}
+    verbose_tools = Application.get_env(:clawd_ex, :verbose_tool_output, false)
 
     receive do
       # OutputManager: 收到渐进式输出段（优先处理）
       {:output_segment, _run_id, content, metadata} when content != "" ->
         type = Map.get(metadata, :type, :intermediate)
-        Logger.info("Sending Telegram output segment (#{type}): #{String.slice(content, 0, 50)}...")
-        send_response_with_media(chat_id, content, send_opts)
-        receive_loop(chat_id, send_opts, ref, %{state | sent_segment: true})
+
+        # progress 类型（Round N: ✓ Bash...）只在 verbose 模式发送
+        if type == :progress and not verbose_tools do
+          Logger.debug("Skipping Telegram progress segment (verbose_tools=false)")
+          receive_loop(chat_id, send_opts, ref, state)
+        else
+          Logger.info("Sending Telegram output segment (#{type}): #{String.slice(content, 0, 50)}...")
+          send_response_with_media(chat_id, content, send_opts)
+          receive_loop(chat_id, send_opts, ref, %{state | sent_segment: true})
+        end
 
       # OutputManager: 运行完成信号
       {:output_complete, _run_id, _final_content, _metadata} ->
@@ -409,19 +418,21 @@ defmodule ClawdEx.Channels.Telegram do
       # 收到工具开始执行事件
       {:agent_status, _run_id, :tools_start, %{tools: tools, count: count}}
       when not state.sent_tools_msg and not state.sent_segment ->
-        # 只有在没有发送过 segment 时才发送工具状态
-        tool_names = format_tool_names(tools)
-        msg = "🔧 正在执行 #{count} 个工具：#{tool_names}..."
-        Logger.info("Sending Telegram tools status: #{msg}")
-        send_message(chat_id, msg, send_opts)
+        if verbose_tools do
+          tool_names = format_tool_names(tools)
+          msg = "🔧 正在执行 #{count} 个工具：#{tool_names}..."
+          Logger.info("Sending Telegram tools status: #{msg}")
+          send_message(chat_id, msg, send_opts)
+        end
         receive_loop(chat_id, send_opts, ref, %{state | sent_tools_msg: true})
 
       # 收到工具执行完成事件 - 发送执行结果摘要
       {:agent_status, _run_id, :tools_done, %{tools: tools, iteration: iteration}} ->
-        # 格式化工具执行结果
-        msg = format_tools_done_message(tools, iteration)
-        Logger.info("Sending Telegram tools done: #{String.slice(msg, 0, 50)}...")
-        send_message(chat_id, msg, send_opts)
+        if verbose_tools do
+          msg = format_tools_done_message(tools, iteration)
+          Logger.info("Sending Telegram tools done: #{String.slice(msg, 0, 50)}...")
+          send_message(chat_id, msg, send_opts)
+        end
         # 重置状态，准备接收下一轮
         receive_loop(chat_id, send_opts, ref, %{state | sent_tools_msg: false, sent_segment: false})
 
