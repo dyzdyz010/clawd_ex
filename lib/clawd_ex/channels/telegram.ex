@@ -917,7 +917,6 @@ defmodule ClawdEx.Channels.Telegram do
 
   defp find_topic_default_agent(chat_id, topic_id, agents) do
     topic_key = "telegram:#{chat_id}"
-    topic_id_str = to_string(topic_id)
     topic_id_int = to_integer(topic_id)
 
     Enum.find_value(agents, :no_match, fn agent ->
