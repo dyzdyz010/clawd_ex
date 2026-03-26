@@ -917,13 +917,25 @@ defmodule ClawdEx.Channels.Telegram do
 
   defp find_topic_default_agent(chat_id, topic_id, agents) do
     topic_key = "telegram:#{chat_id}"
+    topic_id_str = to_string(topic_id)
     topic_id_int = to_integer(topic_id)
 
     Enum.find_value(agents, :no_match, fn agent ->
-      topics_map = get_in(agent.config || %{}, ["default_topics"]) || %{}
-      topic_ids = Map.get(topics_map, topic_key, [])
+      default_topics = get_in(agent.config || %{}, ["default_topics"])
 
-      if topic_id_int in Enum.map(topic_ids, &to_integer/1) do
+      # Support two formats:
+      # 1. Map: {"telegram:-100xxx": [144, 145]}  — per-chat topic list
+      # 2. List: [144, "144"]                      — simple topic list (matches any chat)
+      topic_ids =
+        case default_topics do
+          map when is_map(map) -> Map.get(map, topic_key, [])
+          list when is_list(list) -> list
+          _ -> []
+        end
+
+      ids_as_int = Enum.map(topic_ids, &to_integer/1)
+
+      if topic_id_int in ids_as_int do
         {:ok, agent.id}
       end
     end)
