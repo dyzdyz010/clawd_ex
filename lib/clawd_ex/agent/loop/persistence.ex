@@ -26,21 +26,11 @@ defmodule ClawdEx.Agent.Loop.Persistence do
     |> order_by([m], asc: m.inserted_at)
     |> Repo.all()
     |> Enum.map(fn m ->
-      base = %{role: to_string(m.role), content: m.content}
-
-      # Add tool call fields if present
-      base =
-        if m.tool_calls && m.tool_calls != [] do
-          Map.put(base, :tool_calls, m.tool_calls)
-        else
-          base
-        end
-
-      if m.tool_call_id do
-        Map.put(base, :tool_call_id, m.tool_call_id)
-      else
-        base
-      end
+      # Only restore role + content for history replay.
+      # Do NOT restore tool_calls or tool_call_id — these create orphaned
+      # tool_use blocks without matching tool_results, causing Anthropic 400 errors.
+      # Tool interactions are ephemeral within a single run, not replayed across sessions.
+      %{role: to_string(m.role), content: m.content || ""}
     end)
   end
 
