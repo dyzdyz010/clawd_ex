@@ -25,7 +25,7 @@ defmodule ClawdEx.Agent.Loop do
 
   @doc "Get the maximum tool iterations limit (configurable via :clawd_ex, :max_tool_iterations)"
   def max_tool_iterations do
-    Application.get_env(:clawd_ex, :max_tool_iterations, 50)
+    Application.get_env(:clawd_ex, :max_tool_iterations, 200)
   end
 
   # State data structure
@@ -57,7 +57,7 @@ defmodule ClawdEx.Agent.Loop do
   @type data :: %__MODULE__{}
 
   # 10 minutes
-  @default_timeout_ms 900_000
+  @default_timeout_ms 1_800_000
 
   # ============================================================================
   # Client API
