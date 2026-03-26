@@ -17,7 +17,7 @@ defmodule ClawdEx.Agent.Loop.Persistence do
     # in the messages array; system prompt is passed as a top-level parameter.
     latest =
       Message
-      |> where([m], m.session_id == ^session_id and m.role != "system")
+      |> where([m], m.session_id == ^session_id and m.role != :system)
       |> order_by([m], desc: m.inserted_at)
       |> limit(100)
 
