@@ -27,6 +27,7 @@ defmodule ClawdEx.Sessions.SessionWorker do
     :session_id,
     :agent_id,
     :channel,
+    :channel_config,
     :loop_pid,
     :config,
     :heartbeat_ref,
@@ -119,6 +120,7 @@ defmodule ClawdEx.Sessions.SessionWorker do
     session_key = Keyword.fetch!(opts, :session_key)
     agent_id = Keyword.get(opts, :agent_id)
     channel = Keyword.get(opts, :channel, "telegram")
+    channel_config = Keyword.get(opts, :channel_config)
 
     # 从数据库加载或创建会话（graceful handling for DB unavailability）
     try do
@@ -151,6 +153,7 @@ defmodule ClawdEx.Sessions.SessionWorker do
         session_id: session.id,
         agent_id: session.agent_id,
         channel: channel,
+        channel_config: channel_config,
         loop_pid: loop_pid,
         config: config,
         started_at: System.monotonic_time(:second)
@@ -515,14 +518,9 @@ defmodule ClawdEx.Sessions.SessionWorker do
           if heartbeat_ok?(response) do
             Logger.debug("Heartbeat OK for #{session_key} — silent")
           else
-            # Non-OK response: broadcast to channel for delivery
+            # Non-OK response: deliver via channel if configured, else broadcast
             Logger.info("Heartbeat alert for #{session_key}: #{String.slice(response, 0, 100)}")
-
-            Phoenix.PubSub.broadcast(
-              ClawdEx.PubSub,
-              "session:#{session_key}",
-              {:heartbeat_alert, response}
-            )
+            deliver_heartbeat_alert(state, response)
           end
 
         {:error, reason} ->
@@ -558,6 +556,40 @@ defmodule ClawdEx.Sessions.SessionWorker do
       end
 
     heartbeat_content
+  end
+
+  defp deliver_heartbeat_alert(state, response) do
+    if state.channel != "system" and state.channel_config do
+      # Try channel-specific delivery
+      case ClawdEx.Channels.Registry.get(state.channel) do
+        %{module: module} ->
+          if function_exported?(module, :deliver_message, 3) do
+            case module.deliver_message(state.channel_config, response, []) do
+              {:ok, _} ->
+                Logger.info("Heartbeat alert delivered via #{state.channel}")
+
+              {:error, reason} ->
+                Logger.warning("Heartbeat channel delivery failed: #{inspect(reason)}, falling back to PubSub")
+                broadcast_heartbeat_alert(state, response)
+            end
+          else
+            broadcast_heartbeat_alert(state, response)
+          end
+
+        nil ->
+          broadcast_heartbeat_alert(state, response)
+      end
+    else
+      broadcast_heartbeat_alert(state, response)
+    end
+  end
+
+  defp broadcast_heartbeat_alert(state, response) do
+    Phoenix.PubSub.broadcast(
+      ClawdEx.PubSub,
+      "session:#{state.session_key}",
+      {:heartbeat_alert, response}
+    )
   end
 
   defp heartbeat_ok?(response) do

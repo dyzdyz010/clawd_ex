@@ -6,6 +6,7 @@ defmodule ClawdEx.Channels.TelegramRoutingTest do
 
   alias ClawdEx.Channels.Telegram
   alias ClawdEx.Agents.Agent
+  alias ClawdEx.Channels.ChannelBinding
 
   # ============================================================================
   # build_group_session_key/3
@@ -57,7 +58,7 @@ defmodule ClawdEx.Channels.TelegramRoutingTest do
         |> Agent.changeset(%{
           name: "CTO",
           active: true,
-          config: %{"default_topics" => %{"telegram:-100999" => [5, 8]}}
+          config: %{}
         })
         |> Repo.insert()
 
@@ -66,7 +67,7 @@ defmodule ClawdEx.Channels.TelegramRoutingTest do
         |> Agent.changeset(%{
           name: "Backend",
           active: true,
-          config: %{"default_topics" => %{"telegram:-100999" => [10]}}
+          config: %{}
         })
         |> Repo.insert()
 
@@ -78,6 +79,31 @@ defmodule ClawdEx.Channels.TelegramRoutingTest do
           config: %{}
         })
         |> Repo.insert()
+
+      # Create channel bindings for topic-based agent resolution
+      # CTO bound to topics 5 and 8 in chat -100999
+      for topic_id <- ["5", "8"] do
+        %ChannelBinding{}
+        |> ChannelBinding.changeset(%{
+          agent_id: cto.id,
+          channel: "telegram",
+          channel_config: %{"chat_id" => "-100999", "topic_id" => topic_id},
+          session_key: "telegram:-100999:topic:#{topic_id}:agent:#{cto.id}",
+          active: true
+        })
+        |> Repo.insert!()
+      end
+
+      # Backend bound to topic 10 in chat -100999
+      %ChannelBinding{}
+      |> ChannelBinding.changeset(%{
+        agent_id: backend.id,
+        channel: "telegram",
+        channel_config: %{"chat_id" => "-100999", "topic_id" => "10"},
+        session_key: "telegram:-100999:topic:10:agent:#{backend.id}",
+        active: true
+      })
+      |> Repo.insert!()
 
       %{cto: cto, backend: backend, designer: designer}
     end

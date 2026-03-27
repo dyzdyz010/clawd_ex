@@ -15,6 +15,33 @@ defmodule ClawdEx.Channels.Telegram do
 
   defstruct [:token, :bot_info, :offset, :running]
 
+  # ============================================================================
+  # Channel Binding Callbacks
+  # ============================================================================
+
+  @doc """
+  Build a deterministic session key for a Telegram channel binding.
+  """
+  @impl ClawdEx.Channels.Channel
+  def build_session_key(agent_id, %{"chat_id" => chat_id, "topic_id" => topic_id}) do
+    "telegram:#{chat_id}:topic:#{topic_id}:agent:#{agent_id}"
+  end
+
+  def build_session_key(agent_id, %{"chat_id" => chat_id}) do
+    "telegram:#{chat_id}:agent:#{agent_id}"
+  end
+
+  @doc """
+  Deliver a message to a specific Telegram chat/topic location.
+  Used by SessionWorker heartbeat delivery and binding-based routing.
+  """
+  @impl ClawdEx.Channels.Channel
+  def deliver_message(%{"chat_id" => chat_id} = config, content, opts) do
+    topic_id = Map.get(config, "topic_id")
+    opts = if topic_id, do: Keyword.put(opts, :message_thread_id, topic_id), else: opts
+    send_message(chat_id, content, opts)
+  end
+
   # Client API
 
   def start_link(opts) do
@@ -1067,7 +1094,7 @@ defmodule ClawdEx.Channels.Telegram do
   # Priority:
   # 1. Message starts with "@AgentName" → exact match
   # 2. Message text contains an agent name → fuzzy match (first match wins)
-  # 3. Topic has a default agent configured via agent.config["default_topics"]
+  # 3. Channel binding lookup (channel_bindings table)
   # 4. Fallback to default agent (first active agent or id=1)
   def resolve_agent_for_group(content, chat_id, topic_id) do
     agents = list_active_agents()
@@ -1080,8 +1107,8 @@ defmodule ClawdEx.Channels.Telegram do
         case match_agent_in_text(content, agents) do
           {:ok, agent_id} -> agent_id
           :no_match ->
-            # 3. Try topic default agent
-            case find_topic_default_agent(chat_id, topic_id, agents) do
+            # 3. Try channel binding lookup
+            case find_binding_agent(chat_id, topic_id) do
               {:ok, agent_id} -> agent_id
               :no_match ->
                 # 4. Fallback to default agent
@@ -1123,38 +1150,19 @@ defmodule ClawdEx.Channels.Telegram do
 
   defp match_agent_in_text(_, _agents), do: :no_match
 
-  # Find an agent configured as the default for a specific topic
-  # Looks in agent.config["default_topics"]["telegram:{chat_id}"] for topic_id
-  defp find_topic_default_agent(_chat_id, nil, _agents), do: :no_match
+  # Find an agent bound to a specific chat_id + topic_id via channel_bindings table
+  defp find_binding_agent(_chat_id, nil), do: :no_match
 
-  defp find_topic_default_agent(chat_id, topic_id, agents) do
-    topic_key = "telegram:#{chat_id}"
-    topic_id_int = to_integer(topic_id)
+  defp find_binding_agent(chat_id, topic_id) do
+    config = %{"chat_id" => to_string(chat_id), "topic_id" => to_string(topic_id)}
 
-    Enum.find_value(agents, :no_match, fn agent ->
-      default_topics = get_in(agent.config || %{}, ["default_topics"])
-
-      # Support two formats:
-      # 1. Map: {"telegram:-100xxx": [144, 145]}  — per-chat topic list
-      # 2. List: [144, "144"]                      — simple topic list (matches any chat)
-      topic_ids =
-        case default_topics do
-          map when is_map(map) -> Map.get(map, topic_key, [])
-          list when is_list(list) -> list
-          _ -> []
-        end
-
-      ids_as_int = Enum.map(topic_ids, &to_integer/1)
-
-      if topic_id_int in ids_as_int do
-        {:ok, agent.id}
-      end
-    end)
+    case ClawdEx.Channels.BindingManager.find_binding_for_channel("telegram", config) do
+      %ClawdEx.Channels.ChannelBinding{agent_id: agent_id} -> {:ok, agent_id}
+      nil -> :no_match
+    end
+  rescue
+    _ -> :no_match
   end
-
-  defp to_integer(v) when is_integer(v), do: v
-  defp to_integer(v) when is_binary(v), do: String.to_integer(v)
-  defp to_integer(v), do: v
 
   # Get the default agent (first active agent, or create one)
   defp get_default_agent_id([]), do: get_or_create_default_agent_id()

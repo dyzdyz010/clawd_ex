@@ -18,6 +18,7 @@ defmodule ClawdEx.Agent.AutoStarter do
   alias ClawdEx.Repo
   alias ClawdEx.Agents.Agent
   alias ClawdEx.Sessions.SessionManager
+  alias ClawdEx.Channels.BindingManager
 
   @start_delay_ms 3_000
   @health_check_interval_ms 60_000
@@ -105,22 +106,57 @@ defmodule ClawdEx.Agent.AutoStarter do
       Logger.info("[AutoStarter] Starting #{length(agents)} auto_start agent(s)")
 
       Enum.reduce(agents, [], fn agent, acc ->
-        session_key = "agent:#{agent.name}:always_on"
+        # Query channel bindings for this agent
+        bindings = BindingManager.list_active_bindings(agent.id)
 
-        case SessionManager.start_session(session_key: session_key, agent_id: agent.id, channel: "system") do
-          {:ok, pid} ->
-            Logger.info(
-              "[AutoStarter] Started session #{session_key} | agent=#{agent.name} | pid=#{inspect(pid)} | always_on=#{agent.always_on}"
-            )
+        if bindings == [] do
+          # No bindings — fallback to always_on session (for A2A registration)
+          session_key = "agent:#{agent.name}:always_on"
 
-            [session_key | acc]
+          case SessionManager.start_session(
+                 session_key: session_key,
+                 agent_id: agent.id,
+                 channel: "system"
+               ) do
+            {:ok, pid} ->
+              Logger.info(
+                "[AutoStarter] Started fallback session #{session_key} | agent=#{agent.name} | pid=#{inspect(pid)}"
+              )
 
-          {:error, reason} ->
-            Logger.warning(
-              "[AutoStarter] Failed to start session for agent #{agent.name}: #{inspect(reason)}"
-            )
+              [session_key | acc]
 
-            acc
+            {:error, reason} ->
+              Logger.warning(
+                "[AutoStarter] Failed to start fallback session for agent #{agent.name}: #{inspect(reason)}"
+              )
+
+              acc
+          end
+        else
+          # Start binding sessions
+          binding_keys =
+            Enum.reduce(bindings, [], fn binding, bacc ->
+              case BindingManager.ensure_binding_session(binding) do
+                {:ok, pid} ->
+                  Logger.info(
+                    "[AutoStarter] Started binding session #{binding.session_key} | agent=#{agent.name} | pid=#{inspect(pid)}"
+                  )
+
+                  [binding.session_key | bacc]
+
+                {:error, reason} ->
+                  Logger.warning(
+                    "[AutoStarter] Failed to start binding session #{binding.session_key}: #{inspect(reason)}"
+                  )
+
+                  bacc
+
+                :skip ->
+                  bacc
+              end
+            end)
+
+          binding_keys ++ acc
         end
       end)
       |> Enum.reverse()
@@ -154,49 +190,33 @@ defmodule ClawdEx.Agent.AutoStarter do
       now = System.monotonic_time(:second)
 
       Enum.reduce(agents, {current_started, uptimes}, fn agent, {started_acc, uptimes_acc} ->
-        session_key = "agent:#{agent.name}:always_on"
+        # Get binding sessions for this agent
+        bindings = BindingManager.list_active_bindings(agent.id)
 
-        case SessionManager.find_session(session_key) do
-          {:ok, pid} ->
-            uptime_start = Map.get(uptimes_acc, session_key, now)
-            uptime_s = now - uptime_start
-
-            Logger.info(
-              "[AutoStarter] ✓ #{agent.name} (#{session_key}) — running | pid=#{inspect(pid)} | uptime=#{uptime_s}s"
+        if bindings == [] do
+          # Fallback: check always_on session
+          check_and_restart_session(
+            "agent:#{agent.name}:always_on",
+            agent,
+            "system",
+            nil,
+            now,
+            started_acc,
+            uptimes_acc
+          )
+        else
+          # Check each binding session
+          Enum.reduce(bindings, {started_acc, uptimes_acc}, fn binding, {sacc, uacc} ->
+            check_and_restart_session(
+              binding.session_key,
+              agent,
+              binding.channel,
+              binding.channel_config,
+              now,
+              sacc,
+              uacc
             )
-
-            {started_acc, uptimes_acc}
-
-          :not_found ->
-            Logger.warning(
-              "[AutoStarter] ✗ #{agent.name} (#{session_key}) — not found, restarting..."
-            )
-
-            case SessionManager.start_session(
-                   session_key: session_key,
-                   agent_id: agent.id,
-                   channel: "system"
-                 ) do
-              {:ok, pid} ->
-                Logger.info(
-                  "[AutoStarter] ✓ #{agent.name} restarted successfully | pid=#{inspect(pid)}"
-                )
-
-                new_started =
-                  if session_key in started_acc,
-                    do: started_acc,
-                    else: started_acc ++ [session_key]
-
-                new_uptimes = Map.put(uptimes_acc, session_key, now)
-                {new_started, new_uptimes}
-
-              {:error, reason} ->
-                Logger.error(
-                  "[AutoStarter] ✗ #{agent.name} restart failed: #{inspect(reason)}"
-                )
-
-                {started_acc, uptimes_acc}
-            end
+          end)
         end
       end)
     end
@@ -209,6 +229,54 @@ defmodule ClawdEx.Agent.AutoStarter do
       Logger.warning("[AutoStarter] Health check DB unavailable: #{inspect(reason)}")
       {current_started, uptimes}
   end
+
+  defp check_and_restart_session(session_key, agent, channel, channel_config, now, started_acc, uptimes_acc) do
+    case SessionManager.find_session(session_key) do
+      {:ok, pid} ->
+        uptime_start = Map.get(uptimes_acc, session_key, now)
+        uptime_s = now - uptime_start
+
+        Logger.info(
+          "[AutoStarter] ✓ #{agent.name} (#{session_key}) — running | pid=#{inspect(pid)} | uptime=#{uptime_s}s"
+        )
+
+        {started_acc, uptimes_acc}
+
+      :not_found ->
+        Logger.warning(
+          "[AutoStarter] ✗ #{agent.name} (#{session_key}) — not found, restarting..."
+        )
+
+        start_opts =
+          [session_key: session_key, agent_id: agent.id, channel: channel]
+          |> maybe_add_channel_config(channel_config)
+
+        case SessionManager.start_session(start_opts) do
+          {:ok, pid} ->
+            Logger.info(
+              "[AutoStarter] ✓ #{agent.name} restarted successfully | pid=#{inspect(pid)}"
+            )
+
+            new_started =
+              if session_key in started_acc,
+                do: started_acc,
+                else: started_acc ++ [session_key]
+
+            new_uptimes = Map.put(uptimes_acc, session_key, now)
+            {new_started, new_uptimes}
+
+          {:error, reason} ->
+            Logger.error(
+              "[AutoStarter] ✗ #{agent.name} restart failed: #{inspect(reason)}"
+            )
+
+            {started_acc, uptimes_acc}
+        end
+    end
+  end
+
+  defp maybe_add_channel_config(opts, nil), do: opts
+  defp maybe_add_channel_config(opts, config), do: Keyword.put(opts, :channel_config, config)
 
   # ============================================================================
   # Private — A2A Verification

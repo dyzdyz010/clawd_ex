@@ -3,7 +3,10 @@
     "name": "default",
     "default_model": "anthropic/claude-opus-4-6",
     "capabilities": [],
-    "config": {"default_topics": ["58"]},
+    "config": {},
+    "channel_bindings": [
+      {"channel": "telegram", "chat_id": "-1003768565369", "topic_id": "58"}
+    ],
     "active": true,
     "auto_start": true,
     "always_on": true
@@ -12,7 +15,10 @@
     "name": "CTO",
     "default_model": "anthropic/claude-opus-4-6",
     "capabilities": ["architecture", "code-review", "technical-planning"],
-    "config": {"default_topics": ["144"]},
+    "config": {},
+    "channel_bindings": [
+      {"channel": "telegram", "chat_id": "-1003768565369", "topic_id": "144"}
+    ],
     "active": true,
     "auto_start": true,
     "always_on": true
@@ -21,7 +27,10 @@
     "name": "Engineering Lead",
     "default_model": "anthropic/claude-opus-4-6",
     "capabilities": ["sprint-planning", "code-review", "task-delegation"],
-    "config": {"default_topics": ["49"]},
+    "config": {},
+    "channel_bindings": [
+      {"channel": "telegram", "chat_id": "-1003768565369", "topic_id": "49"}
+    ],
     "active": true,
     "auto_start": true,
     "always_on": true
@@ -30,7 +39,10 @@
     "name": "Frontend Dev",
     "default_model": "anthropic/claude-sonnet-4-20250514",
     "capabilities": ["coding", "frontend", "react", "typescript"],
-    "config": {"default_topics": ["50"]},
+    "config": {},
+    "channel_bindings": [
+      {"channel": "telegram", "chat_id": "-1003768565369", "topic_id": "50"}
+    ],
     "active": true,
     "auto_start": true,
     "always_on": true
@@ -39,7 +51,10 @@
     "name": "Backend Dev",
     "default_model": "anthropic/claude-sonnet-4-20250514",
     "capabilities": ["coding", "backend", "elixir", "database"],
-    "config": {"default_topics": ["51"]},
+    "config": {},
+    "channel_bindings": [
+      {"channel": "telegram", "chat_id": "-1003768565369", "topic_id": "51"}
+    ],
     "active": true,
     "auto_start": true,
     "always_on": true
@@ -48,7 +63,10 @@
     "name": "DevOps Engineer",
     "default_model": "anthropic/claude-sonnet-4-20250514",
     "capabilities": ["coding", "devops", "ci-cd", "deployment"],
-    "config": {"default_topics": ["52"]},
+    "config": {},
+    "channel_bindings": [
+      {"channel": "telegram", "chat_id": "-1003768565369", "topic_id": "52"}
+    ],
     "active": true,
     "auto_start": true,
     "always_on": true
@@ -57,7 +75,10 @@
     "name": "Product Manager",
     "default_model": "anthropic/claude-opus-4-6",
     "capabilities": ["product-planning", "user-stories", "prioritization"],
-    "config": {"default_topics": ["53"]},
+    "config": {},
+    "channel_bindings": [
+      {"channel": "telegram", "chat_id": "-1003768565369", "topic_id": "53"}
+    ],
     "active": true,
     "auto_start": true,
     "always_on": true
@@ -66,7 +87,10 @@
     "name": "UI/UX Designer",
     "default_model": "anthropic/claude-opus-4-6",
     "capabilities": ["design", "ux-research", "prototyping"],
-    "config": {"default_topics": ["54"]},
+    "config": {},
+    "channel_bindings": [
+      {"channel": "telegram", "chat_id": "-1003768565369", "topic_id": "54"}
+    ],
     "active": true,
     "auto_start": true,
     "always_on": true
@@ -75,7 +99,10 @@
     "name": "QA Engineer",
     "default_model": "anthropic/claude-sonnet-4-20250514",
     "capabilities": ["coding", "testing", "quality-assurance"],
-    "config": {"default_topics": ["55"]},
+    "config": {},
+    "channel_bindings": [
+      {"channel": "telegram", "chat_id": "-1003768565369", "topic_id": "55"}
+    ],
     "active": true,
     "auto_start": true,
     "always_on": true
@@ -84,7 +111,10 @@
     "name": "Data Analyst",
     "default_model": "anthropic/claude-opus-4-6",
     "capabilities": ["data-analysis", "metrics", "reporting"],
-    "config": {"default_topics": ["57"]},
+    "config": {},
+    "channel_bindings": [
+      {"channel": "telegram", "chat_id": "-1003768565369", "topic_id": "57"}
+    ],
     "active": true,
     "auto_start": true,
     "always_on": true
@@ -93,7 +123,10 @@
     "name": "Security Engineer",
     "default_model": "anthropic/claude-opus-4-6",
     "capabilities": ["coding", "security-audit", "compliance"],
-    "config": {"default_topics": ["56"]},
+    "config": {},
+    "channel_bindings": [
+      {"channel": "telegram", "chat_id": "-1003768565369", "topic_id": "56"}
+    ],
     "active": true,
     "auto_start": true,
     "always_on": true
