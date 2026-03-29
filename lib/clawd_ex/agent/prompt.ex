@@ -52,7 +52,8 @@ defmodule ClawdEx.Agent.Prompt do
     "memory_get" => "Read memory file content by path",
     "image" => "Analyze an image with the configured image model",
     "tts" => "Convert text to speech",
-    "compact" => "Compact session history"
+    "compact" => "Compact session history",
+    "a2a" => "Agent-to-Agent communication: discover agents, send notifications, make requests, delegate tasks, broadcast messages"
   }
 
   @doc """

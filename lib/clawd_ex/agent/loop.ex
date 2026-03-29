@@ -114,6 +114,11 @@ defmodule ClawdEx.Agent.Loop do
       config: config
     }
 
+    # Subscribe to A2A mailbox notifications for real-time message delivery
+    if agent_id do
+      Phoenix.PubSub.subscribe(ClawdEx.PubSub, "agent_mailbox:#{agent_id}")
+    end
+
     Logger.info("Agent loop started for session #{session_id}")
     {:ok, :idle, data}
   end

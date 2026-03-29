@@ -95,9 +95,10 @@ defmodule ClawdExWeb.Api.A2AController do
         json(conn, %{
           data: Enum.map(agents, fn a ->
             %{
-              agent_id: a.agent_id,
-              capabilities: a.capabilities,
-              registered_at: a.registered_at
+              agent_id: Map.get(a, :agent_id),
+              name: Map.get(a, :name),
+              capabilities: Map.get(a, :capabilities, []),
+              registered_at: Map.get(a, :registered_at)
             }
           end),
           total: length(agents)
