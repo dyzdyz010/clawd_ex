@@ -1,5 +1,6 @@
 defmodule ClawdExWeb.TaskDetailLiveTest do
-  use ClawdExWeb.ConnCase, async: true
+  # FIXME: flaky in CI due to Ecto sandbox ownership race — needs async: false or sandbox fix
+  use ClawdExWeb.ConnCase, async: false
   import Phoenix.LiveViewTest
 
   alias ClawdEx.Repo
